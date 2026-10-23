@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/headway-core"]
+members = ["crates/headway-core", "crates/headway-cli"]
 # The desktop crate embeds the built frontend (`dist/`), so plain `cargo build` / `cargo test`
 # at the root only covers the engine and the CLI. Use `pnpm tauri dev|build` for the app.
-default-members = ["crates/headway-core"]
+default-members = ["crates/headway-core", "crates/headway-cli"]
 
 [workspace.package]
 version = "0.1.0"

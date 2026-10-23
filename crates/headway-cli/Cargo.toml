@@ -1,0 +1,34 @@
+[package]
+name = "headway-cli"
+description = "Agent-friendly CLI for Headway: keep GitHub-built apps and CLI tools current, by commit or by release"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "headway"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive", "env", "wrap_help"] }
+clap_complete = "4"
+headway-core.workspace = true
+rpassword = "7"
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+tokio.workspace = true
+toml = "1"
+unicode-width = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+wiremock = "0.6"
+
+[lints]
+workspace = true
