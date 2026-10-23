@@ -1,0 +1,159 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml)"
+          fi
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the version to release"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing Headway $version"
+
+      - name: Build CLI
+        run: cargo build --release --locked -p headway-cli --target ${{ matrix.target }}
+
+      # `bundle.macOS.files` copies `../target/release/headway` into the app, so the
+      # bundled CLI has to be the one we just built for this target.
+      - name: Stage the bundled CLI for this target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/release
+          cp "target/${{ matrix.target }}/release/headway" "target/release/headway"
+          chmod +x "target/release/headway"
+
+      # `beforeBuildCommand` is overridden so it does not rebuild the CLI for the host.
+      - name: Build the app
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg --config '{"build":{"beforeBuildCommand":"pnpm build:renderer"}}'
+
+      # The renderer build empties `dist/`, so the release artifacts are collected
+      # afterwards and the frontend output is dropped first.
+      - name: Package the CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          pkg="headway-${{ matrix.target }}"
+          mkdir -p "dist/$pkg"
+          cp "target/${{ matrix.target }}/release/headway" "dist/$pkg/headway"
+          chmod +x "dist/$pkg/headway"
+          for extra in README.md LICENSE; do
+            if [ -f "$extra" ]; then
+              cp "$extra" "dist/$pkg/$extra"
+            else
+              echo "::notice::$extra is not in the repo, leaving it out of the archive"
+            fi
+          done
+          tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
+          ls -lh dist
+
+      - name: Collect the app artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          bundle="target/$TARGET/release/bundle"
+          app="$bundle/macos/Headway.app"
+          if [ ! -d "$app" ]; then
+            echo "::error::app bundle not found at $app"
+            exit 1
+          fi
+          ditto -c -k --keepParent "$app" "dist/Headway-$VERSION-$ARCH.app.zip"
+          shopt -s nullglob
+          dmgs=("$bundle"/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -eq 0 ]; then
+            echo "::error::no dmg found in $bundle/dmg"
+            exit 1
+          fi
+          cp "${dmgs[0]}" "dist/Headway-$VERSION-$ARCH.dmg"
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: headway-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%P\n' \
+            | LC_ALL=C sort \
+            | xargs -r sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
