@@ -1,0 +1,342 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* shadcn 组件用的 HSL token（可以带 /50 这类透明度）+ v7 设计 token。
+     --action-* 是实心按钮、开关的开、勾选框的操作色；主题色 #F97316 只覆盖这一组和 --ring。
+     --action-text：橙色当文字用（链接）时用深一档，保证对比度。 */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 5.9% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 5.9% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 5.9% 10%;
+
+    /* v7：主操作色和 --action-bg 一致（黑白），不再是蓝色 */
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 10.3% 94.3%;
+    --secondary-foreground: 240 5.9% 10%;
+
+    --muted: 240 10.3% 94.3%;
+    --muted-foreground: 240 4.3% 41.4%;
+    --accent: 240 10.3% 94.3%;
+    --accent-foreground: 240 5.9% 10%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 10.2% 90.4%;
+    --input: 240 10.2% 90.4%;
+    /* 焦点环 = 主题色 #F97316 */
+    --ring: 24.6 95% 53.1%;
+
+    --radius: 0.5rem;
+
+    /* v7 表面 / 边框 / 文字 */
+    --bg-app: #ffffff;
+    --bg-sidebar: #f5f5f7;
+    --bg-subtle: #efeff2;
+    --bg-selected: #e4e4ea;
+    --bg-card: #ffffff;
+    --border-strong: #cfcfd6;
+    --text-1: #18181b;
+    --text-2: #52525b;
+    --text-3: #65656e;
+
+    /* 操作色 */
+    --action-bg: #f97316;
+    --action-fg: #ffffff;
+    --action-hover: #ea620a;
+    --action-text: #c2410c;
+    --action-soft: #fff1e6;
+
+    /* 反色（提示气泡等） */
+    --inverse-bg: #18181b;
+    --inverse-fg: #ffffff;
+    --inverse-hover: #2e2e33;
+
+    --overlay: rgba(9, 9, 11, 0.36);
+    --control-off: #888890;
+
+    /* 状态色 */
+    --success: #16a34a;
+    --success-text: #007634;
+    --success-soft: #e8f7ee;
+    --warning: #d97706;
+    --warning-text: #a64a00;
+    --warning-soft: #fef3c7;
+    --danger: #dc2626;
+    --danger-text: #b91c1c;
+    --danger-soft: #fee2e2;
+
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --shadow-md:
+      0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --shadow-lg:
+      0 20px 40px rgba(16, 24, 40, 0.16), 0 4px 12px rgba(16, 24, 40, 0.08);
+  }
+
+  .dark {
+    --background: 240 3.4% 11.4%;
+    /* 文字色与下方 --text-1 一致（#e4e4e7）：纯白主文字铺满整屏时刺眼 */
+    --foreground: 240 5.9% 90%;
+    --card: 240 5.2% 19%;
+    --card-foreground: 240 5.9% 90%;
+    --popover: 240 5.2% 19%;
+    --popover-foreground: 240 5.9% 90%;
+
+    --primary: 240 4.8% 95.9%;
+    --primary-foreground: 240 5.9% 10%;
+
+    --secondary: 240 5% 15.7%;
+    --secondary-foreground: 240 5.9% 90%;
+
+    --muted: 240 5% 15.7%;
+    --muted-foreground: 240 5.4% 68.6%;
+    --accent: 240 5% 15.7%;
+    --accent-foreground: 240 5.9% 90%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5.3% 25.7%;
+    --input: 240 5.3% 25.7%;
+    /* 深色下焦点色压低饱和度和亮度（约 #d8783a），亮橙描边在深底上太刺眼 */
+    --ring: 24 66% 54%;
+
+    /* 深色模式：实心块压暗一档（大面积不刺眼）+ 白字；文字、焦点描边用亮一档的 #fb923c */
+    --bg-app: #1c1c1e;
+    --bg-sidebar: #161618;
+    --bg-subtle: #26262a;
+    --bg-selected: #313136;
+    --bg-card: #2e2e33;
+    --border-strong: #4a4a52;
+    /* 三档文字都比纯白压低一截并拉开明度差：太亮时三档都贴近白色，整屏显得刺眼、层次压平。
+       次级、三级对卡片底、选中底（--bg-card / --bg-selected）都 ≥ 4.5:1 */
+    --text-1: #e4e4e7;
+    --text-2: #ababb3;
+    --text-3: #9a9aa2;
+
+    --action-bg: #ea580c;
+    --action-fg: #ffffff;
+    --action-hover: #f06d1f;
+    --action-text: #fb923c;
+    /* 深色下浅橙底用半透明叠在卡片 / 侧栏底色上：不透明的深橙会发闷、像一块棕色 */
+    --action-soft: rgba(249, 115, 21, 0.12);
+
+    --inverse-bg: #f4f4f5;
+    --inverse-fg: #18181b;
+    --inverse-hover: #e4e4e7;
+
+    --overlay: rgba(0, 0, 0, 0.55);
+    --control-off: #6f6f77;
+
+    --success: #4ade80;
+    --success-text: #4ade80;
+    --success-soft: #0f2b1a;
+    --warning: #fbbf24;
+    --warning-text: #fcd34d;
+    --warning-soft: #33260a;
+    --danger: #f87171;
+    --danger-text: #fca5a5;
+    --danger-soft: #3a1414;
+
+    --shadow-sm:
+      0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* 勾选框 / 单选框：不用系统原生外观（各处边框、圆角、深色模式都不一样），
+   统一画成 16px、1.5px border-strong 描边；选中 = 主题色底 + 反色勾（单选 = 粗主题色圈）。
+   原生 <input type="checkbox|radio"> 加 ui-checkbox / ui-radio 即可，Checkbox 组件已经带上。 */
+@layer components {
+  .ui-checkbox,
+  .ui-radio {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-grid;
+    place-content: center;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1.5px solid var(--border-strong);
+    background-color: var(--bg-card);
+    cursor: pointer;
+    transition:
+      background-color 150ms,
+      border-color 150ms;
+  }
+  .ui-checkbox {
+    border-radius: 4px;
+  }
+  .ui-radio {
+    border-radius: 9999px;
+  }
+  .ui-checkbox::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    background-color: var(--action-fg);
+    transform: scale(0);
+    transition: transform 120ms ease-out;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  .ui-checkbox:indeterminate::before {
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  .ui-checkbox:checked,
+  .ui-checkbox:indeterminate {
+    background-color: var(--action-bg);
+    border-color: var(--action-bg);
+  }
+  .ui-checkbox:checked::before,
+  .ui-checkbox:indeterminate::before {
+    transform: scale(1);
+  }
+  .ui-radio:checked {
+    border: 5px solid var(--action-bg);
+  }
+  .ui-checkbox:hover:not(:disabled):not(:checked):not(:indeterminate),
+  .ui-radio:hover:not(:disabled):not(:checked) {
+    border-color: var(--text-3);
+  }
+  .ui-checkbox:focus-visible,
+  .ui-radio:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .ui-checkbox:disabled,
+  .ui-radio:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+/* 切换明暗期间暂停所有过渡（theme-provider 加上 theme-switching，两帧后移除） */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  @apply font-sans antialiased;
+  line-height: 1.5;
+  color-scheme: light;
+  overscroll-behavior: none;
+  height: 100%;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply m-0 h-full bg-app font-sans text-body text-fg-1 antialiased;
+  color: hsl(var(--foreground));
+  /* 桌面应用：默认不选中文字，输入框和明确标了 .selectable 的内容除外 */
+  user-select: none;
+}
+
+#root {
+  height: 100%;
+}
+
+input,
+textarea,
+.selectable,
+pre,
+code {
+  user-select: text;
+}
+
+/* macOS 使用原生拖拽 CSS；Windows 用 Tauri 的事件拖拽。
+   原生拖拽 CSS 会触发 WebView2 的 UpdateDraggableRegions，
+   可能导致高 CPU 或挂起，所以只在 macOS 上启用。 */
+.is-mac [data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-no-drag],
+[data-tauri-drag-region] .no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 细滚动条常显：不设 scrollbar-width / scrollbar-color，
+   否则 Chromium（WebView2）会忽略下面的 ::-webkit-scrollbar 样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+  background-color: var(--border-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-3);
+}
+
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 滚动条常显且占 8px：主滚动区、大列表先把这条槽留出来，
+     内容高度跨过能否滚动的临界时整列不会左右横跳。 */
+  .scroll-stable {
+    overflow-y: scroll;
+  }
+
+  .border-default {
+    border-width: 1px;
+    border-color: hsl(var(--border));
+  }
+
+  .border-active {
+    border-width: 2px;
+  }
+
+  .border-border-default {
+    border-color: hsl(var(--border));
+  }
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
