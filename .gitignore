@@ -1,0 +1,10 @@
+/target
+/dist
+node_modules/
+src-tauri/gen/schemas
+src-tauri/binaries/
+.local/
+.DS_Store
+*.log
+.omc/
+coverage/
