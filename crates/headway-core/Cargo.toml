@@ -1,0 +1,31 @@
+[package]
+name = "headway-core"
+description = "Engine behind Headway: follow GitHub repos by commit or release and keep local apps and CLI tools updated"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+dirs = "6"
+futures-util = "0.3"
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["charset", "http2", "json", "native-tls", "system-proxy"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+tokio.workspace = true
+tokio-util.workspace = true
+toml = "1"
+
+[dev-dependencies]
+wiremock = "0.6"
+
+[lints]
+workspace = true
