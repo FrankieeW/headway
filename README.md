@@ -105,12 +105,17 @@ token with read-only *Contents* and *Metadata* access is enough.
 ## Security notes
 
 - Source installs run the repository's build command on your machine. Track repositories you trust.
-- The token lives in the login keychain and is accessed through `/usr/bin/security` with the secret on
-  stdin. Git gets it through environment variables (never URLs or arguments), and build commands never
-  see it.
+- The token lives in the login keychain and is read through `/usr/bin/security` (secret on stdin). Git
+  gets it through `GIT_CONFIG_*` environment variables, never URLs or arguments. Build commands never
+  get it, and `HEADWAY_GITHUB_TOKEN` is stripped from git and build environments; variables you
+  export yourself (such as `GITHUB_TOKEN`) are inherited as in your shell.
+- Builds run as you, so like any program you run they could read that keychain item through
+  `/usr/bin/security`. Use a fine-grained token with read-only access.
+- Downloads are not quarantined, so Gatekeeper does not vet installed apps. The SHA-256 digest proves
+  the file is what the release published, not that the publisher is trustworthy.
 - Release downloads are checked against the SHA-256 digest GitHub publishes for each asset.
 - Installs are staged next to the destination and renamed into place, so a failed copy leaves the old
-  version working.
+  version working. A plain directory is never replaced: `dest` names the file or the `.app` itself.
 
 ## Development
 

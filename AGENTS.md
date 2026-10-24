@@ -43,7 +43,10 @@ Use `HEADWAY_HOME=$(mktemp -d)` when running the CLI or app by hand so the real 
 - Lints are strict (`unwrap_used`, `expect_used`, `panic` denied outside tests; clippy pedantic).
 - Prefer returning new values over mutating shared state (`State::with_app`, `Settings::with_key`).
 - Never pass the GitHub token to build commands or put it in argv/URLs (git gets it via
-  `GIT_CONFIG_*` env vars, the keychain via `security -i` on stdin).
+  `GIT_CONFIG_*` env vars, the keychain via `security -i` on stdin). `Cmd::new` strips
+  `HEADWAY_GITHUB_TOKEN` from everything run through `process::Cmd` (git, builds, archive tools);
+  run new subprocesses through it.
+- `install::install` only ever replaces a bundle with a bundle; never relax that guard.
 - UI strings go through i18next with keys in both `en.json` and `zh.json`; untrusted text (commit
   messages, release notes, logs) is rendered as text, never HTML. No `console.log`.
 - Files stay under ~400 lines; split by feature.

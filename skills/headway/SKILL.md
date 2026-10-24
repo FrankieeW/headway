@@ -27,6 +27,7 @@ share config, state, logs and locks, so whatever you do here shows up in the app
   or reuse the GitHub CLI login with `headway token set --from-gh`.
 - Change apps with `headway edit`, not by editing `state.json`. `config.toml` may be hand-edited
   (`headway paths`), but `edit` validates.
+- `--dest` is the full path of the installed file or `.app` (`~/.local/bin/rg`), never a directory.
 - `remove` never deletes the installed program; `--purge` only deletes Headway's cached checkout and logs.
 
 ## Workflow
@@ -107,4 +108,5 @@ the branch, e.g. after a force-push), `error` (see `last_error`), `busy`, `unche
 - `HEADWAY_GITHUB_TOKEN` overrides the keychain token for one process.
 - `HEADWAY_HOME=<dir>` keeps config, cache and logs under one directory (sandboxes, tests).
 - Build commands run with `/bin/sh -c` in the checkout and get `HEADWAY_REF`, `HEADWAY_SHA`,
-  `HEADWAY_VERSION`, `HEADWAY_BIN_DIR`, `HEADWAY_APPS_DIR`. The GitHub token is never passed to them.
+  `HEADWAY_VERSION`, `HEADWAY_BIN_DIR`, `HEADWAY_APPS_DIR`. Headway's token is never passed to them
+  (`HEADWAY_GITHUB_TOKEN` is stripped); variables the user exported, like `GITHUB_TOKEN`, are inherited.
