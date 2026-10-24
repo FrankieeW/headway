@@ -39,6 +39,7 @@ pub fn cli_app(id: &str) -> TrackedApp {
         name: id.into(),
         kind: AppKind::Cli,
         auto_update: false,
+        update_policy: crate::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
             repo: format!("owner/{id}"),
             git_url: None,

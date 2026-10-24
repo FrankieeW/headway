@@ -7,8 +7,8 @@ use tauri_plugin_notification::NotificationExt as _;
 
 use crate::state::{AppState, UPDATE_EVENT, UPDATE_FINISHED, apps_changed};
 
-struct WindowSink<R: Runtime> {
-    app: AppHandle<R>,
+pub(crate) struct WindowSink<R: Runtime> {
+    pub(crate) app: AppHandle<R>,
 }
 
 impl<R: Runtime> EventSink for WindowSink<R> {
@@ -60,13 +60,20 @@ pub async fn run_update<R: Runtime>(
     let _run = RunGuard { state: &state, id };
     apps_changed(app);
     let sink = WindowSink { app: app.clone() };
-    let result = state.hw.update(id, target, &sink, &cancel).await;
+    let result = match origin {
+        Origin::User => state.hw.update(id, target, &sink, &cancel).await.map(Some),
+        Origin::Background => state
+            .hw
+            .auto_update(id, &sink, &cancel)
+            .await
+            .map(|runs| runs.last().cloned()),
+    };
 
     let payload = match &result {
         Ok(outcome) => UpdateFinished {
             app_id: id.to_owned(),
             ok: true,
-            outcome: Some(outcome.clone()),
+            outcome: outcome.clone(),
             error: None,
         },
         Err(err) => UpdateFinished {
@@ -82,7 +89,7 @@ pub async fn run_update<R: Runtime>(
     if origin == Origin::Background {
         let notify = state.hw.settings().is_ok_and(|settings| settings.notify);
         let body = match &result {
-            Ok(outcome) if outcome.changed => Some(format!(
+            Ok(Some(outcome)) if outcome.changed => Some(format!(
                 "Updated {id} to {}",
                 outcome.to.version.as_deref().unwrap_or(&outcome.to.id)
             )),

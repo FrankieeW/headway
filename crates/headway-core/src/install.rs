@@ -42,19 +42,8 @@ pub fn install(src: &Path, dest: &Path) -> Result<()> {
         .into_owned();
     fs::create_dir_all(parent).map_err(|err| Error::io_at("create", parent, err))?;
 
-    // Only a bundle replaces a bundle. A plain directory at `dest` is almost certainly a
-    // mistyped destination (`--dest ~/.local/bin`) and must never be swapped out.
+    validate(src, dest)?;
     let existing_dir = dest.is_dir() && !dest.is_symlink();
-    if existing_dir && !(src.is_dir() && is_bundle(dest)) {
-        let example = dest.join(src.file_name().unwrap_or_default());
-        return Err(Error::InvalidInput(format!(
-            "{} is an existing directory and is never replaced; set `dest` to the full path of the \
-             installed {}, e.g. {}",
-            dest.display(),
-            if src.is_dir() { "bundle" } else { "file" },
-            example.display()
-        )));
-    }
 
     let staged = parent.join(format!(".{name}.headway-new"));
     remove_any(&staged)?;
@@ -83,10 +72,37 @@ pub fn install(src: &Path, dest: &Path) -> Result<()> {
     remove_any(&old)
 }
 
+pub(crate) fn validate(src: &Path, dest: &Path) -> Result<()> {
+    // Only a bundle replaces a bundle. A plain directory at `dest` is almost certainly a
+    // mistyped destination (`--dest ~/.local/bin`) and must never be swapped out.
+    let existing_dir = dest.is_dir() && !dest.is_symlink();
+    if existing_dir && !(src.is_dir() && is_bundle(src) && is_bundle(dest)) {
+        let example = dest.join(src.file_name().unwrap_or_default());
+        return Err(Error::InvalidInput(format!(
+            "{} is an existing directory and is never replaced; set `dest` to the full path of the \
+             installed {}, e.g. {}",
+            dest.display(),
+            if src.is_dir() { "bundle" } else { "file" },
+            example.display()
+        )));
+    }
+
+    Ok(())
+}
+
 /// `.app` and `.framework` directories: the only directories Headway installs or replaces.
 pub fn is_bundle(path: &Path) -> bool {
     path.extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("app") || ext.eq_ignore_ascii_case("framework"))
+}
+
+pub(crate) fn copy_payload(src: &Path, dest: &Path) -> Result<()> {
+    if src.is_dir() {
+        copy_dir(src, dest)
+    } else {
+        fs::copy(src, dest).map_err(|err| Error::io_at("copy", dest, err))?;
+        Ok(())
+    }
 }
 
 fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
@@ -97,6 +113,7 @@ fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
         ("cp", &["-a"])
     };
     let output = std::process::Command::new(program)
+        .env_remove(crate::token::TOKEN_ENV)
         .args(args)
         .arg(src)
         .arg(dest)
@@ -116,7 +133,7 @@ fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
     }
 }
 
-fn remove_any(path: &Path) -> Result<()> {
+pub(crate) fn remove_any(path: &Path) -> Result<()> {
     let result = match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
         Ok(_) => fs::remove_file(path),

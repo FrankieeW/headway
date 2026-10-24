@@ -1,3 +1,6 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { errorMessage, settingsApi } from "@/lib/api";
+import { queryKeys } from "@/lib/query/keys";
 import { Copy, Loader2, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -56,6 +59,11 @@ export function CliSection() {
   const { t } = useTranslation();
   const { data: cli } = useCliStatus();
   const installCli = useInstallCli();
+  const client = useQueryClient();
+  const repair = useMutation({
+    mutationFn: () => settingsApi.fixCliLink(),
+    onSuccess: (result) => client.setQueryData(queryKeys.cli, result),
+  });
 
   return (
     <SettingsBlock title={t("settings.cli")}>
@@ -71,25 +79,42 @@ export function CliSection() {
             <Button
               variant={cli?.installed ? "neutral" : "solid"}
               size="regular"
-              onClick={() => installCli.mutate()}
-              disabled={installCli.isPending}
+              onClick={() =>
+                cli?.needs_repair ? repair.mutate() : installCli.mutate()
+              }
+              disabled={installCli.isPending || repair.isPending}
             >
               {installCli.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Terminal className="h-4 w-4" strokeWidth={1.75} />
               )}
-              {cli?.installed && cli.points_to === cli.bundled_path
-                ? t("settings.reinstallCli")
-                : t("settings.installCli")}
+              {cli?.needs_repair
+                ? t("roadmap.fixCli")
+                : cli?.installed && cli.points_to === cli.bundled_path
+                  ? t("settings.reinstallCli")
+                  : t("settings.installCli")}
             </Button>
           }
         >
-          <p className="font-mono text-caption text-fg-3">
+          <p className="break-all font-mono text-caption text-fg-3">
             {cli?.link_path ?? "—"}
             {cli?.points_to ? ` → ${cli.points_to}` : ""}
           </p>
 
+          {repair.error ? (
+            <p role="alert" className="text-caption text-danger-text">
+              {errorMessage(repair.error)}
+            </p>
+          ) : null}
+          {cli?.shadowed ? (
+            <p
+              role="status"
+              className="mt-2 break-all text-caption text-warning-text"
+            >
+              {t("roadmap.shadowed", { path: cli.resolved_path ?? "—" })}
+            </p>
+          ) : null}
           {cli && !cli.on_path ? (
             <Alert className="mt-2 border-warning/40 bg-warning-soft">
               <AlertDescription className="text-caption text-warning-text">

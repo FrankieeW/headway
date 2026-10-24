@@ -253,6 +253,7 @@ pub async fn lookup(
             name: status.title.clone().unwrap_or_else(|| short.to_owned()),
             kind: if cask { AppKind::App } else { AppKind::Cli },
             auto_update: false,
+            update_policy: crate::config::UpdatePolicy::default(),
             source: Source::Brew(source),
         },
         notes,

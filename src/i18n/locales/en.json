@@ -115,10 +115,12 @@
       "busy": "An update is running",
       "unchecked": "Not checked yet",
       "updateFailed": "The last update failed",
-      "unknown": "No latest-version probe is configured, so update availability is unknown."
+      "unknown": "No latest-version probe is configured, so update availability is unknown.",
+      "installedUnconfirmed": "Installation found; its version or commit is not confirmed yet."
     },
     "nextVersion": "Next version",
-    "detectedAt": "detected {{when}}"
+    "detectedAt": "detected {{when}}",
+    "installationFound": "Local installation found"
   },
   "pending": {
     "preRelease": "pre",
@@ -320,5 +322,79 @@
     "npm": "npm",
     "brew": "Homebrew",
     "script": "Script"
+  },
+  "roadmap": {
+    "candidates": "Build candidates",
+    "recommended": "Recommended",
+    "applyCandidate": "Apply candidate",
+    "policy": "Update policy",
+    "notify": "Notify only",
+    "latest": "Latest version",
+    "next": "Next revision",
+    "optIn": "Choose a policy, then explicitly enable automatic installation below.",
+    "maxSteps": "Maximum steps per check",
+    "pauseOnFailure": "Pause automatic updates after a failure",
+    "verify": "Post-install verification (optional)",
+    "verifyHint": "Runs after installation. Review the command before saving.",
+    "recovery": "Cached backups",
+    "recoveryHint": "Restore one of the last two artifacts managed by Headway.",
+    "retry": "Retry",
+    "noBackups": "No cached backups yet.",
+    "restore": "Restore backup",
+    "restoreConfirm": "Replace {{name}} with backup {{version}}?",
+    "restored": "Restored to {{path}}",
+    "paused": "Automatic updates paused after a failure.",
+    "resume": "Resume automatic updates",
+    "selfUpdate": "Headway update status",
+    "running": "Running build",
+    "installed": "Installed build",
+    "unknownCommit": "Unknown commit",
+    "dirtyBuild": "Local modifications",
+    "statusFailed": "Status unavailable",
+    "notDetected": "Not detected",
+    "pendingRestart": "New build installed; restart required",
+    "confirmed": "Running the newly installed build",
+    "notConfirmed": "New build not confirmed",
+    "restartQueued": "Restart requested; waiting for active jobs to finish.",
+    "restartBusy": "Other jobs are running. Restart will be queued.",
+    "queueRestart": "Queue restart",
+    "restart": "Restart Headway",
+    "fixCli": "Fix CLI link",
+    "shadowed": "Your shell resolves {{path}} first. Repairing this link does not change PATH priority.",
+    "importExisting": "Import installed software",
+    "recipes": "Source recipes",
+    "importHint": "Discover Homebrew and global npm packages. Import only adds tracking; automatic updates stay off.",
+    "inventoryEmpty": "No installed packages found.",
+    "alreadyTracked": "Already tracked",
+    "importSelected": "Import selected ({{count}})",
+    "recipesEmpty": "No recipes available.",
+    "useRecipe": "Edit this recipe",
+    "sources": {
+      "readme": "README",
+      "manifest": "Manifest",
+      "preset": "Preset"
+    },
+    "restartFailed": "Restart confirmation failed"
+  },
+  "commitMetadata": {
+    "label": "Commit metadata",
+    "version": "Version {{version}}",
+    "release": "Release",
+    "notRelease": "Not a release",
+    "releaseUnknown": "Release unknown",
+    "refresh": "Refresh commit metadata {{sha}}",
+    "checks": "{{count}} checks",
+    "ci": {
+      "success": "CI passed",
+      "failure": "CI failed",
+      "pending": "CI pending",
+      "not_run": "CI not run",
+      "unknown": "CI unknown"
+    },
+    "checkedAt": "Checked {{time}}",
+    "versionSources": {
+      "tag": "Version tag",
+      "manifest": "Source version"
+    }
   }
 }

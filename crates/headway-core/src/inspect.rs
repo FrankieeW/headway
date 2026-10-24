@@ -7,12 +7,15 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::asset::{self, Arch};
-use crate::config::{AppKind, AssetInstall, Install, SourceInstall, Track, TrackedApp};
+use crate::build_detection::fallback::{Facts, suggest};
+use crate::build_detection::{self, Discovery};
+pub use crate::build_detection::{BuildCandidate, BuildCandidateSource};
+use crate::config::{AppKind, Install, SourceInstall, Track, TrackedApp};
 use crate::error::Result;
 use crate::github::{GitHub, Release};
-use crate::presets::{self, Preset};
-use crate::repo::{RepoId, slugify};
-use crate::source::{GithubSource, Source};
+use crate::presets;
+use crate::repo::RepoId;
+use crate::source::Source;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PackageLookup {
@@ -57,6 +60,8 @@ pub struct RepoInspection {
     pub build_system: Option<String>,
     /// Binary names found in the build manifest.
     pub binaries: Vec<String>,
+    /// Editable source build suggestions; inspection never executes them.
+    pub build_candidates: Vec<BuildCandidate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_release: Option<ReleaseSummary>,
     /// A config ready to save.
@@ -69,27 +74,51 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
     let repo = RepoId::parse(input)?;
     let info = gh.repo(&repo).await?;
     let releases = gh.releases(&repo).await?;
-    // Empty repositories have no contents; that only means "nothing detected".
-    let entries = gh.root_entries(&repo).await.unwrap_or_default();
-    let mut preset = presets::detect(&entries);
-    let manifest = match preset.map(|preset| preset.id) {
-        Some("cargo" | "tauri") => gh.file_text(&repo, "Cargo.toml").await?,
-        _ => None,
+    let mut discovery = Discovery::new(gh, &repo);
+    let entries = match gh.root_entries(&repo).await {
+        Ok(entries) => entries,
+        Err(err @ (crate::Error::Auth(_) | crate::Error::RateLimited { .. })) => return Err(err),
+        Err(err) => {
+            discovery
+                .notes
+                .push(format!("Could not inspect repository contents: {err}"));
+            Vec::new()
+        }
     };
-    let binaries = manifest
-        .as_deref()
-        .map(presets::cargo_binaries)
-        .unwrap_or_default();
-    if repo.owner.eq_ignore_ascii_case("FrankieeW")
+    let known_self_layout = repo.owner.eq_ignore_ascii_case("FrankieeW")
         && repo.name.eq_ignore_ascii_case("headway")
         && ["scripts", "src-tauri"].iter().all(|name| {
             entries
                 .iter()
                 .any(|entry| entry.name == *name && entry.kind == "dir")
+        });
+    if known_self_layout {
+        discovery.read("scripts/build-headway.sh").await?;
+    }
+    discovery.collect(&entries).await?;
+    let mut preset = presets::detect(&entries);
+    let manifest = discovery.files.get("Cargo.toml").cloned();
+    let mut build_candidates = discovery.candidates(&entries);
+    let binaries: Vec<String> = build_candidates
+        .iter()
+        .filter(|candidate| candidate.file.ends_with("Cargo.toml"))
+        .filter_map(|candidate| {
+            candidate
+                .artifact
+                .as_deref()?
+                .strip_prefix("target/release/")
+                .map(str::to_owned)
         })
-        && gh
-            .file_text(&repo, "scripts/build-headway.sh")
-            .await?
+        .collect();
+    // A manifest filename alone does not establish a CLI or its output path.
+    if preset.is_some_and(|preset| matches!(preset.id, "npm" | "cargo" | "go" | "swiftpm" | "make"))
+    {
+        preset = None;
+    }
+    if known_self_layout
+        && discovery
+            .files
+            .get("scripts/build-headway.sh")
             .is_some_and(|script| !script.trim().is_empty())
     {
         preset = presets::find("headway-app");
@@ -133,7 +162,95 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
         release: latest_release.as_ref(),
         asset_kind,
     };
-    let (suggestion, notes) = suggest(&facts);
+    let (mut suggestion, mut notes) = suggest(&facts);
+    if let Some(preset) = preset
+        && let Source::Github(github) = &suggestion.source
+        && let Install::Source(source) = &github.install
+    {
+        build_candidates.push(BuildCandidate {
+            id: format!("preset:{}", preset.id),
+            source: BuildCandidateSource::Preset,
+            file: if preset.id == "headway-app" {
+                "scripts/build-headway.sh"
+            } else {
+                ""
+            }
+            .into(),
+            line: None,
+            build: source.build.clone(),
+            workdir: source.workdir.clone(),
+            artifact: source.artifact.clone(),
+            kind: preset.kind,
+            reason: format!(
+                "Detected {} source layout; review the preset before saving.",
+                preset.label
+            ),
+            recommended: false,
+        });
+    }
+    build_detection::prioritize(
+        &mut build_candidates,
+        preset.is_some_and(|preset| preset.id == "headway-app"),
+    );
+    if let Some(candidate) = build_candidates
+        .iter()
+        .find(|candidate| candidate.recommended)
+    {
+        suggestion.kind = candidate.kind;
+        if let Source::Github(github) = &mut suggestion.source {
+            github.track = Track::Commit { branch: None };
+            github.install = Install::Source(SourceInstall {
+                build: candidate.build.clone(),
+                workdir: candidate.workdir.clone(),
+                artifact: candidate.artifact.clone(),
+                ..SourceInstall::default()
+            });
+        }
+        notes.retain(|note| {
+            !note.starts_with("No known build system") && !note.starts_with("Could not detect")
+        });
+        notes.push(candidate.reason.clone());
+        if latest_release
+            .as_ref()
+            .is_some_and(|release| release.suggested_asset.is_some())
+            && preset.is_none()
+        {
+            notes.push(
+                "A macOS asset is also available: choose Releases to download it instead.".into(),
+            );
+        }
+        if candidate.artifact.is_none() {
+            notes.push("The output path is unknown; edit the artifact or use a command that installs the program itself.".into());
+        }
+    }
+    if !build_candidates.is_empty()
+        && !build_candidates
+            .iter()
+            .any(|candidate| candidate.recommended)
+    {
+        notes.push("Build commands were found, but their install outputs are unknown. Select a candidate and set its artifact path; no build-only command was selected as self-installing.".into());
+    }
+    notes.extend(discovery.notes);
+    let build_system = preset.map(|preset| preset.id.to_owned()).or_else(|| {
+        build_candidates.iter().find_map(|candidate| {
+            if candidate.file.ends_with("Cargo.toml") {
+                Some("cargo".into())
+            } else if candidate.file == "package.json" {
+                Some("npm".into())
+            } else if candidate.file == "main.go" {
+                Some("go".into())
+            } else if candidate.file == "Package.swift" {
+                Some("swiftpm".into())
+            } else if matches!(
+                candidate.file.as_str(),
+                "Makefile" | "makefile" | "GNUmakefile"
+            ) {
+                Some("make".into())
+            } else {
+                None
+            }
+        })
+    });
     Ok(RepoInspection {
         repo: repo.full_name(),
         description: info.description.filter(|text| !text.trim().is_empty()),
@@ -141,7 +258,8 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
         private: info.private,
         archived: info.archived,
         html_url: info.html_url,
-        build_system: preset.map(|preset| preset.id.to_owned()),
+        build_system,
+        build_candidates,
         binaries,
         latest_release,
         suggestion,
@@ -171,114 +289,6 @@ fn mac_asset(release: &Release) -> (AppKind, Option<String>) {
             (kind == AppKind::Cli || looks_like_app).then(|| (kind, Some(chosen.name.clone())))
         })
         .unwrap_or((AppKind::Cli, None))
-}
-
-struct Facts<'a> {
-    repo: &'a RepoId,
-    default_branch: &'a str,
-    preset: Option<&'static Preset>,
-    artifact: Option<&'static str>,
-    binaries: &'a [String],
-    xcode_scheme: Option<&'a str>,
-    release: Option<&'a ReleaseSummary>,
-    asset_kind: AppKind,
-}
-
-fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
-    let repo = facts.repo;
-    let bin = facts
-        .binaries
-        .first()
-        .cloned()
-        .unwrap_or_else(|| repo.name.clone());
-    let base = |kind, track, install| TrackedApp {
-        id: slugify(&repo.name),
-        name: match facts.preset.map(|preset| preset.id) {
-            Some("headway-app") => "Headway".to_owned(),
-            _ => repo.name.clone(),
-        },
-        kind,
-        auto_update: false,
-        source: Source::Github(GithubSource {
-            repo: repo.full_name(),
-            git_url: None,
-            track,
-            install,
-        }),
-    };
-    let mut notes = Vec::new();
-    let mac_asset = facts.release.and_then(|release| {
-        release
-            .suggested_asset
-            .as_ref()
-            .map(|asset| (release.tag.as_str(), asset.as_str()))
-    });
-
-    let app = match (
-        facts.preset.filter(|preset| preset.id != "custom"),
-        mac_asset,
-    ) {
-        (Some(preset), _) => {
-            let name = facts.xcode_scheme.unwrap_or(&repo.name);
-            notes.push(format!(
-                "Detected a {} build; following every commit on `{}`.",
-                preset.label, facts.default_branch
-            ));
-            if facts.binaries.len() > 1 {
-                notes.push(format!(
-                    "The manifest declares several binaries ({}); installing `{bin}`.",
-                    facts.binaries.join(", ")
-                ));
-            }
-            if let Some((tag, asset)) = mac_asset {
-                notes.push(format!(
-                    "Release {tag} also ships `{asset}`: choose \"Releases\" to download it instead of building."
-                ));
-            }
-            base(
-                preset.kind,
-                Track::Commit { branch: None },
-                Install::Source(SourceInstall {
-                    build: presets::render_command(preset.build, &bin, name),
-                    workdir: None,
-                    artifact: facts
-                        .artifact
-                        .map(|artifact| presets::render(artifact, &bin, name)),
-                    dest: None,
-                }),
-            )
-        }
-        (None, Some((tag, asset))) => {
-            notes.push(format!(
-                "No known build system; release {tag} has a macOS asset (`{asset}`), so Headway follows releases."
-            ));
-            base(
-                facts.asset_kind,
-                Track::Release {
-                    prerelease: false,
-                    tag_filter: None,
-                },
-                Install::Asset(AssetInstall {
-                    pattern: None,
-                    binary: (facts.asset_kind == AppKind::Cli && bin != repo.name)
-                        .then(|| bin.clone()),
-                    dest: None,
-                }),
-            )
-        }
-        (None, None) => {
-            notes.push(
-                "Could not detect how to build this repository and it has no macOS release asset: set a build command."
-                    .to_owned(),
-            );
-            base(
-                AppKind::Cli,
-                Track::Commit { branch: None },
-                Install::Source(SourceInstall::default()),
-            )
-        }
-    };
-    (app, notes)
 }
 
 #[cfg(test)]

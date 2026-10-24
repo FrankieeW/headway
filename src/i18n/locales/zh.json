@@ -115,10 +115,12 @@
       "busy": "正在更新",
       "unchecked": "尚未检查",
       "updateFailed": "上一次更新失败了",
-      "unknown": "未配置最新版本探测，无法判断是否有更新。"
+      "unknown": "未配置最新版本探测，无法判断是否有更新。",
+      "installedUnconfirmed": "已发现安装，版本或 commit 尚未确认。"
     },
     "nextVersion": "下一个版本",
-    "detectedAt": "检测于 {{when}}"
+    "detectedAt": "检测于 {{when}}",
+    "installationFound": "已发现本地安装"
   },
   "pending": {
     "preRelease": "预发布",
@@ -320,5 +322,79 @@
     "npm": "npm",
     "brew": "Homebrew",
     "script": "官方脚本"
+  },
+  "roadmap": {
+    "candidates": "构建候选",
+    "recommended": "推荐",
+    "applyCandidate": "应用此候选",
+    "policy": "更新策略",
+    "notify": "仅通知",
+    "latest": "最新版本",
+    "next": "下一版本",
+    "optIn": "选择策略后，需手动开启下方的自动安装开关。",
+    "maxSteps": "每次检查最多更新步数",
+    "pauseOnFailure": "失败后暂停自动更新",
+    "verify": "安装后验证命令（可选）",
+    "verifyHint": "安装完成后运行；保存前请检查命令内容。",
+    "recovery": "缓存备份",
+    "recoveryHint": "恢复由 Headway 管理的最近两份构建产物之一。",
+    "retry": "重试",
+    "noBackups": "暂无缓存备份。",
+    "restore": "恢复备份",
+    "restoreConfirm": "将 {{name}} 替换为备份 {{version}}？",
+    "restored": "已恢复至 {{path}}",
+    "paused": "自动更新已因失败暂停。",
+    "resume": "恢复自动更新",
+    "selfUpdate": "Headway 更新状态",
+    "running": "正在运行的构建",
+    "installed": "已安装的构建",
+    "unknownCommit": "提交未知",
+    "dirtyBuild": "包含本地修改",
+    "statusFailed": "无法获取状态",
+    "notDetected": "未检测到",
+    "pendingRestart": "新构建已安装，等待重启",
+    "confirmed": "已确认运行新安装的构建",
+    "notConfirmed": "尚未确认运行新构建",
+    "restartQueued": "已请求重启，等待进行中的任务结束。",
+    "restartBusy": "其他任务正在运行，重启将加入等待队列。",
+    "queueRestart": "排队重启",
+    "restart": "重启 Headway",
+    "fixCli": "修复 CLI 链接",
+    "shadowed": "当前命令优先指向 {{path}}。修复链接不会改变 PATH 优先级。",
+    "importExisting": "导入已安装软件",
+    "recipes": "源码构建配方",
+    "importHint": "发现 Homebrew 和全局 npm 软件。导入仅添加跟踪，自动更新保持关闭。",
+    "inventoryEmpty": "未发现已安装的软件。",
+    "alreadyTracked": "已跟踪",
+    "importSelected": "导入所选（{{count}}）",
+    "recipesEmpty": "暂无配方。",
+    "useRecipe": "编辑此配方",
+    "sources": {
+      "readme": "README",
+      "manifest": "项目清单",
+      "preset": "预设"
+    },
+    "restartFailed": "重启确认失败"
+  },
+  "commitMetadata": {
+    "label": "提交元信息",
+    "version": "版本 {{version}}",
+    "release": "Release",
+    "notRelease": "非 Release",
+    "releaseUnknown": "Release 未知",
+    "refresh": "刷新提交元信息 {{sha}}",
+    "checks": "{{count}} 项检查",
+    "ci": {
+      "success": "CI 通过",
+      "failure": "CI 失败",
+      "pending": "CI 进行中",
+      "not_run": "CI 未运行",
+      "unknown": "CI 未知"
+    },
+    "checkedAt": "检查时间：{{time}}",
+    "versionSources": {
+      "tag": "版本标签",
+      "manifest": "源码版本"
+    }
   }
 }

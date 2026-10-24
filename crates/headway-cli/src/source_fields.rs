@@ -8,6 +8,12 @@ pub fn validate(source: &Source, f: &AppFields) -> Result<()> {
     let brew = matches!(source, Source::Brew(_));
     let script = matches!(source, Source::Script(_));
     for (flag, present, allowed, needs) in [
+        (
+            "--verify-command",
+            f.verify_command.is_some(),
+            github,
+            "GitHub",
+        ),
         ("--track", f.track.is_some(), github, "GitHub"),
         ("--branch", f.branch.is_some(), github, "GitHub"),
         ("--prerelease", f.prerelease.is_some(), github, "GitHub"),

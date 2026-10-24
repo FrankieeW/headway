@@ -12,6 +12,7 @@ pub struct AppView {
     pub last_error: Option<LastError>,
     /// An update is running right now (in any process).
     pub busy: bool,
+    pub auto_update_paused: bool,
     pub status: AppStatus,
     /// Newer commits/releases known from the last check.
     pub pending_count: u32,
@@ -32,11 +33,32 @@ pub enum AppStatus {
 }
 
 impl AppView {
-    pub(super) fn new(app: TrackedApp, state: AppState, busy: bool) -> Self {
+    pub(super) fn new(app: TrackedApp, mut state: AppState, busy: bool) -> Self {
+        use super::presence::{self, Presence};
+        let observed_status = match presence::observe(&app, state.installed.as_ref()) {
+            Ok(Presence::Missing) => {
+                state.installed = None;
+                Some((AppStatus::NotInstalled, UpdateStatus::NotInstalled))
+            }
+            Ok(Presence::Present) if !presence::has_baseline(&app, state.installed.as_ref()) => {
+                Some((AppStatus::Unknown, UpdateStatus::Unknown))
+            }
+            Ok(Presence::Present | Presence::Unknown) => None,
+            Err(error) => {
+                state.last_error = Some(LastError::from_error(&error, "check"));
+                None
+            }
+        };
+        if let (Some((_, status)), Some(check)) = (observed_status, state.last_check.as_mut()) {
+            check.status = status;
+            check.pending_total = 0;
+        }
         let status = if busy {
             AppStatus::Busy
         } else if state.last_error.is_some() {
             AppStatus::Error
+        } else if let Some((status, _)) = observed_status {
+            status
         } else {
             match state.last_check.as_ref().map(|check| check.status) {
                 None => AppStatus::Unchecked,
@@ -63,6 +85,7 @@ impl AppView {
             last_check: state.last_check,
             last_error: state.last_error,
             busy,
+            auto_update_paused: state.auto_update_paused,
             status,
             pending_count,
         }

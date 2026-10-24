@@ -1,3 +1,6 @@
+import { RecoverySection } from "./RecoverySection";
+import { AutoUpdatePaused } from "./AutoUpdatePaused";
+import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
 import { supportsRefs } from "@/lib/sources";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -80,7 +83,14 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
   const installing = startUpdate.isPending || view.busy;
 
   const handleAutoUpdate = (value: boolean) => {
-    saveApp.mutate({ ...view.app, auto_update: value });
+    saveApp.mutate({
+      ...view.app,
+      auto_update: value,
+      update_policy:
+        value && view.app.update_policy?.mode === "notify"
+          ? { ...view.app.update_policy, mode: "latest" }
+          : (view.app.update_policy ?? DEFAULT_UPDATE_POLICY),
+    });
   };
 
   return (
@@ -100,6 +110,9 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-6">
+        {view.auto_update_paused ? (
+          <AutoUpdatePaused id={view.app.id} busy={view.busy} />
+        ) : null}
         <AppSummary
           app={view}
           run={run}
@@ -171,7 +184,10 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
           {tab === "log" ? <LogPanel appId={view.app.id} /> : null}
 
           {tab === "config" ? (
-            <ConfigSummary app={view.app} onEdit={() => setEditOpen(true)} />
+            <>
+              <ConfigSummary app={view.app} onEdit={() => setEditOpen(true)} />
+              <RecoverySection key={view.app.id} view={view} />
+            </>
           ) : null}
         </div>
       </div>

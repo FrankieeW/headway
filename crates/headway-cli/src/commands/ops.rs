@@ -178,7 +178,7 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
 }
 
 /// Resolves on Ctrl-C, SIGTERM or SIGHUP.
-async fn interrupted() {
+pub(super) async fn interrupted() {
     use tokio::signal::unix::{SignalKind, signal};
     let on = |kind: SignalKind| async move {
         match signal(kind) {

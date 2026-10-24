@@ -8,6 +8,7 @@ fn zed() -> TrackedApp {
         name: "Zed".into(),
         kind: AppKind::App,
         auto_update: true,
+        update_policy: crate::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
             repo: "zed-industries/zed".into(),
             git_url: Some("git@github.com:zed-industries/zed.git".into()),
@@ -16,6 +17,7 @@ fn zed() -> TrackedApp {
                 tag_filter: Some("^v".into()),
             },
             install: Install::Asset(AssetInstall {
+                verify_command: None,
                 pattern: Some("Zed-aarch64.dmg".into()),
                 binary: None,
                 dest: Some("~/Applications/Zed.app".into()),
@@ -30,6 +32,7 @@ fn package_apps() -> Vec<TrackedApp> {
         name: id.into(),
         kind,
         auto_update: false,
+        update_policy: crate::UpdatePolicy::default(),
         source,
     };
     vec![
@@ -283,4 +286,41 @@ fn clone_url_prefers_override() {
         ssh.github().unwrap().clone_url().unwrap(),
         "git@github.com:owner/rg.git"
     );
+}
+
+#[test]
+fn legacy_auto_update_boolean_keeps_latest_policy() {
+    // Given a boolean-only legacy config.
+    let text = r#"[[app]]
+id = "tool"
+name = "Tool"
+source = "npm"
+package = "tool"
+auto_update = true
+"#;
+    // When reading it without a policy section.
+    let config: Config = toml::from_str(text).unwrap();
+    // Then legacy automatic updates retain their behavior.
+    assert!(config.apps[0].auto_update);
+    assert_eq!(config.apps[0].update_policy, UpdatePolicy::default());
+    assert!(
+        !serde_json::from_str::<crate::state::AppState>("{}")
+            .unwrap()
+            .auto_update_paused
+    );
+}
+
+#[test]
+fn policy_rejects_invalid_bounds_and_non_versioned_next() {
+    // Given policies on each supported source.
+    for steps in [0, 21] {
+        let mut app = cli_app("tool");
+        app.update_policy.max_steps = steps;
+        // When validating, then invalid bounds are rejected.
+        assert!(app.validate().is_err());
+    }
+    for mut app in package_apps() {
+        app.update_policy.mode = AutoUpdateMode::Next;
+        assert_eq!(app.validate().is_ok(), app.source.picks_versions());
+    }
 }

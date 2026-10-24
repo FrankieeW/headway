@@ -9,8 +9,13 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+pub use crate::policy::{AutoUpdateMode, UpdatePolicy};
 use crate::repo::{RepoId, validate_app_id};
 use crate::source::{GithubSource, Source};
+
+#[path = "config_settings.rs"]
+mod settings;
+pub use settings::Settings;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -37,98 +42,6 @@ impl Config {
             }
         }
         Ok(())
-    }
-}
-
-/// Global settings shared by the CLI and the app.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    /// Minutes between background checks in the desktop app; `0` turns them off.
-    pub check_interval_minutes: u32,
-    /// Notify when new commits or releases show up.
-    pub notify: bool,
-    /// Where CLI binaries are installed unless an app sets `dest`.
-    pub bin_dir: String,
-    /// Where `.app` bundles are installed unless an app sets `dest`.
-    pub apps_dir: String,
-    /// Use `gh auth token` when no token is configured.
-    pub gh_fallback: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            check_interval_minutes: 60,
-            notify: true,
-            bin_dir: "~/.local/bin".to_owned(),
-            apps_dir: "/Applications".to_owned(),
-            gh_fallback: true,
-        }
-    }
-}
-
-impl Settings {
-    pub const KEYS: [&'static str; 5] = [
-        "check_interval_minutes",
-        "notify",
-        "bin_dir",
-        "apps_dir",
-        "gh_fallback",
-    ];
-
-    /// Returns a copy with `key` set from its string form (as typed on the command line).
-    pub fn with_key(&self, key: &str, value: &str) -> Result<Self> {
-        let value = value.trim();
-        let next = match key {
-            "check_interval_minutes" => Self {
-                check_interval_minutes: value.parse().map_err(|_| {
-                    Error::InvalidInput(format!("`{value}` is not a number of minutes"))
-                })?,
-                ..self.clone()
-            },
-            "notify" => Self {
-                notify: parse_bool(value)?,
-                ..self.clone()
-            },
-            "gh_fallback" => Self {
-                gh_fallback: parse_bool(value)?,
-                ..self.clone()
-            },
-            "bin_dir" => Self {
-                bin_dir: non_empty_path(value)?,
-                ..self.clone()
-            },
-            "apps_dir" => Self {
-                apps_dir: non_empty_path(value)?,
-                ..self.clone()
-            },
-            _ => {
-                return Err(Error::InvalidInput(format!(
-                    "unknown setting `{key}`; expected one of {}",
-                    Self::KEYS.join(", ")
-                )));
-            }
-        };
-        Ok(next)
-    }
-}
-
-fn parse_bool(value: &str) -> Result<bool> {
-    match value.to_ascii_lowercase().as_str() {
-        "true" | "yes" | "on" | "1" => Ok(true),
-        "false" | "no" | "off" | "0" => Ok(false),
-        _ => Err(Error::InvalidInput(format!("`{value}` is not true/false"))),
-    }
-}
-
-fn non_empty_path(value: &str) -> Result<String> {
-    if value.starts_with('/') || value.starts_with('~') {
-        Ok(value.to_owned())
-    } else {
-        Err(Error::InvalidInput(format!(
-            "`{value}` must be an absolute path or start with ~"
-        )))
     }
 }
 
@@ -219,6 +132,8 @@ impl Install {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceInstall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_command: Option<String>,
     /// Shell command run with `/bin/sh -c` in `workdir`.
     pub build: String,
     /// Directory inside the repository to build in.
@@ -235,6 +150,8 @@ pub struct SourceInstall {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssetInstall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_command: Option<String>,
     /// Glob for the asset file name; unset picks the best macOS asset for this CPU.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
@@ -260,6 +177,8 @@ pub struct TrackedApp {
     /// Install updates as soon as a check finds them (desktop app only).
     #[serde(default)]
     pub auto_update: bool,
+    #[serde(default)]
+    pub update_policy: UpdatePolicy,
     #[serde(flatten)]
     pub source: Source,
 }
@@ -277,6 +196,8 @@ impl<'de> Deserialize<'de> for TrackedApp {
             kind: AppKind,
             #[serde(default)]
             auto_update: bool,
+            #[serde(default)]
+            update_policy: UpdatePolicy,
             #[serde(flatten)]
             source: Source,
         }
@@ -290,6 +211,7 @@ impl<'de> Deserialize<'de> for TrackedApp {
             name: wire.name,
             kind: wire.kind,
             auto_update: wire.auto_update,
+            update_policy: wire.update_policy,
             source: wire.source,
         })
     }
@@ -323,6 +245,16 @@ impl TrackedApp {
         validate_app_id(&self.id).map_err(|err| fail(err.to_string()))?;
         if self.name.trim().is_empty() {
             return Err(fail("name is empty".into()));
+        }
+        if !(1..=20).contains(&self.update_policy.max_steps) {
+            return Err(fail(
+                "update_policy.max_steps must be between 1 and 20".into(),
+            ));
+        }
+        if self.update_policy.mode == AutoUpdateMode::Next && !self.source.picks_versions() {
+            return Err(fail(
+                "next update mode requires a GitHub or npm source".into(),
+            ));
         }
         self.source.validate().map_err(fail)
     }

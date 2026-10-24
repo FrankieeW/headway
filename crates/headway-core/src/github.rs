@@ -1,5 +1,10 @@
 //! Minimal GitHub REST client for the endpoints Headway uses.
 
+mod bounded;
+mod commit_metadata;
+pub use bounded::BoundedFileText;
+pub use commit_metadata::{CheckRun, CheckRuns, CombinedStatus, CommitStatus};
+
 use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Duration;

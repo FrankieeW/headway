@@ -1,3 +1,4 @@
+import { AddSources } from "./AddSources";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -53,6 +54,7 @@ export function AppFormDialog({
 
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
 
   // start over when the dialog opens — not on every refetch of the app
   const wasOpen = useRef(false);
@@ -60,6 +62,7 @@ export function AppFormDialog({
     if (open !== wasOpen.current) {
       form.reset(app);
       setError(null);
+      setDiscoveryOpen(false);
     }
     wasOpen.current = open;
   }, [open, app, form.reset]);
@@ -75,12 +78,14 @@ export function AppFormDialog({
   const handleApplyPreset = (preset: NonNullable<typeof presets>[number]) => {
     const bin =
       inspectedBinary(form.inspection) || form.form.repo.split("/").pop() || "";
-    form.replace(
-      applyPreset(form.form, preset, {
-        bin,
-        name: form.form.name.trim() || bin,
-      }),
-    );
+    const next = applyPreset(form.form, preset, {
+      bin,
+      name: form.form.name.trim() || bin,
+    });
+    form.update("presetId", next.presetId);
+    form.update("kind", next.kind);
+    form.update("build", next.build);
+    form.update("artifact", next.artifact);
   };
 
   const handleSave = async () => {
@@ -148,27 +153,40 @@ export function AppFormDialog({
             </Alert>
           ) : null}
 
-          <AppFormFields
-            form={form.form}
-            mode={app ? "edit" : "add"}
-            presets={presets}
-            inspection={form.inspection}
-            lookup={form.lookup}
-            inspecting={form.inspecting}
-            inspectionError={form.inspectionError}
-            destPlaceholder={destPlaceholder}
-            onInspect={() =>
-              void form.inspect(
-                form.form.source === "github"
-                  ? form.form.repo
-                  : form.form.package,
-              )
-            }
-            onUpdate={form.update}
-            onSetName={form.setName}
-            onSetId={form.setId}
-            onApplyPreset={handleApplyPreset}
-          />
+          {!app ? (
+            <AddSources
+              key={String(open)}
+              onPanelChange={setDiscoveryOpen}
+              onRecipe={form.reset}
+              onImported={(id) => {
+                onOpenChange(false);
+                if (id) onSaved?.(id);
+              }}
+            />
+          ) : null}
+          {!discoveryOpen ? (
+            <AppFormFields
+              form={form.form}
+              mode={app ? "edit" : "add"}
+              presets={presets}
+              inspection={form.inspection}
+              lookup={form.lookup}
+              inspecting={form.inspecting}
+              inspectionError={form.inspectionError}
+              destPlaceholder={destPlaceholder}
+              onInspect={() =>
+                void form.inspect(
+                  form.form.source === "github"
+                    ? form.form.repo
+                    : form.form.package,
+                )
+              }
+              onUpdate={form.update}
+              onSetName={form.setName}
+              onSetId={form.setId}
+              onApplyPreset={handleApplyPreset}
+            />
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -179,14 +197,16 @@ export function AppFormDialog({
           >
             {t("common.cancel")}
           </Button>
-          <Button
-            variant="solid"
-            onClick={() => void handleSave()}
-            disabled={busy}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {t("common.save")}
-          </Button>
+          {!discoveryOpen ? (
+            <Button
+              variant="solid"
+              onClick={() => void handleSave()}
+              disabled={busy}
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {t("common.save")}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

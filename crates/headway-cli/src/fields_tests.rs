@@ -7,6 +7,7 @@ fn base() -> TrackedApp {
 
         kind: AppKind::Cli,
         auto_update: false,
+        update_policy: headway_core::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
             repo: "BurntSushi/ripgrep".into(),
             git_url: None,
@@ -71,6 +72,7 @@ fn switching_to_release_assets() {
     assert_eq!(
         app.github().unwrap().install,
         Install::Asset(AssetInstall {
+            verify_command: None,
             pattern: Some("*aarch64-apple-darwin.tar.gz".into()),
             binary: Some("rg".into()),
             dest: None,
@@ -183,6 +185,108 @@ fn mismatched_flags_are_rejected() {
         assert!(
             matches!(apply(base(), &fields), Err(Error::InvalidInput(_))),
             "{fields:?}"
+        );
+    }
+}
+
+#[test]
+fn policy_and_verification_flags_apply_and_clear() {
+    // Given explicit policy and verification flags.
+    let fields = AppFields {
+        update_mode: Some(UpdateModeArg::Next),
+        max_update_steps: Some(4),
+        pause_on_failure: Some(false),
+        verify_command: Some("tool --version".into()),
+        ..AppFields::default()
+    };
+    // When applying the flags.
+    let app = apply(base(), &fields).unwrap();
+    // Then policy values and the verification command are preserved.
+    assert_eq!(
+        app.update_policy,
+        UpdatePolicy {
+            mode: AutoUpdateMode::Next,
+            max_steps: 4,
+            pause_on_failure: false
+        }
+    );
+    assert!(
+        matches!(&app.github().unwrap().install, Install::Source(source) if source.verify_command.as_deref() == Some("tool --version"))
+    );
+    let cleared = apply(
+        app,
+        &AppFields {
+            verify_command: Some(String::new()),
+            ..AppFields::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&cleared.github().unwrap().install, Install::Source(source) if source.verify_command.is_none())
+    );
+}
+
+#[test]
+fn verification_flag_supports_assets_and_rejects_non_github_sources() {
+    // Given release-asset and npm sources.
+    let fields = AppFields {
+        track: Some(TrackArg::Release),
+        method: Some(MethodArg::Asset),
+        verify_command: Some("tool --version".into()),
+        ..AppFields::default()
+    };
+    // When applying a verification command to each source.
+    let asset = apply(base(), &fields).unwrap();
+    let npm = TrackedApp {
+        source: Source::Npm(headway_core::NpmSource {
+            package: "tool".into(),
+            dist_tag: "latest".into(),
+        }),
+        ..base()
+    };
+    let error = apply(
+        npm,
+        &AppFields {
+            verify_command: Some("true".into()),
+            ..AppFields::default()
+        },
+    )
+    .unwrap_err();
+    // Then both install methods support verification, and npm rejects the flag.
+    assert!(
+        matches!(&asset.github().unwrap().install, Install::Asset(spec) if spec.verify_command.as_deref() == Some("tool --version"))
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("--verify-command only applies to GitHub")
+    );
+}
+
+#[test]
+fn policy_flags_parse_and_reject_out_of_range_steps() {
+    use crate::args::Cli;
+    use clap::Parser as _;
+    // Given the documented command-line policy options.
+    let args = [
+        "headway",
+        "edit",
+        "tool",
+        "--update-mode",
+        "next",
+        "--max-update-steps",
+        "20",
+        "--pause-on-failure",
+        "false",
+        "--verify-command",
+        "",
+    ];
+    // When parsing valid flags and out-of-range step counts.
+    assert!(Cli::try_parse_from(args).is_ok());
+    // Then range errors are rejected by clap before persistence.
+    for value in ["0", "21", "256"] {
+        assert!(
+            Cli::try_parse_from(["headway", "edit", "tool", "--max-update-steps", value]).is_err()
         );
     }
 }

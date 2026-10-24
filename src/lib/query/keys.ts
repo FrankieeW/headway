@@ -32,12 +32,23 @@ export const queryKeys = {
 export type QueryKeys = typeof queryKeys;
 
 /** Roots of the queries that read `config.toml` / `state.json` / logs. */
-const LOCAL_DATA_ROOTS = new Set(["apps", "app", "history", "settings", "log", "cli"]);
+const LOCAL_DATA_ROOTS = new Set([
+  "apps",
+  "app",
+  "history",
+  "settings",
+  "log",
+  "cli",
+  "backups",
+  "self-update",
+]);
 
 /**
  * Matches the queries to refetch when local files change. Queries that call
  * GitHub (token status) or are expensive (doctor) are left alone.
  */
-export function isLocalDataQuery(query: { queryKey: readonly unknown[] }): boolean {
+export function isLocalDataQuery(query: {
+  queryKey: readonly unknown[];
+}): boolean {
   return LOCAL_DATA_ROOTS.has(String(query.queryKey[0]));
 }

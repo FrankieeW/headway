@@ -1,6 +1,7 @@
 //! Command-line grammar.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+pub use crate::args_fields::{AppFields, KindArg, MethodArg, TrackArg, UpdateModeArg};
+use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::output::Format;
@@ -115,6 +116,41 @@ pub enum Command {
     },
     /// List build presets for source installs
     Presets,
+    /// Discover installed brew/npm packages without updating them
+    Discover {
+        #[arg(long = "source", value_delimiter = ',')]
+        sources: Vec<String>,
+    },
+    /// Track selected discovery keys (or recipe:<id>)
+    Import {
+        #[arg(required = true)]
+        keys: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List editable application recipes
+    Recipes,
+    /// Resume automatic updates after a failure pause
+    ResumeAutoUpdate { id: String },
+    /// Run one bounded cycle using each app's saved automatic update policy
+    AutoUpdate { ids: Vec<String> },
+    /// List retained prior artifacts
+    Backups { id: String },
+    /// Restore a retained artifact without rebuilding
+    Restore { id: String, backup_id: String },
+    /// Inspect or repair the CLI link after moving Headway.app
+    #[command(subcommand)]
+    Cli(crate::management_args::CliCommand),
+    /// Inspect, restart, or subscribe to Headway itself
+    #[command(name = "self", subcommand)]
+    SelfUpdate(crate::management_args::SelfCommand),
+    /// Read version, CI and release metadata for a GitHub commit
+    CommitInfo {
+        id: String,
+        sha: String,
+        #[arg(long)]
+        refresh: bool,
+    },
     /// Install history of an app, newest first
     History {
         /// App id
@@ -164,6 +200,16 @@ impl Command {
             Self::Remove { .. } => "remove",
             Self::Inspect { .. } => "inspect",
             Self::Presets => "presets",
+            Self::Discover { .. } => "discover",
+            Self::Import { .. } => "import",
+            Self::Recipes => "recipes",
+            Self::ResumeAutoUpdate { .. } => "resume-auto-update",
+            Self::AutoUpdate { .. } => "auto-update",
+            Self::Backups { .. } => "backups",
+            Self::Restore { .. } => "restore",
+            Self::Cli(_) => "cli",
+            Self::SelfUpdate(_) => "self",
+            Self::CommitInfo { .. } => "commit-info",
             Self::History { .. } => "history",
             Self::Log { .. } => "log",
             Self::Token(_) => "token",
@@ -221,97 +267,6 @@ pub struct EditArgs {
     pub dry_run: bool,
     #[command(flatten)]
     pub fields: AppFields,
-}
-
-/// Config fields settable from `add` and `edit`. An empty string clears an optional field.
-#[derive(Args, Debug, Default, Clone)]
-pub struct AppFields {
-    /// npm dist-tag to follow (default: latest)
-    #[arg(long)]
-    pub dist_tag: Option<String>,
-    /// Homebrew cask instead of formula
-    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
-    pub cask: Option<bool>,
-    /// npm or Homebrew package name
-    #[arg(long)]
-    pub package: Option<String>,
-    /// Official updater command, run with /bin/sh -c (script source)
-    #[arg(long)]
-    pub update_command: Option<String>,
-    /// Command printing the installed version (empty clears it)
-    #[arg(long)]
-    pub version_command: Option<String>,
-    /// Command or URL returning the latest version (empty clears it)
-    #[arg(long)]
-    pub latest_command: Option<String>,
-
-    /// Display name
-    #[arg(long)]
-    pub name: Option<String>,
-    /// What the repository produces
-    #[arg(long, value_enum)]
-    pub kind: Option<KindArg>,
-    /// Follow every commit, GitHub releases, or version tags
-    #[arg(long, value_enum)]
-    pub track: Option<TrackArg>,
-    /// Branch to follow (commit mode; empty = the default branch)
-    #[arg(long)]
-    pub branch: Option<String>,
-    /// Include pre-releases (release/tag mode)
-    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
-    pub prerelease: Option<bool>,
-    /// Only consider tags matching this regex (release/tag mode)
-    #[arg(long, value_name = "REGEX")]
-    pub tag_filter: Option<String>,
-    /// Build from source, or download a release asset
-    #[arg(long, value_enum)]
-    pub method: Option<MethodArg>,
-    /// Fill the build command and artifact from a preset (see `headway presets`)
-    #[arg(long)]
-    pub preset: Option<String>,
-    /// Build command, run with `/bin/sh -c` in the checkout
-    #[arg(long, value_name = "COMMAND")]
-    pub build: Option<String>,
-    /// Subdirectory of the repository to build in
-    #[arg(long, value_name = "DIR")]
-    pub workdir: Option<String>,
-    /// Build output to install, relative to the workdir (`*` allowed; empty = the build installs itself)
-    #[arg(long, value_name = "PATH")]
-    pub artifact: Option<String>,
-    /// Install destination (default: `bin_dir` or `apps_dir` + file name)
-    #[arg(long, value_name = "PATH")]
-    pub dest: Option<String>,
-    /// Release asset glob, e.g. '*aarch64-apple-darwin.tar.gz' (asset method; empty = automatic)
-    #[arg(long, value_name = "GLOB")]
-    pub pattern: Option<String>,
-    /// Binary or .app name inside the release asset (asset method)
-    #[arg(long, value_name = "NAME")]
-    pub binary: Option<String>,
-    /// Let the desktop app install updates as soon as it finds them
-    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
-    pub auto_update: Option<bool>,
-    /// Clone URL override, e.g. git@github.com:owner/repo.git (empty clears)
-    #[arg(long, value_name = "URL")]
-    pub git_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum KindArg {
-    Cli,
-    App,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum TrackArg {
-    Commit,
-    Release,
-    Tag,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum MethodArg {
-    Source,
-    Asset,
 }
 
 #[derive(Subcommand, Debug)]

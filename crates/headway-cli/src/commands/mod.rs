@@ -3,6 +3,7 @@
 
 mod admin;
 mod apps;
+mod management;
 mod ops;
 mod register;
 
@@ -32,6 +33,20 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
         Command::Remove { id, purge, dry_run } => apps::remove(&hw, &id, purge, dry_run, p),
         Command::Inspect { repo } => apps::inspect(&hw, &repo, p).await,
         Command::Presets => Ok(apps::presets(p)),
+        Command::Discover { sources } => management::discover(&hw, &sources).await,
+        Command::Import { keys, dry_run } => management::import(&hw, &keys, dry_run).await,
+        Command::Recipes => Ok(management::recipes(&hw)),
+        Command::ResumeAutoUpdate { id } => management::resume(&hw, &id),
+        Command::AutoUpdate { ids } => management::auto_update(&hw, &ids, printer).await,
+        Command::Backups { id } => management::backups(&hw, &id),
+        Command::Restore { id, backup_id } => {
+            management::restore(&hw, &id, &backup_id, printer).await
+        }
+        Command::Cli(command) => management::cli(&hw, command).await,
+        Command::SelfUpdate(command) => management::self_command(&hw, command).await,
+        Command::CommitInfo { id, sha, refresh } => {
+            management::commit_info(&hw, &id, &sha, refresh).await
+        }
         Command::History { id, limit } => apps::history(&hw, &id, limit, p),
         Command::Log { id, tail } => apps::log(&hw, &id, tail),
         Command::Token(command) => admin::token(&hw, command, p).await,

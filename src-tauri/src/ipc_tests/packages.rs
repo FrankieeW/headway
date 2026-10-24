@@ -23,7 +23,7 @@ pub(crate) fn package_harness() -> Harness {
 case "$*" in
   'view @test/tool versions dist-tags time description homepage --json')
     printf '%s\n' '{"versions":["1.0.0","2.0.0"],"dist-tags":{"latest":"2.0.0"},"description":"Fixture npm","homepage":"https://example.invalid/npm"}' ;;
-  'ls --global --depth=0 --json @test/tool')
+  'ls --global --depth=0 --json'|'ls --global --depth=0 --json @test/tool')
     printf '%s\n' '{"dependencies":{"@test/tool":{"version":"1.0.0"}}}' ;;
   *) exit 64 ;;
 esac

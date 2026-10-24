@@ -11,7 +11,7 @@ impl Headway {
             self.refresh_for_update(&app, target, &cancel).await?;
         }
         let gh = self.github_for(&app).await?;
-        let installed = self.store.state()?.app(id).installed;
+        let installed = super::presence::retained(&app, self.store.state()?.app(id).installed)?;
         let (candidate, checked) = self
             .resolve(&gh, &app, installed.as_ref(), target, &cancel)
             .await?;
@@ -79,7 +79,7 @@ impl Headway {
         let env = self.env().await;
         let reference = match target {
             Target::Latest | Target::Next => {
-                let checked = check::check(
+                let checked = super::presence::check(
                     &Probe {
                         gh,
                         env: &env,

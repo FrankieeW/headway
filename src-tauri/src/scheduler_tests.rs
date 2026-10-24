@@ -67,3 +67,81 @@ async fn cycle_only_runs_known_updates_that_opt_in_and_are_idle() {
         "update_available"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cycle_respects_next_latest_limits_and_notify() {
+    for (mode, steps, expected) in [
+        ("next", 1, "1.1.0\n"),
+        ("next", 2, "1.1.0\n1.2.0\n"),
+        ("latest", 2, "1.2.0\n"),
+        ("notify", 2, ""),
+    ] {
+        // Given a real fixture npm with two versions pending.
+        let harness = package_harness();
+        std::fs::write(harness.home.path().join("version"), "1.0.0").unwrap();
+        executable(
+            &harness.home.path().join("tools/npm"),
+            r#"
+case "$1" in
+ view) echo '{"versions":["1.0.0","1.1.0","1.2.0"],"dist-tags":{"latest":"1.2.0"}}';;
+ ls) printf '{"dependencies":{"@test/tool":{"version":"%s"}}}' "$(cat "$FIXTURE_HOME/version")";;
+ install)
+   printf '%s' "${3##*@}" > "$FIXTURE_HOME/version"
+   printf '%s\n' "${3##*@}" >> "$FIXTURE_HOME/runs";;
+ *) exit 64;;
+esac
+"#,
+        );
+        ok(
+            &harness,
+            "add_app",
+            json!({"app": {
+                "id":"tool", "name":"Tool", "source":"npm", "package":"@test/tool",
+                "auto_update":true, "update_policy":{"mode":mode,"max_steps":steps}
+            }}),
+        );
+        let mut settings = ok(&harness, "get_settings", json!({}));
+        settings["notify"] = json!(false);
+        ok(&harness, "save_settings", json!({"settings":settings}));
+        // When the complete scheduler cycle executes.
+        super::run_cycle(harness.app.handle()).await;
+        // Then the subprocess trace matches the configured policy exactly.
+        let runs = harness.home.path().join("runs");
+        if expected.is_empty() {
+            assert!(!runs.exists());
+        } else {
+            assert_eq!(std::fs::read_to_string(runs).unwrap(), expected);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cycle_pauses_failure_and_resume_allows_retry() {
+    // Given a known update whose script fails.
+    let harness = package_harness();
+    let mut app = script_app("failing");
+    app["auto_update"] = json!(true);
+    app["version_command"] = json!("printf 1.0.0");
+    app["latest_command"] = json!("printf 2.0.0");
+    app["update_command"] = json!("echo run >> \"$FIXTURE_HOME/runs\"; exit 42");
+    ok(&harness, "add_app", json!({"app":app}));
+    let mut settings = ok(&harness, "get_settings", json!({}));
+    settings["notify"] = json!(false);
+    ok(&harness, "save_settings", json!({"settings":settings}));
+    // When repeated cycles encounter the failure.
+    super::run_cycle(harness.app.handle()).await;
+    super::run_cycle(harness.app.handle()).await;
+    // Then only one attempt ran, until explicit resume permits a retry.
+    let state = harness.app.state::<AppState>();
+    assert!(state.hw.get("failing").unwrap().auto_update_paused);
+    assert_eq!(
+        std::fs::read_to_string(harness.home.path().join("runs")).unwrap(),
+        "run\n"
+    );
+    state.hw.resume_auto_update("failing").unwrap();
+    super::run_cycle(harness.app.handle()).await;
+    assert_eq!(
+        std::fs::read_to_string(harness.home.path().join("runs")).unwrap(),
+        "run\nrun\n"
+    );
+}

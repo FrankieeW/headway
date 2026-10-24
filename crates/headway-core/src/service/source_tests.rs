@@ -38,6 +38,7 @@ fn app(source: Source) -> TrackedApp {
         name: "Tool".into(),
         kind: crate::AppKind::Cli,
         auto_update: false,
+        update_policy: crate::UpdatePolicy::default(),
         source,
     }
 }

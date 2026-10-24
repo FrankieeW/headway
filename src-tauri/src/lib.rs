@@ -7,6 +7,7 @@ mod commands;
 mod ipc_tests;
 mod runner;
 mod scheduler;
+mod self_update;
 mod state;
 mod tray;
 mod watcher;
@@ -29,6 +30,17 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
         commands::apps::inspect_repo,
         commands::apps::lookup_source,
         commands::apps::list_presets,
+        commands::management::discover_apps,
+        commands::management::import_apps,
+        commands::management::list_recipes,
+        commands::management::resume_auto_update,
+        commands::management::list_backups,
+        commands::management::restore_backup,
+        commands::management::fix_cli_link,
+        commands::management::ensure_self_subscription,
+        commands::management::commit_metadata,
+        self_update::self_update_status,
+        self_update::request_self_restart,
         commands::ops::check_app,
         commands::ops::check_all,
         commands::ops::plan_update,
@@ -83,6 +95,19 @@ pub fn run() {
             tray::create(handle)?;
             scheduler::start(handle.clone());
             watcher::start(handle.clone());
+            self_update::start(handle.clone());
+            let handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                match handle
+                    .state::<AppState>()
+                    .hw
+                    .ensure_self_subscription()
+                    .await
+                {
+                    Ok(_) => crate::state::apps_changed(&handle),
+                    Err(error) => eprintln!("headway: self subscription: {error}"),
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {

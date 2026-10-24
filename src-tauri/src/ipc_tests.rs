@@ -2,6 +2,7 @@
 //! TypeScript layer (`src/lib/api/index.ts`) sends, through the real handler.
 
 mod build_info;
+mod management;
 mod operations;
 pub(crate) mod packages;
 mod sources;
@@ -27,7 +28,7 @@ fn app_and_settings_commands_accept_the_frontend_payloads() {
         "add_app",
         json!({ "app": tool_app("file:///nowhere", &dest) }),
     );
-    assert_eq!(added["status"], "unchecked");
+    assert_eq!(added["status"], "not_installed");
     assert_eq!(added["app"]["repo"], "octo/tool", "URLs are normalized");
 
     let mut edited = tool_app("file:///nowhere", &dest);
@@ -157,6 +158,10 @@ async fn check_plan_mark_and_update_through_ipc() {
     let checked = ok(&harness, "check_app", json!({ "id": "tool" }));
     assert_eq!(checked["status"], "not_installed");
 
+    // Mark describes an existing installation, so provide its actual payload.
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    std::fs::write(&dest, "#!/bin/sh\nprintf 'v1\\n'\n").unwrap();
+    std::fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let marked = ok(
         &harness,
         "mark_installed",

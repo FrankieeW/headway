@@ -128,3 +128,9 @@ fn dmg_releases_are_apps() {
 
 #[path = "inspect_self_host_tests.rs"]
 mod self_host;
+
+#[path = "inspect_discovery_tests.rs"]
+mod discovery;
+
+#[path = "inspect_output_tests.rs"]
+mod output_safety;

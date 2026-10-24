@@ -2,7 +2,7 @@ import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import type { TrackedApp } from "@/lib/api";
+import { DEFAULT_UPDATE_POLICY, type TrackedApp } from "@/lib/api";
 import { installLabel, trackLabel } from "@/lib/format";
 
 export interface ConfigSummaryProps {
@@ -20,7 +20,7 @@ function Row({
   mono?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[140px_1fr] items-start gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+    <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] items-start gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
       <span className="text-caption text-fg-3">{label}</span>
       <span
         className={
@@ -49,7 +49,19 @@ export function ConfigSummary({ app, onEdit }: ConfigSummaryProps) {
     label: t("config.kind"),
     value: app.kind === "cli" ? t("form.kindCli") : t("form.kindApp"),
   });
+  const policy = app.update_policy ?? DEFAULT_UPDATE_POLICY;
+  rows.push({ label: t("roadmap.policy"), value: t(`roadmap.${policy.mode}`) });
+  rows.push({ label: t("roadmap.maxSteps"), value: String(policy.max_steps) });
+  rows.push({
+    label: t("roadmap.pauseOnFailure"),
+    value: t(policy.pause_on_failure ? "common.yes" : "common.no"),
+  });
   if (app.source === "github") {
+    rows.push({
+      label: t("roadmap.verify"),
+      value: app.install.verify_command || "—",
+      mono: true,
+    });
     rows.push({ label: t("config.repo"), value: app.repo });
     rows.push({ label: t("config.follow"), value: trackLabel(app.track, t) });
 

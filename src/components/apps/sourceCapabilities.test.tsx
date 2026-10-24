@@ -94,3 +94,58 @@ it("renders unknown as visible status rather than an error or unchecked dash", (
   expect(screen.getByText("Unknown")).toBeVisible();
   expect(screen.queryByText("Error")).not.toBeInTheDocument();
 });
+
+it.each(["github", "script"] as const)(
+  "preserves the distinct meaning of unknown for %s",
+  (source) => {
+    // Given a backend unknown status with no recorded installed reference.
+    const app = sources.find((entry) => entry.source === source);
+    if (!app) throw new Error("Source fixture missing");
+    const view: AppView = {
+      app,
+      installed: null,
+      busy: false,
+      status: "unknown",
+      pending_count: 0,
+    };
+    // When the summary and pending list render the backend result.
+    renderWithProviders(
+      <>
+        <AppSummary
+          app={view}
+          run={undefined}
+          starting={false}
+          cancelling={false}
+          onUpdateLatest={vi.fn()}
+          onUpdateNext={vi.fn()}
+          onCancel={vi.fn()}
+          onToggleAutoUpdate={vi.fn()}
+        />
+        <PendingList
+          app={view}
+          installing={false}
+          onInstall={vi.fn()}
+          onMarkInstalled={vi.fn()}
+          onCheck={vi.fn()}
+        />
+      </>,
+    );
+    // Then GitHub acknowledges detected presence without inventing a ref; scripts keep probe semantics.
+    if (source === "github") {
+      expect(screen.getByText("Local installation found")).toBeVisible();
+      expect(
+        screen.getAllByText(
+          "Installation found; its version or commit is not confirmed yet.",
+        ),
+      ).toHaveLength(2);
+      expect(screen.queryByText("Not installed yet")).toBeNull();
+    } else {
+      expect(screen.queryByText("Local installation found")).toBeNull();
+      expect(
+        screen.queryByText(
+          "Installation found; its version or commit is not confirmed yet.",
+        ),
+      ).toBeNull();
+    }
+  },
+);

@@ -1,3 +1,6 @@
+export * from "./commitMetadata";
+import type { BuildCandidate, UpdatePolicy } from "./roadmapTypes";
+export * from "./roadmapTypes";
 // Types mirroring the serde shapes of `headway-core` (snake_case on purpose:
 // they are the same JSON the `headway --json` CLI prints).
 
@@ -18,6 +21,7 @@ export type Track =
 export type TrackMode = Track["mode"];
 
 export interface SourceInstall {
+  verify_command?: string | null;
   method: "source";
   build: string;
   workdir?: string | null;
@@ -26,6 +30,7 @@ export interface SourceInstall {
 }
 
 export interface AssetInstall {
+  verify_command?: string | null;
   method: "asset";
   pattern?: string | null;
   binary?: string | null;
@@ -64,6 +69,7 @@ export type TrackedApp = Source & {
   readonly name: string;
   readonly kind: AppKind;
   readonly auto_update: boolean;
+  readonly update_policy?: UpdatePolicy;
 };
 
 export interface SourceLookup {
@@ -139,6 +145,7 @@ export type AppStatus =
   | "busy";
 
 export interface AppView {
+  auto_update_paused?: boolean;
   app: TrackedApp;
   installed?: InstalledRef | null;
   last_check?: CheckResult | null;
@@ -258,6 +265,7 @@ export interface ReleaseSummary {
 }
 
 export interface RepoInspection {
+  build_candidates?: BuildCandidate[];
   repo: string;
   description?: string | null;
   default_branch: string;
@@ -310,6 +318,9 @@ export interface LogFile {
 }
 
 export interface CliStatus {
+  needs_repair?: boolean;
+  resolved_path?: string | null;
+  shadowed?: boolean;
   /** the `headway` binary shipped next to the app, if any */
   bundled_path?: string | null;
   /** where the symlink goes (`<bin_dir>/headway`) */

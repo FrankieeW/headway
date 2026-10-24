@@ -1,3 +1,4 @@
+import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
 import {
   act,
   fireEvent,
@@ -25,6 +26,7 @@ const common = {
   name: "Tool",
   kind: "cli",
   auto_update: false,
+  update_policy: DEFAULT_UPDATE_POLICY,
 } as const;
 const sources: TrackedApp[] = [
   { ...common, source: "npm", package: "@vendor/tool", dist_tag: "beta" },
@@ -216,5 +218,40 @@ it("preserves user identity and automation choices while accepting canonical pac
     dist_tag: "beta",
     kind: "app",
     auto_update: true,
+    update_policy: DEFAULT_UPDATE_POLICY,
   });
+});
+
+it("preserves an unfinished manual draft while visiting inventory and removes the competing Save action", async () => {
+  // Given an unfinished manual subscription and an empty discovered inventory.
+  vi.spyOn(appsApi, "presets").mockResolvedValue([]);
+  vi.spyOn(appsApi, "discover").mockResolvedValue({
+    candidates: [],
+    errors: [],
+  });
+  vi.spyOn(settingsApi, "get").mockResolvedValue({
+    check_interval_minutes: 60,
+    notify: true,
+    bin_dir: "/tmp/bin",
+    apps_dir: "/tmp/apps",
+    gh_fallback: false,
+  });
+  renderWithProviders(<AppFormDialog open onOpenChange={() => {}} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Unfinished draft" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Import installed software" }),
+  );
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  await screen.findByText("No installed packages found.");
+  // When returning from the inventory subflow.
+  fireEvent.click(
+    screen.getByRole("button", { name: "Import installed software" }),
+  );
+  // Then the draft remains editable and Save returns as the primary action.
+  expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
+    "Unfinished draft",
+  );
+  expect(screen.getByRole("button", { name: "Save" })).toBeVisible();
 });

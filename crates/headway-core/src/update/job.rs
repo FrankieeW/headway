@@ -7,10 +7,10 @@ use crate::events::{LogStream, Stage};
 use crate::git::{self, Checkout};
 use crate::github::Asset;
 use crate::install;
-use crate::paths::{display_path, expand_tilde};
+use crate::paths::expand_tilde;
 use crate::process::{self, Cmd};
 use crate::source::Source;
-use crate::state::Candidate;
+use crate::state::{Candidate, InstalledRef};
 use std::fs;
 use std::path::Path;
 
@@ -36,6 +36,11 @@ impl Job<'_> {
         source: &SourceInstall,
         target: &Candidate,
     ) -> Result<Installed> {
+        if source.artifact.is_none() && source.verify_command.is_some() {
+            return Err(Error::InvalidInput(
+                "post-install verification requires a managed artifact".into(),
+            ));
+        }
         let url = self.app.require_github("source builds")?.clone_url()?;
         let dir = self.paths.source_dir(&self.app.id);
         let git_env = git::git_env(self.env, &url, self.token);
@@ -88,7 +93,14 @@ impl Job<'_> {
             let name = file_name(&output)?;
             let dest =
                 install::resolve_dest(source.dest.as_deref(), self.app.kind, &name, self.settings);
-            self.place(&output, artifact, &dest).await?;
+            let candidate = InstalledRef {
+                id: target.id.clone(),
+                sha: Some(sha.clone()),
+                version: version.clone(),
+                installed_at: chrono::Utc::now(),
+                path: None,
+            };
+            self.place(&output, &candidate, &dest).await?;
             Some(dest)
         } else {
             self.log
@@ -169,11 +181,14 @@ impl Job<'_> {
             &dest_name,
             self.settings,
         );
-        let label = payload.strip_prefix(&unpacked.root).map_or_else(
-            |_| display_path(&payload),
-            |inside| inside.display().to_string(),
-        );
-        self.place(&payload, &label, &dest).await?;
+        let candidate = InstalledRef {
+            id: target.id.clone(),
+            sha: target.sha.clone(),
+            version: Some(target.id.clone()),
+            installed_at: chrono::Utc::now(),
+            path: None,
+        };
+        self.place(&payload, &candidate, &dest).await?;
         drop(unpacked);
         Ok(Installed {
             sha: None,
@@ -182,15 +197,16 @@ impl Job<'_> {
         })
     }
 
-    async fn place(&self, src: &Path, label: &str, dest: &Path) -> Result<()> {
-        self.log.stage(
-            Stage::Install,
-            format!("Installing {label} → {}", display_path(dest)),
-        );
-        let (src, dest) = (src.to_path_buf(), dest.to_path_buf());
-        tokio::task::spawn_blocking(move || install::install(&src, &dest))
-            .await
-            .map_err(|err| Error::io("install task", std::io::Error::other(err)))?
+    async fn place(&self, src: &Path, candidate: &InstalledRef, dest: &Path) -> Result<()> {
+        crate::recovery::Replacement {
+            app: self.app,
+            paths: self.paths,
+            env: self.env,
+            log: self.log,
+            cancel: self.cancel,
+        }
+        .place(src, Some(candidate), dest)
+        .await
     }
 }
 

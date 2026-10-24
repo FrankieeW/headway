@@ -1,3 +1,4 @@
+import { DEFAULT_UPDATE_POLICY, type UpdatePolicy } from "@/lib/api";
 import type {
   AppKind,
   Install,
@@ -36,6 +37,8 @@ export interface AppFormState {
   /** clone URL override — kept so editing does not drop it */
   gitUrl: string;
   autoUpdate: boolean;
+  updatePolicy: UpdatePolicy;
+  verifyCommand: string;
 }
 
 /** A fresh form for a new repository. */
@@ -66,6 +69,8 @@ export function emptyForm(): AppFormState {
     binary: "",
     gitUrl: "",
     autoUpdate: false,
+    updatePolicy: DEFAULT_UPDATE_POLICY,
+    verifyCommand: "",
   };
 }
 
@@ -78,6 +83,7 @@ export function formFromApp(app: TrackedApp): AppFormState {
     name: app.name,
     kind: app.kind,
     autoUpdate: app.auto_update,
+    updatePolicy: app.update_policy ?? DEFAULT_UPDATE_POLICY,
   };
   switch (app.source) {
     case "npm":
@@ -112,11 +118,13 @@ export function formFromApp(app: TrackedApp): AppFormState {
     build: install.method === "source" ? install.build : "",
     workdir: install.method === "source" ? (install.workdir ?? "") || "" : "",
     artifact: install.method === "source" ? (install.artifact ?? "") || "" : "",
+    verifyCommand: install.verify_command ?? "",
     dest: install.dest ?? "",
     pattern: install.method === "asset" ? (install.pattern ?? "") || "" : "",
     binary: install.method === "asset" ? (install.binary ?? "") || "" : "",
     gitUrl: app.git_url ?? "",
     autoUpdate: app.auto_update,
+    updatePolicy: app.update_policy ?? DEFAULT_UPDATE_POLICY,
   };
 }
 
@@ -131,7 +139,8 @@ export function appFromForm(form: AppFormState): TrackedApp {
     id: form.id.trim(),
     name: form.name.trim(),
     kind: form.kind,
-    auto_update: form.autoUpdate,
+    auto_update: form.updatePolicy.mode === "notify" ? false : form.autoUpdate,
+    update_policy: form.updatePolicy,
   };
   switch (form.source) {
     case "npm":
@@ -178,12 +187,14 @@ export function appFromForm(form: AppFormState): TrackedApp {
     form.installMethod === "asset"
       ? {
           method: "asset",
+          verify_command: form.verifyCommand.trim() || null,
           pattern: form.pattern.trim() || null,
           binary: form.binary.trim() || null,
           dest: form.dest.trim() || null,
         }
       : {
           method: "source",
+          verify_command: form.verifyCommand.trim() || null,
           build: form.build.trim(),
           workdir: form.workdir.trim() || null,
           artifact: form.artifact.trim() || null,
@@ -196,7 +207,8 @@ export function appFromForm(form: AppFormState): TrackedApp {
     name: form.name.trim(),
     repo: form.repo.trim(),
     kind: form.kind,
-    auto_update: form.autoUpdate,
+    auto_update: form.updatePolicy.mode === "notify" ? false : form.autoUpdate,
+    update_policy: form.updatePolicy,
     git_url: form.gitUrl.trim() || null,
     track,
     install,

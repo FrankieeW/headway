@@ -21,14 +21,14 @@ share config, state, logs and locks, so whatever you do here shows up in the app
 - Source builds execute code from the repository. Only add repositories the user asked for.
 - GitHub and npm support `--next` and `--to <ref-or-version>` (including rollback). Homebrew
   and script sources only support the latest version. Plain `update` installs the latest.
-- For GitHub tools already installed by other means, record a baseline with `headway mark <id> latest`
-  instead of rebuilding it.
+- For GitHub tools already installed by other means, record a baseline only when the installed
+  version/ref is known. Finding an artifact alone does not prove it is the latest remote commit.
 - Never put a token on the command line. Pipe it: `printf %s "$TOKEN" | headway token set --stdin`,
   or reuse the GitHub CLI login with `headway token set --from-gh`.
 - Change apps with `headway edit`, not by editing `state.json`. `config.toml` may be hand-edited
   (`headway paths`), but `edit` validates.
 - `--dest` is the full path of the installed file or `.app` (`~/.local/bin/rg`), never a directory.
-- `remove` never deletes the installed program; `--purge` only deletes Headway's cached checkout and logs.
+- `remove` never deletes the installed program; `--purge` deletes its cached checkout, logs and backups.
 
 ## Workflow
 
@@ -80,8 +80,9 @@ For a branch that includes `scripts/build-headway.sh`, track the app with `headw
 FrankieeW/headway --preset headway-app --branch main --dest ~/Applications/Headway.app`, inspect
 `update headway --dry-run`, then install the first supported commit with `update headway`.
 Future `update headway --next` builds one commit at a time. The app carries its matching CLI;
-the app-managed CLI symlink follows it. Quit and reopen the app after installation to run the new
-code; the build recipe never restarts it while other updates may be active.
+the app-managed CLI symlink follows it. `headway --ai self status` compares running and installed
+builds. `self restart` queues a one-shot restart until the desktop updater is idle; the next startup
+confirms the commit. Inspect `restart_error` on failure and request again to retry.
 
 For a standalone CLI, use `add FrankieeW/headway --id headway-cli --preset headway-cli --branch
 main`, then the same dry-run/update/--next workflow. `headway --ai version` exposes compile-time
@@ -89,6 +90,59 @@ main`, then the same dry-run/update/--next workflow. `headway --ai version` expo
 revision. Only use a known clean installed commit as a `mark` baseline. Older commits without the
 helper require their historical recipe. Presets use stable `.headway-out` artifacts and preserve
 build caches; source installs still go through Headway's staged replacement.
+
+`headway --ai self subscribe` registers or moves Headway to the first subscription. New entries
+only notify. It preserves existing user settings and release/tag baselines, and adopts a clean
+commit stamp only for the exact managed bundle under its update lock. `headway --ai cli status`
+reports the bundled link and PATH shadowing; `cli fix --app /Applications/Headway/Headway.app`
+repairs Headway-owned links after a move, refusing foreign files and Brew-owned links.
+
+## Build candidates and commit evidence
+
+`inspect` returns `build_candidates` from README instructions, source manifests and presets:
+`id`, `source`, `file`, optional `line`, `build`, `workdir`, `artifact`, `kind`, `reason`, `recommended`.
+Inspection never executes those commands. Review a candidate, then override it using `add`/`edit`
+with `--build`, `--workdir`, `--artifact` and `--dest`. The UI's Apply action is explicit; fields
+remain editable after detection.
+
+`headway --ai commit-info <id> <sha> [--refresh]` returns `version`, `version_source` (`tag` or
+`manifest`), tags, nullable `is_release`, release/CI URLs and notes. A manifest is read at that exact
+SHA, and its version does not imply a Release. `ci_state` is `success`, `failure`, `pending`,
+`not_run` or `unknown`; API failure must not be described as a passing or absent check.
+
+## Discovery and automatic policy
+
+```sh
+headway --ai discover --source brew,npm
+headway --ai import <key-from-discover> --dry-run
+headway --ai import <key-from-discover>
+headway --ai recipes
+headway --ai import recipe:headway-app --dry-run
+headway --ai edit <id> --auto-update true --update-mode next --max-update-steps 1 --pause-on-failure true
+headway --ai auto-update <id>
+headway --ai resume-auto-update <id>
+```
+
+Discovery is read-only and reports partial provider errors. Import validates all selected entries
+before writing and disables auto-update. Recipe entries can be edited after import. Saved
+`update_policy` has `mode: notify|next|latest`, `max_steps: 1..20`, `pause_on_failure: bool`.
+Notify never installs; next applies a bounded sequence; latest installs once. Paused apps remain
+paused until resumed. `auto-update [ids...]` runs one saved-policy cycle (empty means all);
+manual `update --all` remains an explicit latest update. Policy/source changes are checked again
+between steps. A verification/update failure may set `auto_update_paused`.
+
+## Verification and restore
+
+`edit <id> --verify-command '<command>'` configures post-install verification for either GitHub
+install method; an empty string clears it. The command receives `HEADWAY_INSTALLED_PATH`,
+`HEADWAY_REF`, `HEADWAY_SHA`, `HEADWAY_VERSION`. It is not an installation-detection probe.
+Managed GitHub payloads retain the last two prior artifacts; `headway --ai backups <id>` lists
+them and `headway --ai restore <id> <backup-id>` restores without building. Restoration holds the
+app lock, validates paths/digests and repository/track identity, and records history. Foreign
+source backups are hidden from listing and cannot be restored; malformed or legacy unbound
+manifests remain explicit errors. Purge removes them. Package-manager/script installs and
+self-installing builds do not use this cache. A failed verifier rolls back the payload/ref; an
+emergency rollback failure reports the rescue path and clears installed certainty.
 
 ## Optional update sources
 
@@ -149,9 +203,11 @@ code. `doctor` exits 1 when a check fails.
 ## Statuses
 
 `list`/`show` give each app one `status`: `up_to_date`, `update_available` (`pending_count` newer
-commits/releases), `not_installed` (nothing recorded yet), `diverged` (installed commit no longer on
+commits/releases), `not_installed` (no detected managed artifact/baseline), `diverged` (installed commit no longer on
 the branch, e.g. after a force-push), `error` (see `last_error`), `busy`, `unchecked`, or
-`unknown` (a script cannot compare installed and latest versions).
+`unknown` (insufficient version evidence). In particular, an existing GitHub artifact without a
+recorded baseline is installed but unconfirmed. Never translate that into “not installed” or
+invent a SHA. If the recorded managed artifact disappears, update can reinstall it.
 
 ## Environment
 

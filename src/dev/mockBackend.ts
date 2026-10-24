@@ -1,9 +1,16 @@
+import { mockCommitMetadata } from "./mockCommitMetadata";
+import { buildCandidates, handleRoadmap } from "./mockRoadmap";
 // Browser preview of the UI without the Rust backend: `pnpm dev:renderer`, then open
 // http://localhost:1420/?mock (add `&theme=dark` or `&lang=en` to switch).
 // Loaded only in development builds; the fixtures cover every app status.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
-import type { AppView, BuildInfo, TrackedApp, SourceLookup } from "@/lib/api/types";
+import type {
+  AppView,
+  BuildInfo,
+  TrackedApp,
+  SourceLookup,
+} from "@/lib/api/types";
 
 import {
   apps,
@@ -21,9 +28,13 @@ function handle(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
+  const roadmap = handleRoadmap(cmd, args, apps);
+  if (roadmap !== undefined) return roadmap;
   const id = typeof args?.id === "string" ? args.id : "";
   const find = () => apps.find((view) => view.app.id === id) ?? apps[0];
   switch (cmd) {
+    case "commit_metadata":
+      return mockCommitMetadata(args);
     case "list_apps":
       return new URLSearchParams(location.search).has("empty") ? [] : apps;
     case "get_app":
@@ -83,6 +94,7 @@ function handle(
         archived: false,
         html_url: "https://github.com/" + repo,
         binaries: [],
+        build_candidates: buildCandidates,
         notes: [],
         suggestion: {
           source: "github",
@@ -139,7 +151,12 @@ function handle(
     case "set_autostart":
       return true;
     case "get_build_info":
-      return { version: "0.1.0", commit: null, dirty: false, target: null } satisfies BuildInfo;
+      return {
+        version: "0.1.0",
+        commit: null,
+        dirty: false,
+        target: null,
+      } satisfies BuildInfo;
     case "app_version":
       return "0.1.0";
     default:
@@ -149,8 +166,56 @@ function handle(
 
 export function installMockBackend(): void {
   mockWindows("main");
+  const scenario = new URLSearchParams(location.search).get("scenario");
+  handleRoadmap("ensure_self_subscription", undefined, apps);
+  const first = apps.find((view) => view.app.id === "zed");
+  const selfApp = apps.find((view) => view.app.id === "headway");
+  if (selfApp && scenario === "metadata-self") {
+    selfApp.status = "up_to_date";
+    selfApp.pending_count = 0;
+    selfApp.last_check = {
+      status: "up_to_date",
+      checked_at: "2026-10-24T08:00:00Z",
+      pending: [],
+      pending_total: 0,
+    };
+  }
+  if (first && scenario === "paused") first.auto_update_paused = true;
+  if (first && scenario === "busy") first.busy = true;
+  if (first && scenario === "installed-unconfirmed") {
+    first.status = "unknown";
+    first.installed = null;
+    first.pending_count = 0;
+    if (first.last_check)
+      first.last_check = {
+        ...first.last_check,
+        status: "unknown",
+        pending: [],
+        pending_total: 0,
+      };
+  }
+  if (first?.last_check && scenario === "metadata-many") {
+    first.last_check.pending = Array.from({ length: 12 }, (_, index) => ({
+      id: (index + 1).toString(16).padStart(40, "0"),
+      sha: (index + 1).toString(16).padStart(40, "0"),
+      title: `Bounded metadata row ${index + 1}`,
+      prerelease: false,
+    }));
+    first.last_check.pending_total = 12;
+    first.pending_count = 12;
+  }
   mockIPC(
-    (cmd, args) => handle(cmd, args as Record<string, unknown> | undefined),
+    (cmd, args) => {
+      if (cmd === "inspect_repo")
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(handle(cmd, args as Record<string, unknown> | undefined)),
+            600,
+          ),
+        );
+      return handle(cmd, args as Record<string, unknown> | undefined);
+    },
     {
       shouldMockEvents: true,
     },

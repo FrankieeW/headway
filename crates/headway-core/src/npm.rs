@@ -314,6 +314,7 @@ pub async fn lookup(
             name: short.to_owned(),
             kind: AppKind::Cli,
             auto_update: false,
+            update_policy: crate::config::UpdatePolicy::default(),
             source: Source::Npm(NpmSource {
                 package: package.to_owned(),
                 dist_tag: "latest".to_owned(),

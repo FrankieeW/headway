@@ -13,6 +13,15 @@ import { slugify } from "@/lib/format";
 import { emptyForm, formFromApp, type AppFormState } from "./appFormModel";
 export * from "./appFormModel";
 
+function savedEdits(app?: TrackedApp): Partial<AppFormState> {
+  if (!app) return {};
+  const fields: Partial<AppFormState> = formFromApp(app);
+  delete fields.source;
+  delete fields.repo;
+  delete fields.package;
+  return fields;
+}
+
 export interface UseAppFormResult {
   form: AppFormState;
   /** change one field */
@@ -55,9 +64,13 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
   /** counts up per inspection, so a late answer can be ignored */
   const requestId = useRef(0);
   const editedIdentity = useRef({ id: Boolean(app), kind: Boolean(app) });
+  const edits = useRef<Partial<AppFormState>>(savedEdits(app));
 
   const update = useCallback(
     <K extends keyof AppFormState>(key: K, value: AppFormState[K]) => {
+      if (!["source", "repo", "package"].includes(key)) {
+        edits.current = { ...edits.current, [key]: value };
+      }
       if (key === "kind") editedIdentity.current.kind = true;
       if (["source", "repo", "package", "cask", "distTag"].includes(key)) {
         requestId.current += 1;
@@ -66,28 +79,54 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         setInspectionError(null);
         setInspecting(false);
       }
-      setForm((current) => ({ ...current, [key]: value }));
+      setForm((current) => {
+        if (
+          key === "source" &&
+          value !== "github" &&
+          value !== "npm" &&
+          current.updatePolicy.mode === "next"
+        ) {
+          const updatePolicy = {
+            ...current.updatePolicy,
+            mode: "latest" as const,
+          };
+          edits.current = { ...edits.current, updatePolicy };
+          return { ...current, [key]: value, updatePolicy };
+        }
+        return { ...current, [key]: value };
+      });
     },
     [],
   );
 
   const replace = useCallback((next: AppFormState) => {
+    requestId.current += 1;
+    edits.current = next;
+    setInspecting(false);
+    setInspection(null);
+    setLookup(null);
     setForm(next);
   }, []);
 
   const setName = useCallback(
     (value: string) => {
+      edits.current = {
+        ...edits.current,
+        name: value,
+        ...(!editedIdentity.current.id ? { id: slugify(value) } : {}),
+      };
       setForm((current) => ({
         ...current,
         name: value,
         // the id follows the name until the user typed one
-        id: idEdited ? current.id : slugify(value),
+        id: editedIdentity.current.id ? current.id : slugify(value),
       }));
     },
     [idEdited],
   );
 
   const setId = useCallback((value: string) => {
+    edits.current = { ...edits.current, id: value };
     editedIdentity.current.id = true;
     setIdEdited(true);
     setForm((current) => ({ ...current, id: value }));
@@ -123,19 +162,17 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         if ("repo" in result) setInspection(result);
         else setLookup(result);
         const suggestion = formFromApp(result.suggestion);
-        setForm((current) => ({
-          ...suggestion,
-          name: current.name.trim() ? current.name : suggestion.name,
-          autoUpdate: current.autoUpdate,
-          kind: editedIdentity.current.kind ? current.kind : suggestion.kind,
-          distTag:
-            current.source === "npm" ? current.distTag : suggestion.distTag,
-          // an id the user typed wins over the suggested one
-          id:
-            editedIdentity.current.id || current.name.trim()
-              ? current.id
-              : suggestion.id,
-        }));
+        setForm((current) => {
+          const merged = {
+            ...suggestion,
+            autoUpdate: current.autoUpdate,
+            updatePolicy: current.updatePolicy,
+            ...edits.current,
+            source: current.source,
+          };
+          if (merged.trackMode !== "release") merged.installMethod = "source";
+          return merged;
+        });
       } catch (error) {
         if (request !== requestId.current) return;
         setInspection(null);
@@ -150,6 +187,7 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
   const reset = useCallback((next?: TrackedApp) => {
     // a pending inspection must not fill the new form
     requestId.current += 1;
+    edits.current = savedEdits(next);
     setForm(next ? formFromApp(next) : emptyForm());
     editedIdentity.current = { id: Boolean(next), kind: Boolean(next) };
     setIdEdited(Boolean(next));

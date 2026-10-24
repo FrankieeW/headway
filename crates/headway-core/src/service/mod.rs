@@ -47,6 +47,7 @@ pub struct Headway {
     api: String,
     env_mode: EnvMode,
     env_cache: tokio::sync::Mutex<Option<ShellEnv>>,
+    pub(crate) commit_metadata_cache: crate::commit_metadata::Cache,
 }
 
 pub struct HeadwayBuilder {
@@ -107,6 +108,7 @@ impl HeadwayBuilder {
             api: self.api,
             env_mode: self.env_mode,
             env_cache: tokio::sync::Mutex::new(self.env),
+            commit_metadata_cache: crate::commit_metadata::Cache::default(),
         })
     }
 }
@@ -114,8 +116,14 @@ impl HeadwayBuilder {
 mod apps;
 mod checks;
 mod github;
+mod inventory;
 #[path = "update.rs"]
 mod operations;
+mod policy;
+mod presence;
+#[cfg(test)]
+mod presence_tests;
+mod recovery;
 mod resolve;
 #[cfg(test)]
 mod source_tests;

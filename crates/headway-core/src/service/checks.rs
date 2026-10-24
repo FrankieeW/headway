@@ -49,7 +49,7 @@ impl Headway {
         let env = self.env().await;
         let installed = self.store.state()?.app(id).installed;
         let checked_against = installed.as_ref().map(|installed| installed.id.clone());
-        let outcome = check::check(
+        let outcome = super::presence::check(
             &Probe {
                 gh: &gh,
                 env: &env,

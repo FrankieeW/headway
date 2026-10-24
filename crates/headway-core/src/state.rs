@@ -43,6 +43,8 @@ impl State {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppState {
+    #[serde(default)]
+    pub auto_update_paused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub installed: Option<InstalledRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

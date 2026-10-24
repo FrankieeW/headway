@@ -22,7 +22,7 @@ impl Headway {
         }
         let started = Instant::now();
         let log = RunLog::create(&self.paths().app_log_dir(id), id, sink)?;
-        let installed = self.store.state()?.app(id).installed;
+        let installed = super::presence::retained(&app, self.store.state()?.app(id).installed)?;
         log.stage(
             Stage::Resolve,
             format!("Resolving {} of {}", target.label(), app.name),
@@ -217,7 +217,10 @@ impl Headway {
         };
         self.store.update_state(|state| {
             let next = state.with_app(&attempt.app.id, |app_state| {
-                let app_state = app_state.record(entry);
+                let app_state = AppState {
+                    last_check: None,
+                    ..app_state.record(entry)
+                };
                 if matches!(err, Error::Cancelled) {
                     app_state
                 } else {

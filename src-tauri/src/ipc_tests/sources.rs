@@ -18,6 +18,7 @@ fn source_apps_round_trip_through_add_save_and_list() {
     // When the frontend adds and edits each source.
     for mut app in apps {
         let added = ok(&harness, "add_app", json!({"app":app}));
+        app["update_policy"] = json!({"mode":"latest","max_steps":1,"pause_on_failure":true});
         assert_eq!(added["app"], app);
         app["name"] = json!(format!("Edited {}", app["id"].as_str().unwrap()));
         app["auto_update"] = json!(true);

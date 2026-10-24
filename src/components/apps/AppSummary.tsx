@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { CommitBadges } from "./CommitBadges";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -36,11 +37,13 @@ function SummaryColumn({
   value,
   title,
   time,
+  children,
 }: {
   label: string;
   value: string;
   title?: string;
   time?: string;
+  children?: ReactNode;
 }) {
   return (
     <div className="min-w-0">
@@ -52,6 +55,7 @@ function SummaryColumn({
         </p>
       ) : null}
       {time ? <p className="text-caption text-fg-3">{time}</p> : null}
+      {children}
     </div>
   );
 }
@@ -75,6 +79,8 @@ export function AppSummary({
 
   const installed = app.installed ?? null;
   const latest = app.last_check?.latest ?? null;
+  const installedUnconfirmed =
+    app.app.source === "github" && app.status === "unknown" && !installed;
 
   // a run that is not finished yet; a finished one is only history
   const liveRun = run && !run.finished ? run : undefined;
@@ -134,9 +140,24 @@ export function AppSummary({
                       when: timeAgo(installed.installed_at, lang),
                     },
                   )
-                : t("appPage.notInstalledYet")
+                : t(
+                    installedUnconfirmed
+                      ? "appPage.installationFound"
+                      : "appPage.notInstalledYet",
+                  )
             }
-          />
+          >
+            {installed &&
+            app.app.source === "github" &&
+            app.app.track.mode === "commit" ? (
+              <CommitBadges
+                appId={app.app.id}
+                repo={app.app.repo}
+                sha={installed.sha ?? installed.id}
+                autoLoad
+              />
+            ) : null}
+          </SummaryColumn>
           <SummaryColumn
             label={t("appPage.latest")}
             value={latestValue}
@@ -276,7 +297,14 @@ function describeStatus(
       };
     }
     case "unknown":
-      return { text: t("appPage.status.unknown"), tone: "normal" };
+      return {
+        text: t(
+          app.app.source === "github" && !app.installed
+            ? "appPage.status.installedUnconfirmed"
+            : "appPage.status.unknown",
+        ),
+        tone: "normal",
+      };
     case "up_to_date":
       return { text: t("appPage.status.upToDate"), tone: "success" };
     case "not_installed":

@@ -165,6 +165,7 @@ fn bare_app(spec: &SourceSpec) -> TrackedApp {
         name,
         kind,
         auto_update: false,
+        update_policy: headway_core::policy::UpdatePolicy::default(),
         source,
     }
 }

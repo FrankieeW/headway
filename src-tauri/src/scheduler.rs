@@ -88,7 +88,11 @@ async fn run_cycle<R: Runtime>(app: &AppHandle<R>) {
         {
             fresh.push(view.app.name.clone());
         }
-        if view.app.auto_update && !view.busy {
+        if view.app.auto_update
+            && !view.busy
+            && !view.auto_update_paused
+            && view.app.update_policy.mode != headway_core::AutoUpdateMode::Notify
+        {
             auto.push(id);
         }
     }

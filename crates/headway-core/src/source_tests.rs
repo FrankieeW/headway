@@ -117,3 +117,49 @@ fn github_ssh_sources_and_urls_with_query_strings_keep_the_repository() {
         );
     }
 }
+
+#[test]
+fn github_identity_uses_canonical_case_insensitive_repo_and_track_mode() {
+    // Given equivalent GitHub spellings and a distinct tracking mode.
+    let source = |repo: &str, track| {
+        Source::Github(GithubSource {
+            repo: repo.into(),
+            git_url: None,
+            track,
+            install: crate::config::Install::Source(crate::config::SourceInstall {
+                build: "true".into(),
+                ..crate::config::SourceInstall::default()
+            }),
+        })
+    };
+    let base = source(
+        "Frankieew/headway",
+        crate::config::Track::Commit { branch: None },
+    );
+    for repo in [
+        "FrankieeW/Headway",
+        "https://github.com/FRANKIEEW/HEADWAY.git",
+        "git@github.com:FrankieeW/headway.git",
+    ] {
+        // When comparing parsed repository identity with the same track mode.
+        let equivalent = source(
+            repo,
+            crate::config::Track::Commit {
+                branch: Some("main".into()),
+            },
+        );
+        // Then URL syntax, casing and branch selection do not create another identity.
+        assert!(base.same_identity(&equivalent));
+    }
+    assert!(!base.same_identity(&source(
+        "FrankieeW/headway",
+        crate::config::Track::Release {
+            prerelease: false,
+            tag_filter: None
+        }
+    )));
+    assert!(!base.same_identity(&source(
+        "other/headway",
+        crate::config::Track::Commit { branch: None }
+    )));
+}

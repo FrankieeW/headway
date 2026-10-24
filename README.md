@@ -88,8 +88,9 @@ The desktop preset runs `./scripts/build-headway.sh app`, builds only the `.app`
 bundles the matching CLI, ad-hoc signs the app, and verifies the staged signature before publishing
 the artifact. The stable artifact is `.headway-out/Headway.app`; the script honors
 `CARGO_TARGET_DIR`, uses the native Rust target by default, and retains Cargo/pnpm caches between
-commits. Open the updated app after quitting the running instance to load the new code. A CLI
-symlink installed by the app follows the bundled CLI on its next invocation.
+commits. Settings shows the running and installed builds separately. Request a restart there or
+with `headway self restart`; the app waits for its active updates to finish and confirms the new
+commit after relaunch. A failed restart is shown with a retry action.
 
 For a standalone CLI instead, use a separate tracking id:
 
@@ -116,6 +117,60 @@ Only mark a baseline when you know the installed build's exact clean commit. The
 require a commit containing `scripts/build-headway.sh`; older commits need their historical build
 command. See [`examples/self-update.toml`](examples/self-update.toml) for equivalent config entries.
 CI builds the self-hosted app and verifies its bundled CLI and signature on every change.
+
+The app registers Headway as its first subscription when it finds its installed bundle. New self
+subscriptions only notify; existing destinations and policies are preserved. A clean build stamp
+can supply the commit baseline for that exact destination; release/tag baselines are preserved.
+Use `headway --json self subscribe` to repeat registration. If the app moves, run
+`headway --json cli fix --app /Applications/Headway/Headway.app`. This repairs Headway's own link;
+it reports PATH shadowing and refuses to replace unrelated files or a Homebrew-owned link.
+
+## Build detection, discovery and update policies
+
+`inspect` reads README build instructions and source manifests without executing them. Its
+`build_candidates` include the source file, line when available, command, workdir and artifact.
+The add/edit dialog lets you apply a candidate and then edit every field. CLI overrides are
+`--build`, `--workdir`, `--artifact` and `--dest`; review these before the first installation.
+
+```sh
+headway --json discover --source brew,npm      # read installed packages; does not import
+headway --json import 'brew ripgrep' --dry-run  # use the exact key from discover
+headway --json recipes
+headway --json import recipe:headway-app --dry-run
+headway edit ripgrep --auto-update true --update-mode next --max-update-steps 1 --pause-on-failure true
+headway --json auto-update ripgrep             # one cycle using the saved policy
+headway --json resume-auto-update ripgrep
+```
+
+Imports validate the entire batch, reject duplicate sources/IDs and start with automatic updates
+off. Recipes remain editable. Automatic modes are `notify`, `next` and `latest`; `next` supports
+1–20 steps per cycle, and failures can pause later cycles until resumed. Mode, source and step
+budget changes take effect before another step. Manual `update --all` keeps its explicit behavior.
+
+For GitHub apps, finding an installed file without a known baseline shows **installed, version
+unconfirmed**. It does not invent a commit. Deleting a managed artifact clears stale installed
+certainty so an update can reinstall it. npm and Homebrew continue to read their own inventories.
+
+Each displayed commit can show its version, CI state and Release badge. Versions come from an
+actual tag or a manifest at that exact SHA; a manifest version alone is not a release. CI distinguishes
+success, failure, pending, not run and unavailable. `headway --json commit-info <id> <sha> --refresh`
+returns the same evidence (`version_source`, `ci_state`, `is_release`, URLs and notes).
+
+## Verification and cached recovery
+
+```sh
+headway edit ripgrep --verify-command '"$HEADWAY_INSTALLED_PATH" --version'
+headway --json backups ripgrep
+headway --json restore ripgrep <backup-id>
+```
+
+Managed GitHub artifact installs retain up to two prior payloads. Restoration checks the cache's
+paths, digests, repository and tracking mode, then restores without a build. A failed post-install
+verification restores the prior payload and recorded ref. `verify_command` runs with
+`HEADWAY_INSTALLED_PATH`, `HEADWAY_REF`, `HEADWAY_SHA` and `HEADWAY_VERSION`; it is never run merely
+to detect installation. Headway bundles also undergo native signature verification. External
+package managers and builds that install themselves do not use this cache. Old cache manifests
+without source identity are rejected explicitly. `remove --purge` also removes retained backups.
 
 ## The desktop app
 
@@ -222,12 +277,23 @@ UI preview without the backend: `pnpm dev:renderer`, then open
 Releases: `./scripts/bump-version.sh patch|minor|major|beta`, commit, tag `vX.Y.Z`, push; CI builds
 the app (`.dmg`, `.app.zip`) and CLI tarballs for Apple Silicon and Intel and publishes a GitHub Release.
 
+The tap's `Update Headway release` workflow polls stable releases every 15 minutes and can be run
+manually. It checks both DMG digests and the source tag before opening a PR that changes only
+`Formula/headway.rb` and `Casks/headway.rb`. The updater defaults to a dry run:
+`node scripts/update-homebrew-tap.mjs --tap-root /path/to/homebrew-tap`. PR publication requires
+`--apply --create-pr` and the official tap checkout. Release publication and tap PR merging remain
+separate steps.
+
 ## 中文简介
 
 Headway 是一个 macOS 菜单栏应用 + 命令行工具：跟踪 GitHub 仓库，**逐个 commit** 从源码构建，或**跟随版本号**
 下载 Release 资源，自动安装到 `~/.local/bin` 或 `/Applications`。GitHub Token 保存在钥匙串里（也可以直接用
 `gh` 的登录）。CLI 为 AI Agent 设计：`--ai` 输出 XML、`--json` 输出 JSON、稳定的错误码与退出码、
 `headway commands` 自描述，并附带 `skills/headway/SKILL.md`。
+
+支持 npm、Homebrew 和自定义官方升级脚本；可发现并导入已安装的软件。添加应用时可从 README 和源码清单
+识别构建命令，再手动修改。自动更新支持仅通知、逐版本和最新版本；安装后可校验并保留两份历史产物供恢复。
+每个 commit 可显示版本、CI 和 Release 标记。Headway 自身作为首个订阅，支持空闲后重启，以及移动 App 后修复 CLI 链接。
 
 ## License
 

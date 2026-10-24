@@ -23,6 +23,8 @@ pub struct AppState {
     check_requested: AtomicBool,
     /// Quitting: the first exit request cancels running updates, the next one exits.
     exiting: AtomicBool,
+    /// Seals update admission once an idle restart has been admitted.
+    restarting: AtomicBool,
 }
 
 impl AppState {
@@ -33,6 +35,7 @@ impl AppState {
             wake: Arc::new(tokio::sync::Notify::new()),
             check_requested: AtomicBool::new(false),
             exiting: AtomicBool::new(false),
+            restarting: AtomicBool::new(false),
         }
     }
 
@@ -66,12 +69,34 @@ impl AppState {
     /// Registers a run; `None` if this app is already updating here.
     pub fn begin_run(&self, id: &str) -> Option<CancellationToken> {
         let mut runs = self.runs.lock().ok()?;
-        if runs.contains_key(id) {
+        if self.exiting.load(Ordering::SeqCst)
+            || self.restarting.load(Ordering::SeqCst)
+            || runs.contains_key(id)
+        {
             return None;
         }
         let token = CancellationToken::new();
         runs.insert(id.to_owned(), token.clone());
         Some(token)
+    }
+
+    /// Admits a restart only while idle and prevents new updates from racing it.
+    pub fn try_admit_restart_if_idle(&self) -> bool {
+        let Ok(runs) = self.runs.lock() else {
+            return false;
+        };
+        if !runs.is_empty() || self.exiting.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.restarting.store(true, Ordering::SeqCst);
+        true
+    }
+
+    /// Reopens admission if persisting an admitted restart failed.
+    pub fn cancel_restart_admission(&self) {
+        if let Ok(_runs) = self.runs.lock() {
+            self.restarting.store(false, Ordering::SeqCst);
+        }
     }
 
     pub fn end_run(&self, id: &str) {

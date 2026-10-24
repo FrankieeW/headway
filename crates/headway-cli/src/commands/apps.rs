@@ -57,6 +57,8 @@ fn summary(view: &AppView) -> Value {
         "pending_count": view.pending_count,
         "busy": view.busy,
         "auto_update": view.app.auto_update,
+        "update_policy": view.app.update_policy,
+        "auto_update_paused": view.auto_update_paused,
         "installed": view.installed.as_ref().map(|installed| json!({
             "id": installed.id,
             "version": installed.version,

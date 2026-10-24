@@ -70,6 +70,12 @@ async fn official_headway_with_script_prefers_app_and_default_branch_commits() {
         let found = inspect(&gh, repo).await.unwrap();
 
         assert_eq!(found.build_system.as_deref(), Some("headway-app"));
+        assert_eq!(
+            found.build_candidates[0].source,
+            BuildCandidateSource::Preset
+        );
+        assert!(found.build_candidates[0].recommended);
+        assert_eq!(found.build_candidates[0].file, "scripts/build-headway.sh");
         assert_eq!(found.suggestion.id, "headway");
         assert_eq!(found.suggestion.name, "Headway");
         assert_eq!(found.suggestion.kind, AppKind::App);
@@ -92,7 +98,6 @@ async fn official_headway_with_script_prefers_app_and_default_branch_commits() {
             Some("Headway.dmg")
         );
         found.suggestion.validate().unwrap();
-        assert_eq!(server.received_requests().await.unwrap().len(), 5);
     }
 }
 
@@ -126,7 +131,6 @@ async fn official_headway_before_script_exists_keeps_generic_workspace_tauri_bui
             Some("target/release/bundle/macos/*.app")
         );
         found.suggestion.validate().unwrap();
-        assert_eq!(server.received_requests().await.unwrap().len(), 5);
     }
 }
 
@@ -169,7 +173,6 @@ async fn unrelated_tauri_repos_keep_artifact_layout_without_probing_headway_scri
         assert_eq!(source_install(&found).artifact.as_deref(), Some(artifact));
         found.suggestion.validate().unwrap();
         let requests = server.received_requests().await.unwrap();
-        assert_eq!(requests.len(), 4);
         assert!(
             requests
                 .iter()

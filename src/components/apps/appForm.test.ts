@@ -1,3 +1,4 @@
+import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,10 +17,12 @@ const cliApp: TrackedApp = {
   repo: "owner/my-tool",
   kind: "cli",
   auto_update: true,
+  update_policy: DEFAULT_UPDATE_POLICY,
   git_url: null,
   track: { mode: "commit", branch: "main" },
   install: {
     method: "source",
+    verify_command: null,
     build: "cargo build --release",
     workdir: null,
     artifact: "target/release/{bin}",
@@ -34,10 +37,12 @@ const releaseApp: TrackedApp = {
   repo: "owner/some-app",
   kind: "app",
   auto_update: false,
+  update_policy: DEFAULT_UPDATE_POLICY,
   git_url: "git@github.com:owner/some-app.git",
   track: { mode: "release", prerelease: true, tag_filter: "^v" },
   install: {
     method: "asset",
+    verify_command: null,
     pattern: "*.dmg",
     binary: "Some App.app",
     dest: "/Applications",
@@ -123,6 +128,7 @@ describe("appFromForm", () => {
     if (app.source !== "github") throw new Error("Expected GitHub payload");
     expect(app.install).toEqual({
       method: "source",
+      verify_command: null,
       build: "make",
       workdir: null,
       artifact: null,

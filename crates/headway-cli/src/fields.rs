@@ -2,8 +2,9 @@
 //! suggestion, or the current config). Flags that don't fit the chosen mode are
 //! rejected instead of being silently ignored.
 
+use crate::args::UpdateModeArg;
 use headway_core::config::{AppKind, AssetInstall, Install, SourceInstall, Track, TrackedApp};
-use headway_core::presets;
+use headway_core::{AutoUpdateMode, UpdatePolicy, presets};
 use headway_core::{Error, GithubSource, Result, Source};
 
 use crate::args::{AppFields, KindArg, MethodArg, TrackArg};
@@ -54,6 +55,20 @@ pub fn apply(base: TrackedApp, fields: &AppFields) -> Result<TrackedApp> {
         name,
         kind,
         auto_update: fields.auto_update.unwrap_or(base.auto_update),
+        update_policy: UpdatePolicy {
+            mode: match fields.update_mode {
+                Some(UpdateModeArg::Notify) => AutoUpdateMode::Notify,
+                Some(UpdateModeArg::Next) => AutoUpdateMode::Next,
+                Some(UpdateModeArg::Latest) => AutoUpdateMode::Latest,
+                None => base.update_policy.mode,
+            },
+            max_steps: fields
+                .max_update_steps
+                .unwrap_or(base.update_policy.max_steps),
+            pause_on_failure: fields
+                .pause_on_failure
+                .unwrap_or(base.update_policy.pause_on_failure),
+        },
         source,
         ..base
     })
@@ -148,6 +163,7 @@ fn apply_install(
                 workdir: optional(fields.workdir.as_ref(), base.workdir),
                 artifact: optional(fields.artifact.as_ref(), base.artifact),
                 dest: optional(fields.dest.as_ref(), base.dest),
+                verify_command: optional(fields.verify_command.as_ref(), base.verify_command),
             }))
         }
         MethodArg::Asset => {
@@ -169,6 +185,7 @@ fn apply_install(
                 pattern: optional(fields.pattern.as_ref(), base.pattern),
                 binary: optional(fields.binary.as_ref(), base.binary),
                 dest: optional(fields.dest.as_ref(), base.dest),
+                verify_command: optional(fields.verify_command.as_ref(), base.verify_command),
             }))
         }
     }

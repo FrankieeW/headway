@@ -27,7 +27,14 @@ impl Source {
     pub(crate) fn same_identity(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Github(a), Self::Github(b)) => {
-                a.repo == b.repo && a.track.mode() == b.track.mode()
+                a.track.mode() == b.track.mode()
+                    && match (a.repo_id(), b.repo_id()) {
+                        (Ok(a), Ok(b)) => {
+                            a.owner.eq_ignore_ascii_case(&b.owner)
+                                && a.name.eq_ignore_ascii_case(&b.name)
+                        }
+                        _ => false,
+                    }
             }
             (Self::Npm(a), Self::Npm(b)) => a.package == b.package,
             (Self::Brew(a), Self::Brew(b)) => a.package == b.package && a.cask == b.cask,

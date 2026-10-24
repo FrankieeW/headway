@@ -84,6 +84,10 @@ impl Headway {
     pub fn remove(&self, id: &str, purge: bool) -> Result<RemovedApp> {
         // Held until the end: no update may start while the checkout is being deleted.
         let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        if purge {
+            self.store.config()?.app(id)?;
+            crate::recovery::purge(self.paths(), id)?;
+        }
         self.store.update_config(|Config { settings, apps }| {
             if !apps.iter().any(|app| app.id == id) {
                 return Err(Error::AppNotFound(id.to_owned()));

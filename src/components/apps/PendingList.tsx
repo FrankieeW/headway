@@ -1,3 +1,4 @@
+import { CommitBadges } from "./CommitBadges";
 import { supportsRefs } from "@/lib/sources";
 import { useState } from "react";
 import { Check, ChevronDown, ExternalLink, Loader2 } from "lucide-react";
@@ -64,6 +65,7 @@ function ReleaseNotes({ body }: { body: string }) {
 
 function CandidateRow({
   candidate,
+  commitContext,
   installing,
   showNotes,
   canMark,
@@ -72,6 +74,7 @@ function CandidateRow({
   onMarkInstalled,
 }: {
   candidate: Candidate;
+  commitContext?: { appId: string; repo: string; autoLoad: boolean };
   installing: boolean;
   /** release notes only make sense for releases and tags */
   showNotes: boolean;
@@ -101,6 +104,14 @@ function CandidateRow({
         ) : null}
         {meta ? (
           <p className="truncate text-caption text-fg-3">{meta}</p>
+        ) : null}
+        {commitContext ? (
+          <CommitBadges
+            appId={commitContext.appId}
+            repo={commitContext.repo}
+            sha={candidate.sha ?? candidate.id}
+            autoLoad={commitContext.autoLoad}
+          />
         ) : null}
         {showNotes && candidate.body && candidate.body.trim() ? (
           <ReleaseNotes body={candidate.body} />
@@ -169,7 +180,11 @@ export function PendingList({
     return (
       <EmptyState
         title={t("status.unknown")}
-        description={t("appPage.status.unknown")}
+        description={t(
+          app.app.source === "github" && !app.installed
+            ? "appPage.status.installedUnconfirmed"
+            : "appPage.status.unknown",
+        )}
       />
     );
   if (pending.length === 0) {
@@ -226,10 +241,19 @@ export function PendingList({
   return (
     <div>
       <ul className="space-y-0.5">
-        {pending.map((candidate) => (
+        {pending.map((candidate, index) => (
           <CandidateRow
             key={candidate.id}
             candidate={candidate}
+            commitContext={
+              app.app.source === "github" && app.app.track.mode === "commit"
+                ? {
+                    appId: app.app.id,
+                    repo: app.app.repo,
+                    autoLoad: index < (app.installed ? 4 : 5),
+                  }
+                : undefined
+            }
             installing={installing}
             showNotes={showNotes}
             canMark={app.app.source === "github"}

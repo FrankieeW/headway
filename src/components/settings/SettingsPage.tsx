@@ -1,3 +1,4 @@
+import { SelfUpdateStatus } from "./SelfUpdateStatus";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -24,6 +25,7 @@ export function SettingsPage() {
           <UpdatesSection />
           <LocationsSection />
           <CliSection />
+          <SelfUpdateStatus />
           <GeneralSection />
           <DiagnosticsSection />
         </SettingsBody>

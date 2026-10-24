@@ -151,6 +151,24 @@ pub fn inspection(p: Palette, found: &RepoInspection) -> String {
     if !found.binaries.is_empty() {
         let _ = writeln!(out, "  binaries        {}", found.binaries.join(", "));
     }
+    for candidate in &found.build_candidates {
+        let line = candidate
+            .line
+            .map(|line| format!(":{line}"))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "  build candidate {}{}{}\n    {}",
+            candidate.file,
+            line,
+            if candidate.recommended {
+                " (recommended)"
+            } else {
+                ""
+            },
+            candidate.build.replace('\n', "\n    ")
+        );
+    }
     if let Some(release) = &found.latest_release {
         let asset = release
             .suggested_asset
