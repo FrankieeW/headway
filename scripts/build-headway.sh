@@ -57,6 +57,20 @@ case "$build_target" in
 esac
 
 HEADWAY_BUILD_SHA="$(git rev-parse --verify HEAD)"
+headway_origin="$(git remote get-url origin 2>/dev/null || true)"
+HEADWAY_BUILD_REPOSITORY=''
+case "$headway_origin" in
+  https://github.com/*) HEADWAY_BUILD_REPOSITORY="${headway_origin#https://github.com/}" ;;
+  http://github.com/*) HEADWAY_BUILD_REPOSITORY="${headway_origin#http://github.com/}" ;;
+  git@github.com:*) HEADWAY_BUILD_REPOSITORY="${headway_origin#git@github.com:}" ;;
+  ssh://git@github.com/*) HEADWAY_BUILD_REPOSITORY="${headway_origin#ssh://git@github.com/}" ;;
+esac
+HEADWAY_BUILD_REPOSITORY="${HEADWAY_BUILD_REPOSITORY%/}"
+HEADWAY_BUILD_REPOSITORY="${HEADWAY_BUILD_REPOSITORY%.git}"
+if [[ ! "$HEADWAY_BUILD_REPOSITORY" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]]; then
+  HEADWAY_BUILD_REPOSITORY=''
+fi
+export HEADWAY_BUILD_REPOSITORY
 HEADWAY_BUILD_DIRTY=false
 checkout_status="$(git status --porcelain --untracked-files=normal)"
 if [ -n "$checkout_status" ]; then

@@ -8,6 +8,8 @@ use std::{
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Stamp {
+    #[serde(default)]
+    pub repository: Option<String>,
     pub commit: String,
     pub dirty: bool,
     pub target: String,

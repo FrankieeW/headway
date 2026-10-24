@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::os::unix::fs::PermissionsExt as _;
 
 use super::*;
@@ -11,7 +12,7 @@ fn fixture(dirty: bool) -> (tempfile::TempDir, Headway) {
     let app = root.path().join("apps/Headway.app");
     std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
     std::fs::write(app.join("Contents/Info.plist"), r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>wang.frankie.headway</string><key>CFBundleExecutable</key><string>headway-desktop</string></dict></plist>"#).unwrap();
-    let reply = serde_json::json!({"ok":true,"data":{"version":"0.2.1","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dirty":dirty,"target":"aarch64-apple-darwin"}});
+    let reply = serde_json::json!({"ok":true,"data":{"version":"0.2.1","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dirty":dirty,"target":"aarch64-apple-darwin","repository":"FrankieeW/headway"}});
     for name in ["headway", "headway-desktop"] {
         let path = app.join("Contents/MacOS").join(name);
         std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' '{reply}'\n")).unwrap();
@@ -24,6 +25,89 @@ fn fixture(dirty: bool) -> (tempfile::TempDir, Headway) {
     hw.set_setting("apps_dir", root.path().join("apps").to_str().unwrap())
         .unwrap();
     (root, hw)
+}
+
+#[tokio::test]
+async fn switching_from_a_fork_to_official_never_adopts_the_forks_clean_stamp() {
+    let (root, hw) = fixture(false);
+    let cli = root.path().join("apps/Headway.app/Contents/MacOS/headway");
+    let reply = serde_json::json!({"ok":true,"data":{"version":"0.2.1","commit":"a".repeat(40),"dirty":false,"target":"aarch64-apple-darwin","repository":"my-fork/headway"}});
+    std::fs::write(&cli, format!("#!/bin/sh\nprintf '%s\\n' '{reply}'\n")).unwrap();
+    let mut app = crate::testing::cli_app("forked");
+    app.kind = AppKind::App;
+    let Source::Github(github) = &mut app.source else {
+        unreachable!()
+    };
+    github.repo = "my-fork/headway".into();
+    github.options.repositories.push(crate::RepositoryOption {
+        repo: "FrankieeW/headway".into(),
+        label: "Official".into(),
+        git_url: None,
+        branch: Some("main".into()),
+    });
+    let Install::Source(source) = &mut github.install else {
+        unreachable!()
+    };
+    source.artifact = Some("Headway.app".into());
+    source.dest = Some(root.path().join("apps/Headway.app").display().to_string());
+    hw.add(app).unwrap();
+    hw.select_repository("forked", "FrankieeW/headway").unwrap();
+    let view = hw.ensure_self_subscription().await.unwrap();
+    assert!(
+        view.installed.is_none(),
+        "fork-only stamp must not become an official baseline"
+    );
+    assert_eq!(view.status, crate::AppStatus::Unknown);
+    assert_eq!(hw.list().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_new_self_subscription_follows_the_bundles_stamped_fork_origin() {
+    let (root, hw) = fixture(false);
+    let cli = root.path().join("apps/Headway.app/Contents/MacOS/headway");
+    let reply = serde_json::json!({"ok":true,"data":{"version":"0.2.1","commit":"a".repeat(40),"dirty":false,"target":"aarch64-apple-darwin","repository":"my-fork/headway"}});
+    std::fs::write(cli, format!("#!/bin/sh\nprintf '%s\\n' '{reply}'\n")).unwrap();
+    let view = hw.ensure_self_subscription().await.unwrap();
+    assert_eq!(view.app.repo_id().unwrap().full_name(), "my-fork/headway");
+    assert_eq!(view.installed.unwrap().id, "a".repeat(40));
+    assert!(!view.app.auto_update);
+}
+
+#[tokio::test]
+async fn legacy_originless_builds_never_create_a_new_source_baseline() {
+    let (root, hw) = fixture(false);
+    let cli = root.path().join("apps/Headway.app/Contents/MacOS/headway");
+    let reply = serde_json::json!({"ok":true,"data":{"version":"0.2.1","commit":"a".repeat(40),"dirty":false,"target":"aarch64-apple-darwin"}});
+    std::fs::write(cli, format!("#!/bin/sh\nprintf '%s\\n' '{reply}'\n")).unwrap();
+    let view = hw.ensure_self_subscription().await.unwrap();
+    assert!(view.installed.is_none());
+    assert_eq!(view.status, crate::AppStatus::Unknown);
+    hw.store()
+        .update_state(|state| {
+            Ok((
+                state.with_app(&view.app.id, |state| crate::state::AppState {
+                    installed: Some(InstalledRef {
+                        id: "a".repeat(40),
+                        sha: Some("a".repeat(40)),
+                        version: Some("0.2.1".into()),
+                        installed_at: Utc::now(),
+                        path: Some(root.path().join("apps/Headway.app").display().to_string()),
+                    }),
+                    ..state
+                }),
+                (),
+            ))
+        })
+        .unwrap();
+    assert_eq!(
+        hw.ensure_self_subscription()
+            .await
+            .unwrap()
+            .installed
+            .unwrap()
+            .id,
+        "a".repeat(40)
+    );
 }
 
 #[tokio::test]

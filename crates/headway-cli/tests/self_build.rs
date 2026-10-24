@@ -87,6 +87,30 @@ fn selected_target_and_spaced_cache_override_stale_artifacts() {
 }
 
 #[test]
+fn source_origin_is_stamped_from_git_without_exposing_non_github_remotes() {
+    let repo = Repo::new();
+    repo.git(&[
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:My-Fork/headway.git",
+    ]);
+    success(repo.build(&["cli"], &[]));
+    assert_eq!(
+        repo.stamp(".headway-out/headway").repository.as_deref(),
+        Some("My-Fork/headway")
+    );
+    repo.git(&[
+        "remote",
+        "set-url",
+        "origin",
+        "https://example.invalid/my/repository",
+    ]);
+    success(repo.build(&["cli"], &[]));
+    assert!(repo.stamp(".headway-out/headway").repository.is_none());
+}
+
+#[test]
 fn failed_build_preserves_published_cli() {
     let repo = Repo::new();
     success(repo.build(&["cli"], &[]));

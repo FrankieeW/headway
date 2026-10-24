@@ -16,6 +16,7 @@ fn metadata_when_json_is_requested_ignores_runtime_stamps() {
         )
         .env("HEADWAY_BUILD_DIRTY", "true")
         .env("HEADWAY_BUILD_TARGET", "runtime-override")
+        .env("HEADWAY_BUILD_REPOSITORY", "runtime-must-not/override")
         .args(["version", "--json"])
         .assert()
         .success()

@@ -32,10 +32,12 @@ cargo)
   [ "${FAIL_BUILD:-0}" = 0 ] || exit 42
   release="$CARGO_TARGET_DIR/$HEADWAY_BUILD_TARGET/release"
   mkdir -p "$release"
+  repository=null
+  [ -z "${HEADWAY_BUILD_REPOSITORY:-}" ] || repository="\"$HEADWAY_BUILD_REPOSITORY\""
   cat > "$release/headway" <<CLI
 #!/bin/bash
 [ "\$*" = '--json version' ] || exit 94
-printf '%s\\n' '{"commit":"$HEADWAY_BUILD_SHA","dirty":$HEADWAY_BUILD_DIRTY,"target":"$HEADWAY_BUILD_TARGET"}'
+printf '%s\\n' '{"commit":"$HEADWAY_BUILD_SHA","dirty":$HEADWAY_BUILD_DIRTY,"target":"$HEADWAY_BUILD_TARGET","repository":$repository}'
 CLI
   chmod +x "$release/headway"
   ;;

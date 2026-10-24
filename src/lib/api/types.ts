@@ -7,6 +7,7 @@ export * from "./roadmapTypes";
 // they are the same JSON the `headway --json` CLI prints).
 
 export interface BuildInfo {
+  readonly repository?: string | null;
   readonly version: string;
   readonly commit: string | null;
   readonly dirty: boolean;

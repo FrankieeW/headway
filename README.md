@@ -109,7 +109,8 @@ existing staged replacement. They do not install, restart, or rewrite config by 
 For a local build, run `pnpm build:self` or `./scripts/build-headway.sh cli`. `--target` selects
 `aarch64-apple-darwin` or `x86_64-apple-darwin` when that Rust target/toolchain is installed.
 `headway --version` shows a short revision; `headway --json version` (or `version --ai`) returns
-the full compile-time `commit`, `dirty`, and `target` beside the release version. The app's
+the full compile-time `commit`, `dirty`, and `target` beside the release version, plus an optional
+GitHub `repository` origin stamped from the checkout or CI. The app's
 existing version display uses the same compact identity. Unstamped plain Cargo builds report
 null commit/target; a dirty build is explicitly labeled and is not a clean remote-commit baseline.
 
@@ -235,7 +236,10 @@ explicit action in the app; it retains installed bytes and clears the old reposi
 baseline. Restore checks still enforce the backup's repository identity. Repository metadata and
 commit badge caches are separated by origin.
 An existing Headway fork at its managed location keeps its subscription and installer-recorded
-baseline. Independent Headway instances keep the primary subscription and CLI link in place.
+baseline. Automatic self-baseline adoption requires the bundle's stamped repository to match
+the configured source; switching a fork back to official cannot relabel the fork's clean SHA.
+Older builds without an origin stamp can preserve a matching recorded baseline, but cannot
+create a new one. Independent Headway instances keep the primary subscription and CLI link in place.
 
 ## The desktop app
 

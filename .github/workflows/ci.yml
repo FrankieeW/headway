@@ -69,6 +69,7 @@ jobs:
             assert.equal(report.ok, true);
             assert.equal(report.data.commit, process.env.GITHUB_SHA);
             assert.equal(report.data.dirty, false);
+            assert.equal(report.data.repository, process.env.GITHUB_REPOSITORY);
           '
           codesign --verify --deep --strict .headway-out/Headway.app
 

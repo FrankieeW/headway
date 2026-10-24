@@ -90,6 +90,10 @@ main`, then the same dry-run/update/--next workflow. `headway --ai version` expo
 revision. Only use a known clean installed commit as a `mark` baseline. Older commits without the
 helper require their historical recipe. Presets use stable `.headway-out` artifacts and preserve
 build caches; source installs still go through Headway's staged replacement.
+New build metadata also includes optional `repository`. Self adoption requires this origin to
+match the tracked repository. Legacy builds without it keep only a matching existing baseline;
+their clean SHA alone cannot establish a new repository baseline. Restart confirmation accepts
+legacy metadata without inventing an origin.
 
 `headway --ai self subscribe` registers or moves Headway to the first subscription. New entries
 only notify. It preserves existing user settings and release/tag baselines, and adopts a clean

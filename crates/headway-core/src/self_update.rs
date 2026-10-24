@@ -32,7 +32,16 @@ struct VersionResult {
 }
 
 fn same_build(a: &BuildInfo, b: &BuildInfo) -> bool {
-    a.commit.is_some() && a == b && !a.dirty && !b.dirty
+    a.commit.is_some()
+        && a.commit == b.commit
+        && a.version == b.version
+        && a.target == b.target
+        && !a.dirty
+        && !b.dirty
+        && match (&a.repository, &b.repository) {
+            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+            _ => true,
+        }
 }
 
 fn inside_bundle(exe: &std::path::Path, bundle: &str) -> bool {
@@ -195,6 +204,7 @@ mod tests {
     #[test]
     fn confirmation_requires_clean_matching_commit() {
         let build = BuildInfo {
+            repository: None,
             version: "1".into(),
             commit: Some("a".repeat(40)),
             dirty: false,
@@ -215,6 +225,26 @@ mod tests {
                 ..build.clone()
             }
         ));
+    }
+    #[test]
+    fn restart_identity_accepts_legacy_missing_origin_but_rejects_a_known_other_origin() {
+        let current = BuildInfo {
+            version: "4.1".into(),
+            commit: Some("a".repeat(40)),
+            dirty: false,
+            target: Some("aarch64-apple-darwin".into()),
+            repository: Some("FrankieeW/headway".into()),
+        };
+        let legacy = BuildInfo {
+            repository: None,
+            ..current.clone()
+        };
+        assert!(same_build(&current, &legacy));
+        let other = BuildInfo {
+            repository: Some("other/headway".into()),
+            ..current.clone()
+        };
+        assert!(!same_build(&current, &other));
     }
     #[test]
     fn consumed_request_does_not_restart_again() {
@@ -247,6 +277,7 @@ mod admission_tests {
             .build()
             .unwrap();
         let build = BuildInfo {
+            repository: None,
             version: "0.2.1".into(),
             commit: Some("a".repeat(40)),
             dirty: false,

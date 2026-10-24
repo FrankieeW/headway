@@ -138,6 +138,7 @@ jobs:
               assert.equal(report.data.commit, process.env.HEADWAY_BUILD_SHA);
               assert.equal(report.data.version, process.env.VERSION);
               assert.equal(report.data.dirty, false);
+              assert.equal(report.data.repository, process.env.GITHUB_REPOSITORY);
               assert.equal(report.data.target, process.env.TARGET);
             '
           fi

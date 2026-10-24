@@ -1,5 +1,4 @@
 //! Adopt the installed desktop app as the first subscription without guessing a baseline.
-use chrono::Utc;
 
 use crate::{
     AppKind, AppView, AutoUpdateMode, Error, GithubSource, Headway, Install, InstalledRef, Result,
@@ -85,6 +84,9 @@ fn new_self_app(config: &crate::Config, dest: &str) -> Result<TrackedApp> {
     Ok(app)
 }
 
+#[path = "self_subscription/provenance.rs"]
+mod provenance;
+
 impl Headway {
     /// Ensures that the installed Headway desktop app is the first tracked subscription.
     /// Existing self configuration is preserved; new subscriptions only notify.
@@ -97,8 +99,8 @@ impl Headway {
         })?;
         let dest = bundle.display().to_string();
         let observed = self.store().state()?;
-        let id = self.store().update_config(|mut config| {
-            let app = if let Some(index) = config.apps.iter().position(|app| {
+        let (id, created) = self.store().update_config(|mut config| {
+            let found = config.apps.iter().position(|app| {
                 is_self(app)
                     || (app.kind == AppKind::App
                         && app.github().is_some_and(|github| {
@@ -109,14 +111,15 @@ impl Headway {
                                 &bundle,
                             )
                         }))
-            }) {
-                config.apps.remove(index)
-            } else {
-                new_self_app(&config, &dest)?
+            });
+            let created = found.is_none();
+            let app = match found {
+                Some(index) => config.apps.remove(index),
+                None => new_self_app(&config, &dest)?,
             };
             let id = app.id.clone();
             config.apps.insert(0, app);
-            Ok((config, id))
+            Ok((config, (id, created)))
         })?;
         // Use the same lock as update/restore, then observe the exact managed target.
         let lock = crate::lock::AppLock::acquire(&self.paths().app_lock(&id), &id)?;
@@ -129,16 +132,6 @@ impl Headway {
             drop(lock);
             return self.get(&id);
         };
-        // A clean SHA alone does not prove which fork produced the bundle.
-        // Fork subscriptions keep the baseline recorded by their actual installer.
-        if !github
-            .repo_id()?
-            .full_name()
-            .eq_ignore_ascii_case("FrankieeW/headway")
-        {
-            drop(lock);
-            return self.get(&id);
-        }
         if !matches_destination(
             github,
             &config.settings.apps_dir,
@@ -149,38 +142,8 @@ impl Headway {
             return self.get(&id);
         }
         let status = self.self_update_status().await?;
-        if is_self(app)
-            && let Some(installed) = status.installed.filter(|info| !info.dirty)
-            && let Some(commit) = installed.commit.filter(|commit| {
-                commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit())
-            })
-        {
-            self.store().update_state(|state| {
-                Ok((
-                    state.with_app(&id, |state| {
-                        if state.installed.as_ref().is_some_and(|current| {
-                            current.id == commit
-                                && current.path.as_deref() == Some(dest.as_str())
-                                && current.version.as_deref() == Some(installed.version.as_str())
-                        }) {
-                            return state;
-                        }
-                        crate::state::AppState {
-                            installed: Some(InstalledRef {
-                                id: commit.clone(),
-                                sha: Some(commit),
-                                version: Some(installed.version),
-                                installed_at: Utc::now(),
-                                path: Some(dest.clone()),
-                            }),
-                            last_check: None,
-                            last_error: None,
-                            ..state
-                        }
-                    }),
-                    (),
-                ))
-            })?;
+        if let Some(installed) = status.installed {
+            self.sync_self_baseline(&id, created, &dest, &installed)?;
         }
         drop(lock);
         self.get(&id)
