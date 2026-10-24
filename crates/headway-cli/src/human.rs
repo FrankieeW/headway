@@ -357,6 +357,13 @@ pub fn plan(p: Palette, plan: &UpdatePlan) -> String {
         );
         return out;
     }
+    if plan.reinstall {
+        let _ = writeln!(
+            out,
+            "  {}",
+            p.yellow("already installed: a real run reinstalls it")
+        );
+    }
     for (index, step) in plan.steps.iter().enumerate() {
         let _ = writeln!(out, "  {}. {step}", index + 1);
     }

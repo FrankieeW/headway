@@ -179,7 +179,7 @@ pub struct UpdateArgs {
     #[arg(long, conflicts_with = "to")]
     pub next: bool,
     /// Install this commit SHA, branch or tag (also older ones, to roll back)
-    #[arg(long, value_name = "REF")]
+    #[arg(long, value_name = "REF", conflicts_with = "all")]
     pub to: Option<String>,
     /// Print the plan without building or installing anything
     #[arg(long)]

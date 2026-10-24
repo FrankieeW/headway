@@ -120,11 +120,11 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
     let cancel = CancellationToken::new();
     let watcher = {
         let cancel = cancel.clone();
-        // Ctrl-C stops the running build (its whole process group) and exits with code 7.
+        // Ctrl-C, SIGTERM (an agent's timeout) or SIGHUP stop the running build — its whole
+        // process group — instead of orphaning it with the lock released; exit code 7.
         tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
-                cancel.cancel();
-            }
+            interrupted().await;
+            cancel.cancel();
         })
     };
     let mut outcomes = Vec::new();
@@ -150,7 +150,11 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
         match outcome {
             Ok(outcome) => {
                 let _ = writeln!(human, "{}", human::outcome(p, outcome));
-                records.push(serde_json::to_value(outcome).unwrap_or(Value::Null));
+                let mut record = serde_json::to_value(outcome).unwrap_or(Value::Null);
+                if let Value::Object(map) = &mut record {
+                    map.insert("ok".to_owned(), Value::Bool(true));
+                }
+                records.push(record);
             }
             Err(err) => {
                 first_failure.get_or_insert(err.exit_code());
@@ -171,6 +175,24 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
     let data = json!({ "results": records, "updated": updated });
     let exit = first_failure.map_or(0, |code| u8::try_from(code).unwrap_or(1));
     Ok(Reply::new(&data, human).next(failed).exit_code(exit))
+}
+
+/// Resolves on Ctrl-C, SIGTERM or SIGHUP.
+async fn interrupted() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let on = |kind: SignalKind| async move {
+        match signal(kind) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        () = on(SignalKind::terminate()) => {}
+        () = on(SignalKind::hangup()) => {}
+    }
 }
 
 pub async fn mark(hw: &Headway, id: &str, reference: &str, p: Palette) -> Result<Reply> {

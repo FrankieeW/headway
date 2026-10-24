@@ -9,6 +9,8 @@ use std::fmt::Write as _;
 use serde_json::Value;
 
 const ATTRIBUTE_MAX: usize = 160;
+/// Attributes the root element always carries; data keys with these names become elements.
+const ROOT_ATTRIBUTES: [&str; 2] = ["command", "ok"];
 
 pub fn document(command: &str, ok: bool, data: &Value, next: &[String]) -> String {
     let mut attributes = vec![
@@ -19,7 +21,11 @@ pub fn document(command: &str, ok: bool, data: &Value, next: &[String]) -> Strin
     match data {
         Value::Object(map) => {
             for (key, value) in map {
-                field(key, value, 1, &mut attributes, &mut children);
+                if ROOT_ATTRIBUTES.contains(&key.as_str()) {
+                    element(key, value, 1, &mut children);
+                } else {
+                    field(key, value, 1, &mut attributes, &mut children);
+                }
             }
         }
         Value::Null => {}
@@ -172,6 +178,38 @@ mod tests {
         assert!(xml.contains("<next>\n    <command>headway check</command>\n  </next>"));
         assert!(!xml.contains("error"), "nulls are omitted");
         assert!(xml.ends_with("</headway>"));
+    }
+
+    #[test]
+    fn data_keys_never_duplicate_root_attributes() {
+        // `doctor` returns `{ok, checks}`: its `ok` must not collide with the root's.
+        let data =
+            json!({"ok": false, "command": "x", "checks": [{"name": "git", "status": "ok"}]});
+        let xml = document("doctor", true, &data, &[]);
+        roxmltree::Document::parse(&xml).unwrap_or_else(|err| panic!("{err}: {xml}"));
+        assert!(xml.starts_with("<headway command=\"doctor\" ok=\"true\">"));
+        assert!(xml.contains("<ok>false</ok>"));
+    }
+
+    #[test]
+    fn documents_are_well_formed_xml() {
+        let data = json!({
+            "apps": [{"id": "a&b", "title": "<script>'\"", "body": "multi\nline & <tags>", "n": 1}],
+            "nested": {"empty": [], "deep": {"x": null, "y": true}},
+            "text": "\u{1}control"
+        });
+        for xml in [
+            document("list", true, &data, &["headway update a --next".to_owned()]),
+            document(
+                "",
+                false,
+                &json!({"error": {"code": "x", "details": ["a", "<b>"]}}),
+                &[],
+            ),
+            document("paths", true, &Value::Null, &[]),
+        ] {
+            roxmltree::Document::parse(&xml).unwrap_or_else(|err| panic!("{err}: {xml}"));
+        }
     }
 
     #[test]

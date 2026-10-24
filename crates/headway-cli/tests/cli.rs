@@ -253,11 +253,14 @@ async fn follows_a_repository_one_commit_at_a_time() {
         "{xml}"
     );
 
-    // Roll back to an older commit explicitly.
+    // Roll back to an older commit explicitly: the newer ones show up as pending again.
     hw().args(["update", "tool", "--to", &commits[0].0])
         .assert()
         .success();
     assert_eq!(run_installed(&bin), "v1");
+    let rolled_back = json_of(hw().args(["--json", "show", "tool"]));
+    assert_eq!(rolled_back["data"]["status"], "update_available");
+    assert_eq!(rolled_back["data"]["pending_count"], 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -322,6 +325,70 @@ async fn failures_are_structured_for_agents() {
             .unwrap()
             .contains("--method asset")
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sigterm_stops_the_build_and_releases_the_lock() {
+    let upstream = Upstream::new();
+    let commits = vec![(upstream.commit("v1"), "release v1".to_owned())];
+    let server = MockServer::start().await;
+    mock_github(&server, &commits).await;
+    let home = tempfile::tempdir().unwrap();
+    let pid_file = home.path().join("build.pid");
+    // `exec` makes the recorded PID the long-running build itself.
+    let build = format!("echo $$ > '{}' && exec sleep 60", pid_file.display());
+    headway(home.path(), &server.uri())
+        .args([
+            "add",
+            "octo/tool",
+            "--no-inspect",
+            "--git-url",
+            &upstream.url(),
+            "--build",
+            &build,
+        ])
+        .assert()
+        .success();
+
+    let cli = assert_cmd::cargo::cargo_bin("headway");
+    let child = Process::new(cli)
+        .args(["--json", "update", "tool"])
+        .env("HEADWAY_HOME", home.path())
+        .env("HEADWAY_API_URL", server.uri())
+        .env("HEADWAY_GITHUB_TOKEN", "ghp_dummytokendummytokendummy0000")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !pid_file.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the build never started"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let build_pid = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .to_owned();
+    Process::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(7), "cancelled exit code");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["error"]["code"], "cancelled");
+    let build_alive = Process::new("kill")
+        .args(["-0", &build_pid])
+        .status()
+        .unwrap()
+        .success();
+    assert!(!build_alive, "the build process must not outlive the CLI");
+    let shown = json_of(headway(home.path(), &server.uri()).args(["--json", "show", "tool"]));
+    assert_eq!(shown["data"]["busy"], false);
 }
 
 #[test]

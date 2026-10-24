@@ -175,7 +175,7 @@ fn preset_source(
         str::to_owned,
     );
     Ok(SourceInstall {
-        build: presets::render(preset.build, &bin, name),
+        build: presets::render_command(preset.build, &bin, name),
         artifact: preset
             .artifact
             .map(|artifact| presets::render(artifact, &bin, name)),
