@@ -61,7 +61,18 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Releasing Headway $version"
 
+      - name: Record build identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_status="$(git status --porcelain --untracked-files=normal)"
+          test -z "$source_status"
+          echo "HEADWAY_BUILD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Build CLI
+        env:
+          HEADWAY_BUILD_DIRTY: "false"
+          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
         run: cargo build --release --locked -p headway-cli --target ${{ matrix.target }}
 
       # `bundle.macOS.files` copies `../target/release/headway` into the app, so the
@@ -76,7 +87,46 @@ jobs:
 
       # `beforeBuildCommand` is overridden so it does not rebuild the CLI for the host.
       - name: Build the app
-        run: pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg --config '{"build":{"beforeBuildCommand":"pnpm build:renderer"}}'
+        env:
+          HEADWAY_BUILD_DIRTY: "false"
+          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg --ci --config '{"build":{"beforeBuildCommand":"pnpm build:renderer"},"bundle":{"macOS":{"signingIdentity":"-"}}}' -- --locked
+
+      - name: Verify release builds
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cli="target/$TARGET/release/headway"
+          app="target/$TARGET/release/bundle/macos/Headway.app"
+          case "$TARGET" in
+            aarch64-apple-darwin) macho_arch=arm64 ;;
+            x86_64-apple-darwin) macho_arch=x86_64 ;;
+            *) exit 1 ;;
+          esac
+          lipo -verify_arch "$macho_arch" "$cli"
+          lipo -verify_arch "$macho_arch" "$app/Contents/MacOS/headway"
+          lipo -verify_arch "$macho_arch" "$app/Contents/MacOS/headway-desktop"
+          codesign --verify --deep --strict "$app"
+          host_target="$(rustc -vV | awk '/^host: / { print $2 }')"
+          if [ "$TARGET" = "$host_target" ]; then
+            smoke_home="$(mktemp -d)"
+            HEADWAY_HOME="$smoke_home" "$cli" --json version > target/release-version.json
+            HEADWAY_HOME="$smoke_home" "$app/Contents/MacOS/headway" --json version > target/bundled-version.json
+            cmp target/release-version.json target/bundled-version.json
+            node --input-type=module -e '
+              import assert from "node:assert/strict";
+              import { readFileSync } from "node:fs";
+              const report = JSON.parse(readFileSync("target/release-version.json", "utf8"));
+              assert.equal(report.ok, true);
+              assert.equal(report.data.commit, process.env.HEADWAY_BUILD_SHA);
+              assert.equal(report.data.version, process.env.VERSION);
+              assert.equal(report.data.dirty, false);
+              assert.equal(report.data.target, process.env.TARGET);
+            '
+          fi
 
       # The renderer build empties `dist/`, so the release artifacts are collected
       # afterwards and the frontend output is dropped first.
