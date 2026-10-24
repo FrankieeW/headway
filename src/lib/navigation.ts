@@ -1,11 +1,9 @@
 /** The tabs of the app detail page. */
-export type AppTab = "changes" | "history" | "log" | "config";
+export type AppTab = "changes" | "commits" | "history" | "log" | "config";
 
 /** What the content area shows. */
 export type View =
-  | { kind: "app"; id: string }
-  | { kind: "settings" }
-  | { kind: "empty" };
+  { kind: "app"; id: string } | { kind: "settings" } | { kind: "empty" };
 
 /** Where the selected app id is remembered between launches. */
 export const SELECTED_APP_STORAGE_KEY = "headway-selected-app";
@@ -31,6 +29,7 @@ export function storeAppId(id: string): void {
 /** The tabs of the app detail page, in display order. */
 export const APP_TABS: { value: AppTab; labelKey: string }[] = [
   { value: "changes", labelKey: "tabs.changes" },
+  { value: "commits", labelKey: "versions.allCommits" },
   { value: "history", labelKey: "tabs.history" },
   { value: "log", labelKey: "tabs.log" },
   { value: "config", labelKey: "tabs.config" },

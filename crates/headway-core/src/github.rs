@@ -2,8 +2,10 @@
 
 mod bounded;
 mod commit_metadata;
+mod commits_page;
 pub use bounded::BoundedFileText;
 pub use commit_metadata::{CheckRun, CheckRuns, CombinedStatus, CommitStatus};
+pub use commits_page::CommitListPage;
 
 use std::fmt::Write as _;
 use std::path::Path;

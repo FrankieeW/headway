@@ -22,6 +22,7 @@ const cliApp: TrackedApp = {
   track: { mode: "commit", branch: "main" },
   install: {
     method: "source",
+    storage: { keep: true, root: null },
     verify_command: null,
     build: "cargo build --release",
     workdir: null,
@@ -128,6 +129,7 @@ describe("appFromForm", () => {
     if (app.source !== "github") throw new Error("Expected GitHub payload");
     expect(app.install).toEqual({
       method: "source",
+      storage: { keep: true, root: null },
       verify_command: null,
       build: "make",
       workdir: null,

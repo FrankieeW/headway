@@ -30,12 +30,16 @@ pub mod process;
 pub mod recipes;
 pub mod recovery;
 pub mod repo;
+pub mod revision_history;
+pub mod revision_install;
 pub mod script;
 mod self_subscription;
 pub mod self_update;
 pub mod service;
 pub mod shell;
 pub mod source;
+pub mod source_options;
+pub mod source_storage;
 pub mod state;
 pub mod store;
 pub mod token;
@@ -54,8 +58,13 @@ pub use config::{
 pub use error::{Error, ErrorInfo, Result};
 pub use events::{EventSink, LogStream, NullSink, Stage, UpdateEvent};
 pub use policy::{AutoUpdateMode, UpdatePolicy};
+pub use revision_history::CommitPage;
+pub use revision_install::{
+    LaunchOutcome, RevisionMethod, RevisionOptions, RevisionRequest, VariantRequest,
+};
 pub use service::{AppStatus, AppView, EnvMode, Headway, LogFile, RemovedApp, TokenStatus};
 pub use source::{BrewSource, GithubSource, NpmSource, ScriptSource, Source, SourceSpec};
+pub use source_options::{GithubOptions, RepositoryOption, VariantInfo};
 pub use state::{Candidate, CheckResult, HistoryEntry, InstalledRef, UpdateStatus};
 pub use tokio_util::sync::CancellationToken;
 pub use update::{Target, UpdateOutcome, UpdatePlan};
@@ -66,3 +75,5 @@ pub use cli_link::CliStatus;
 pub use inventory::{InventoryCandidate, InventoryError, InventoryReport};
 pub use recipes::AppRecipe;
 pub use self_update::SelfUpdateStatus;
+
+pub use source_storage::{SourceStorage, SourceStorageStatus};

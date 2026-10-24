@@ -60,7 +60,15 @@ function useInvalidateApps() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.apps });
       if (id) {
         await queryClient.invalidateQueries({ queryKey: queryKeys.app(id) });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.history(id) });
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.history(id),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["source-storage", id],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["revision-options", id],
+        });
       }
     },
     [queryClient],

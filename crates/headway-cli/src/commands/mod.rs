@@ -6,6 +6,7 @@ mod apps;
 mod management;
 mod ops;
 mod register;
+mod revisions;
 
 use headway_core::{AppStatus, AppView, EnvMode, Headway, Result};
 
@@ -22,6 +23,17 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
     }
     let hw = open()?;
     match command {
+        Command::Commits {
+            id,
+            page,
+            per_page,
+            anchor,
+        } => revisions::commits(&hw, &id, page, per_page, anchor.as_deref()).await,
+        Command::SourceStorage { id } => revisions::source_storage(&hw, &id),
+        Command::CommitOptions { id, reference } => revisions::options(&hw, &id, &reference).await,
+        Command::InstallCommit(args) => revisions::install(&hw, &args, printer).await,
+        Command::LaunchVariant { id } => revisions::launch(&hw, &id).await,
+        Command::Repo(command) => revisions::repositories(&hw, command),
         Command::Version => Ok(version()),
         Command::List => apps::list(&hw, p),
         Command::Show { id } => apps::show(&hw, &id, p),

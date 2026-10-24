@@ -14,6 +14,7 @@ mod human;
 mod management_args;
 mod output;
 mod progress;
+mod revision_args;
 mod source_fields;
 mod xml;
 

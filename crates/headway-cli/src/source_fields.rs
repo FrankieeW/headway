@@ -9,6 +9,18 @@ pub fn validate(source: &Source, f: &AppFields) -> Result<()> {
     let script = matches!(source, Source::Script(_));
     for (flag, present, allowed, needs) in [
         (
+            "--keep-source",
+            f.keep_source.is_some(),
+            github,
+            "GitHub source builds",
+        ),
+        (
+            "--source-root",
+            f.source_root.is_some(),
+            github,
+            "GitHub source builds",
+        ),
+        (
             "--verify-command",
             f.verify_command.is_some(),
             github,

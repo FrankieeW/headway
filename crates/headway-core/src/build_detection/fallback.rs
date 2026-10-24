@@ -32,6 +32,7 @@ pub(crate) fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
         auto_update: false,
         update_policy: crate::policy::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
+            options: Box::default(),
             repo: repo.full_name(),
             git_url: None,
             track,
@@ -71,6 +72,7 @@ pub(crate) fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                 preset.kind,
                 Track::Commit { branch: None },
                 Install::Source(SourceInstall {
+                    storage: crate::source_storage::SourceStorage::default(),
                     build: presets::render_command(preset.build, &bin, name),
                     workdir: None,
                     artifact: facts

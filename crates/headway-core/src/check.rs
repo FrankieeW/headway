@@ -275,6 +275,20 @@ fn evaluate_versions(
             candidates.into_iter().take(RECENT).collect(),
         );
     };
+    // A source commit outside the known version sequence is not a version number.
+    // In particular, a hexadecimal SHA's leading digits must not imply "newer".
+    if installed.id.len() == 40
+        && installed.id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && installed
+            .sha
+            .as_deref()
+            .is_some_and(|sha| sha.eq_ignore_ascii_case(&installed.id))
+        && !candidates
+            .iter()
+            .any(|candidate| candidate.id == installed.id)
+    {
+        return result(UpdateStatus::Unknown, Vec::new());
+    }
     if latest
         .as_ref()
         .is_none_or(|latest| latest.id == installed.id)

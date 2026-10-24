@@ -21,6 +21,7 @@ export interface AppFormRepoSectionProps {
  */
 export function AppFormRepoSection({
   repo,
+  mode,
   inspection,
   inspecting,
   inspectionError,
@@ -42,6 +43,7 @@ export function AppFormRepoSection({
         <Input
           id="app-form-repo"
           value={repo}
+          readOnly={mode === "edit"}
           placeholder={t("form.repositoryPlaceholder")}
           onChange={(event) => onRepoChange(event.target.value)}
           onKeyDown={(event) => {
@@ -67,6 +69,9 @@ export function AppFormRepoSection({
         </Button>
       </div>
 
+      {mode === "edit" ? (
+        <p className="text-caption text-fg-3">{t("versions.activateHint")}</p>
+      ) : null}
       {inspectionError ? (
         <p className="text-caption text-danger-text">{inspectionError}</p>
       ) : null}

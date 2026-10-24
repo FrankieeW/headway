@@ -41,6 +41,7 @@ const LOCAL_DATA_ROOTS = new Set([
   "cli",
   "backups",
   "self-update",
+  "source-storage",
 ]);
 
 /**

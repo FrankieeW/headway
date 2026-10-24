@@ -70,6 +70,27 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Browse a stable page of repository commits
+    Commits {
+        id: String,
+        #[arg(long, default_value_t = 1)]
+        page: u32,
+        #[arg(long, default_value_t = 20)]
+        per_page: u32,
+        #[arg(long)]
+        anchor: Option<String>,
+    },
+    /// Inspect source retention and its configured checkout location
+    SourceStorage { id: String },
+    /// Inspect build/download choices for an exact commit or tag
+    CommitOptions { id: String, reference: String },
+    /// Install any commit/tag in place or alongside the current version
+    InstallCommit(crate::revision_args::RevisionArgs),
+    /// Launch an independently installed app (data remains shared)
+    LaunchVariant { id: String },
+    /// Manage official and fork repositories for one app
+    #[command(subcommand)]
+    Repo(crate::revision_args::RepositoryCommand),
     /// Show the running binary version and compile-time build metadata
     Version,
     /// List tracked apps with their cached status
@@ -189,6 +210,12 @@ pub enum Command {
 impl Command {
     pub const fn name(&self) -> &'static str {
         match self {
+            Self::Commits { .. } => "commits",
+            Self::SourceStorage { .. } => "source-storage",
+            Self::CommitOptions { .. } => "commit-options",
+            Self::InstallCommit(_) => "install-commit",
+            Self::LaunchVariant { .. } => "launch-variant",
+            Self::Repo(_) => "repo",
             Self::Version => "version",
             Self::List => "list",
             Self::Show { .. } => "show",

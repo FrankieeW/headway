@@ -85,7 +85,8 @@ impl Headway {
         // Held until the end: no update may start while the checkout is being deleted.
         let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
         if purge {
-            self.store.config()?.app(id)?;
+            let config = self.store.config()?;
+            crate::source_storage::purge(self.paths(), config.app(id)?)?;
             crate::recovery::purge(self.paths(), id)?;
         }
         self.store.update_config(|Config { settings, apps }| {
@@ -98,11 +99,9 @@ impl Headway {
         self.store
             .update_state(|state| Ok((state.without_app(id), ())))?;
         if purge {
-            for dir in [self.paths().source_dir(id), self.paths().app_log_dir(id)] {
-                if dir.exists() {
-                    std::fs::remove_dir_all(&dir)
-                        .map_err(|err| Error::io_at("remove", &dir, err))?;
-                }
+            let dir = self.paths().app_log_dir(id);
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).map_err(|err| Error::io_at("remove", &dir, err))?;
             }
         }
         Ok(RemovedApp {

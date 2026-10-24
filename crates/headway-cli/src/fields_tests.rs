@@ -9,6 +9,7 @@ fn base() -> TrackedApp {
         auto_update: false,
         update_policy: headway_core::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
+            options: Box::default(),
             repo: "BurntSushi/ripgrep".into(),
             git_url: None,
             track: Track::Commit { branch: None },

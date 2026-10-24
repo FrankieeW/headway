@@ -127,6 +127,7 @@ fn bare_app(spec: &SourceSpec) -> TrackedApp {
         SourceSpec::Github(repo) => (
             repo.name.clone(),
             Source::Github(GithubSource {
+                options: Box::default(),
                 repo: repo.full_name(),
                 git_url: None,
                 track: Track::Commit { branch: None },

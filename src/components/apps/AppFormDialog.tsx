@@ -32,7 +32,7 @@ export interface AppFormDialogProps {
   onSaved?: (id: string) => void;
 }
 
-const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 /**
  * The add / edit dialog of a tracked repository.
@@ -114,6 +114,13 @@ export function AppFormDialog({
     }
     if (payload.source === "script" && !payload.update_command) {
       setError(t("form.updateRequired"));
+      return;
+    }
+    if (
+      payload.source === "github" &&
+      payload.repositories?.some((row) => !row.repo.trim())
+    ) {
+      setError(t("versions.repositoryRequired"));
       return;
     }
     setSaving(true);

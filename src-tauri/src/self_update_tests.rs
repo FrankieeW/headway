@@ -116,6 +116,15 @@ fn ipc_failed_confirmation_exposes_error_and_allows_retry() {
     let mut request: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     request["dispatched"] = json!(true);
+    // Target this simulated startup, rather than another installation.
+    request["app_path"] = json!(
+        std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .display()
+            .to_string()
+    );
     std::fs::write(path, serde_json::to_vec(&request).unwrap()).unwrap();
     assert!(!state.hw.confirm_self_restart().unwrap());
     let failed = ok(&h, "self_update_status", json!({}));

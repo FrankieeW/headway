@@ -40,9 +40,11 @@ export default function App() {
 
         {navigation.view.kind === "app" ? (
           <AppPage
+            key={navigation.view.id}
             appId={navigation.view.id}
             tab={navigation.tab}
             onTabChange={navigation.setTab}
+            onSelectApp={navigation.selectApp}
           />
         ) : null}
 

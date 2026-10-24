@@ -41,6 +41,7 @@ pub fn cli_app(id: &str) -> TrackedApp {
         auto_update: false,
         update_policy: crate::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
+            options: Box::default(),
             repo: format!("owner/{id}"),
             git_url: None,
             track: Track::Commit { branch: None },

@@ -35,6 +35,13 @@ fn same_build(a: &BuildInfo, b: &BuildInfo) -> bool {
     a.commit.is_some() && a == b && !a.dirty && !b.dirty
 }
 
+fn inside_bundle(exe: &std::path::Path, bundle: &str) -> bool {
+    let root = std::path::PathBuf::from(bundle);
+    exe.canonicalize()
+        .unwrap_or_else(|_| exe.to_owned())
+        .starts_with(root.canonicalize().unwrap_or(root))
+}
+
 impl Headway {
     fn restart_file(&self) -> std::path::PathBuf {
         self.paths().config_dir.join("self-restart.json")
@@ -143,7 +150,10 @@ impl Headway {
         if !request.dispatched || request.confirmed || request.restart_error.is_some() {
             return Ok(request.confirmed);
         }
-        if exe.starts_with(&request.app_path) && same_build(&request.installed, running) {
+        if !inside_bundle(exe, &request.app_path) {
+            return Ok(false);
+        }
+        if same_build(&request.installed, running) {
             request.confirmed = true;
         } else {
             request.restart_error = Some("Restarted desktop does not match the requested installed build; retry after checking the installed app.".into());
@@ -167,10 +177,8 @@ impl Headway {
             return Ok(false);
         }
         let exe = std::env::current_exe().map_err(|e| Error::io("current executable", e))?;
-        if !exe.starts_with(&request.app_path) {
-            return Err(Error::InvalidInput(
-                "restart request targets a different desktop bundle".into(),
-            ));
+        if !inside_bundle(&exe, &request.app_path) {
+            return Ok(false);
         }
         if !admit() {
             return Ok(false);

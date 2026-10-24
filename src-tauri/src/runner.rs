@@ -18,13 +18,13 @@ impl<R: Runtime> EventSink for WindowSink<R> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct UpdateFinished {
-    app_id: String,
-    ok: bool,
+pub(crate) struct UpdateFinished {
+    pub(crate) app_id: String,
+    pub(crate) ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    outcome: Option<UpdateOutcome>,
+    pub(crate) outcome: Option<UpdateOutcome>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<ErrorInfo>,
+    pub(crate) error: Option<ErrorInfo>,
 }
 
 struct RunGuard<'a> {

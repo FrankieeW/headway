@@ -27,6 +27,54 @@ fn fixture(dirty: bool) -> (tempfile::TempDir, Headway) {
 }
 
 #[tokio::test]
+async fn a_fork_at_the_actual_bundle_is_preserved_without_claiming_an_official_sha() {
+    let (root, hw) = fixture(false);
+    hw.add(crate::testing::cli_app("other")).unwrap();
+    let mut app = crate::testing::cli_app("my-headway-fork");
+    app.kind = AppKind::App;
+    let Source::Github(github) = &mut app.source else {
+        unreachable!()
+    };
+    github.repo = "my-fork/headway".into();
+    let Install::Source(source) = &mut github.install else {
+        unreachable!()
+    };
+    source.artifact = Some("Headway.app".into());
+    source.dest = Some(root.path().join("apps/Headway.app").display().to_string());
+    hw.add(app.clone()).unwrap();
+    let current = hw.ensure_self_subscription().await.unwrap();
+    assert_eq!(current.app, app);
+    assert!(current.installed.is_none());
+    assert_eq!(hw.list().unwrap().len(), 2);
+    assert_eq!(hw.list().unwrap()[0].app.id, "my-headway-fork");
+}
+
+#[tokio::test]
+async fn independent_running_versions_do_not_register_another_primary_subscription() {
+    let (_root, hw) = fixture(false);
+    let mut app = crate::testing::cli_app("independent");
+    let Source::Github(github) = &mut app.source else {
+        unreachable!()
+    };
+    github.options.variant = Some(crate::VariantInfo {
+        parent_id: "primary".into(),
+        reference: "a".repeat(40),
+        release_tag: None,
+        branch: Some("main".into()),
+    });
+    let Install::Source(source) = &mut github.install else {
+        unreachable!()
+    };
+    source.dest = Some(std::env::current_exe().unwrap().display().to_string());
+    hw.add(app.clone()).unwrap();
+    let before = std::fs::read(hw.paths().config_file()).unwrap();
+    let current = hw.ensure_self_subscription().await.unwrap();
+    assert_eq!(current.app, app);
+    assert_eq!(hw.list().unwrap().len(), 1);
+    assert_eq!(std::fs::read(hw.paths().config_file()).unwrap(), before);
+}
+
+#[tokio::test]
 async fn self_is_first_without_removing_existing_apps_and_only_observed_commit_is_adopted() {
     // Given another existing subscription and a clean stamped installed desktop app.
     let (_root, hw) = fixture(false);

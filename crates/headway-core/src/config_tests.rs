@@ -10,6 +10,7 @@ fn zed() -> TrackedApp {
         auto_update: true,
         update_policy: crate::UpdatePolicy::default(),
         source: Source::Github(GithubSource {
+            options: Box::default(),
             repo: "zed-industries/zed".into(),
             git_url: Some("git@github.com:zed-industries/zed.git".into()),
             track: Track::Release {
@@ -142,12 +143,12 @@ install = { method = "source", build = "cargo build --release", artifact = "targ
 }
 
 #[test]
-fn asset_installs_require_release_tracking() {
+fn asset_recipes_allow_explicit_commit_or_release_selection() {
     let app = with_github(cli_app("rg"), |github| GithubSource {
         install: Install::Asset(AssetInstall::default()),
         ..github
     });
-    assert!(app.validate().is_err());
+    app.validate().unwrap();
     let app = with_github(app, |github| GithubSource {
         track: Track::Release {
             prerelease: false,

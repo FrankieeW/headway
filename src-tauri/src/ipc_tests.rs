@@ -5,6 +5,7 @@ mod build_info;
 mod management;
 mod operations;
 pub(crate) mod packages;
+mod revisions;
 mod sources;
 pub(crate) mod support;
 

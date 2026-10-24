@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppView,
+  CommitPage,
+  RevisionOptions,
+  RevisionRequest,
+  VariantRequest,
+  LaunchOutcome,
+  SourceStorageStatus,
   BackupEntry,
   RestoreOutcome,
   InventoryReport,
@@ -30,7 +36,38 @@ export * from "./types";
 import { DEFAULT_UPDATE_POLICY } from "./roadmapTypes";
 
 export function withPolicyDefaults(app: TrackedApp): TrackedApp {
-  return { ...app, update_policy: app.update_policy ?? DEFAULT_UPDATE_POLICY };
+  const common = {
+    ...app,
+    update_policy: app.update_policy ?? DEFAULT_UPDATE_POLICY,
+  };
+  if (app.source !== "github") return common;
+  return {
+    ...app,
+    update_policy: app.update_policy ?? DEFAULT_UPDATE_POLICY,
+    install:
+      app.install.method === "source"
+        ? {
+            ...app.install,
+            storage: {
+              ...app.install.storage,
+              keep: app.install.storage?.keep ?? true,
+              root: app.install.storage?.root ?? null,
+            },
+          }
+        : app.install,
+    ...(app.source_build
+      ? {
+          source_build: {
+            ...app.source_build,
+            storage: {
+              ...app.source_build.storage,
+              keep: app.source_build.storage?.keep ?? true,
+              root: app.source_build.storage?.root ?? null,
+            },
+          },
+        }
+      : {}),
+  };
 }
 
 /** Event names emitted by the desktop backend. */
@@ -46,6 +83,29 @@ export const EVENTS = {
 } as const;
 
 export const appsApi = {
+  sourceStorageStatus: (id: string) =>
+    invoke<SourceStorageStatus>("source_storage_status", { id }),
+  listCommits: (id: string, page: number, perPage = 20, anchor?: string) =>
+    invoke<CommitPage>("list_commits", {
+      id,
+      page,
+      perPage,
+      anchor: anchor ?? null,
+    }),
+  planRevision: (id: string, request: RevisionRequest) =>
+    invoke<UpdatePlan>("plan_revision", { id, request }),
+  planVariant: (parentId: string, request: VariantRequest) =>
+    invoke<UpdatePlan>("plan_variant", { parentId, request }),
+  revisionOptions: (id: string, reference: string) =>
+    invoke<RevisionOptions>("revision_options", { id, reference }),
+  installRevision: (id: string, request: RevisionRequest) =>
+    invoke<void>("install_revision", { id, request }),
+  installVariant: (parentId: string, request: VariantRequest) =>
+    invoke<void>("install_variant", { parentId, request }),
+  launchVariant: (id: string) =>
+    invoke<LaunchOutcome>("launch_variant", { id }),
+  selectRepository: (id: string, repo: string) =>
+    invoke<AppView>("select_repository", { id, repo }),
   commitMetadata: (id: string, sha: string, refresh = false) =>
     invoke<CommitMetadata>("commit_metadata", { id, sha, refresh }),
   ensureSelfSubscription: () => invoke<AppView>("ensure_self_subscription"),

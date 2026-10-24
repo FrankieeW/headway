@@ -1,8 +1,13 @@
+import { AllCommits } from "./AllCommits";
+import { RevisionDialog } from "./RevisionDialog";
+import { RepositorySelector } from "./RepositorySelector";
+import { SourceStorageSection } from "./SourceStorageSection";
+import { VariantSection } from "./VariantSection";
 import { RecoverySection } from "./RecoverySection";
 import { AutoUpdatePaused } from "./AutoUpdatePaused";
 import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
 import { supportsRefs } from "@/lib/sources";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AppFormDialog } from "@/components/apps/AppFormDialog";
@@ -32,12 +37,18 @@ export interface AppPageProps {
   appId: string;
   tab: AppTab;
   onTabChange: (tab: AppTab) => void;
+  onSelectApp?: (id: string) => void;
 }
 
 /**
  * The detail page of one tracked app.
  */
-export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
+export function AppPage({
+  appId,
+  tab,
+  onTabChange,
+  onSelectApp,
+}: AppPageProps) {
   const { t } = useTranslation();
   const { data: app, isLoading } = useApp(appId);
   const { data: list } = useApps();
@@ -53,6 +64,18 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
 
   const [editOpen, setEditOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [revisionReference, setRevisionReference] = useState<string | null>(
+    null,
+  );
+  const [pendingVariant, setPendingVariant] = useState<string | null>(null);
+  const variantRun = useUpdateRun(pendingVariant ?? "");
+  useEffect(() => {
+    if (!pendingVariant) return;
+    if (list?.some((entry) => entry.app.id === pendingVariant)) {
+      setPendingVariant(null);
+      onSelectApp?.(pendingVariant);
+    } else if (variantRun?.finished) setPendingVariant(null);
+  }, [pendingVariant, list, onSelectApp, variantRun?.finished]);
 
   // the list may know the app before the single-app query answered
   const view = app ?? list?.find((entry) => entry.app.id === appId);
@@ -110,6 +133,12 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-6">
+        {pendingVariant ? (
+          <p role="status" className="text-caption text-fg-3">
+            {t("versions.waitingRegistration", { id: pendingVariant })}
+          </p>
+        ) : null}
+        <VariantSection key={view.app.id} view={view} />
         {view.auto_update_paused ? (
           <AutoUpdatePaused id={view.app.id} busy={view.busy} />
         ) : null}
@@ -145,6 +174,9 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
                     </span>
                   ) : undefined,
               },
+              ...(view.app.source === "github"
+                ? [{ value: "commits", label: t("versions.allCommits") }]
+                : []),
               { value: "history", label: t("tabs.history") },
               { value: "log", label: t("tabs.log") },
               { value: "config", label: t("tabs.config") },
@@ -170,6 +202,13 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
             />
           ) : null}
 
+          {tab === "commits" ? (
+            <AllCommits
+              key={`${view.app.id}:${view.app.source === "github" ? view.app.repo : ""}:${view.app.source === "github" && view.app.track.mode === "commit" ? view.app.track.branch : ""}`}
+              view={view}
+              onChoose={setRevisionReference}
+            />
+          ) : null}
           {tab === "history" ? (
             <HistoryList
               canReinstall={supportsRefs(view.app)}
@@ -184,10 +223,15 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
           {tab === "log" ? <LogPanel appId={view.app.id} /> : null}
 
           {tab === "config" ? (
-            <>
+            <div className="space-y-4">
+              <RepositorySelector
+                key={`${view.app.id}:${view.app.source === "github" ? view.app.repo : ""}`}
+                view={view}
+              />
               <ConfigSummary app={view.app} onEdit={() => setEditOpen(true)} />
+              <SourceStorageSection app={view.app} />
               <RecoverySection key={view.app.id} view={view} />
-            </>
+            </div>
           ) : null}
         </div>
       </div>
@@ -209,6 +253,15 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
         onCancel={() => setRemoveOpen(false)}
       />
 
+      {revisionReference !== null ? (
+        <RevisionDialog
+          key={`${view.app.id}:${view.app.source === "github" ? view.app.repo : ""}:${revisionReference}`}
+          view={view}
+          reference={revisionReference}
+          onClose={() => setRevisionReference(null)}
+          onVariant={setPendingVariant}
+        />
+      ) : null}
       <AppFormDialog
         open={editOpen}
         app={view.app}

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -10,7 +10,12 @@ import {
 } from "@/lib/api";
 import { slugify } from "@/lib/format";
 
-import { emptyForm, formFromApp, type AppFormState } from "./appFormModel";
+import {
+  emptyForm,
+  formFromApp,
+  withInstallMethod,
+  type AppFormState,
+} from "./appFormModel";
 export * from "./appFormModel";
 
 function savedEdits(app?: TrackedApp): Partial<AppFormState> {
@@ -52,9 +57,17 @@ export interface UseAppFormResult {
  */
 export function useAppForm(app?: TrackedApp): UseAppFormResult {
   const { t } = useTranslation();
-  const [form, setForm] = useState<AppFormState>(() =>
+  const [form, setFormState] = useState<AppFormState>(() =>
     app ? formFromApp(app) : emptyForm(),
   );
+  const currentForm = useRef(form);
+  // Dirty-field bookkeeping follows update order even when React batches edits.
+  const setForm = useCallback((action: SetStateAction<AppFormState>) => {
+    const next =
+      typeof action === "function" ? action(currentForm.current) : action;
+    currentForm.current = next;
+    setFormState(next);
+  }, []);
   const [idEdited, setIdEdited] = useState(Boolean(app));
   const [inspection, setInspection] = useState<RepoInspection | null>(null);
   const [lookup, setLookup] = useState<SourceLookup | null>(null);
@@ -80,6 +93,22 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         setInspecting(false);
       }
       setForm((current) => {
+        if (
+          key === "installMethod" &&
+          (value === "source" || value === "asset")
+        ) {
+          const next = withInstallMethod(current, value);
+          edits.current = {
+            ...edits.current,
+            installMethod: next.installMethod,
+            sourceBuild: next.sourceBuild,
+            releaseAsset: next.releaseAsset,
+            sourceVerifyCommand: next.sourceVerifyCommand,
+            assetVerifyCommand: next.assetVerifyCommand,
+            verifyCommand: next.verifyCommand,
+          };
+          return next;
+        }
         if (
           key === "source" &&
           value !== "github" &&
@@ -170,7 +199,6 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
             ...edits.current,
             source: current.source,
           };
-          if (merged.trackMode !== "release") merged.installMethod = "source";
           return merged;
         });
       } catch (error) {

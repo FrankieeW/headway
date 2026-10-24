@@ -1,3 +1,5 @@
+import type { RepositoryOption, SourceStorage, VariantInfo } from "./revisions";
+export * from "./revisions";
 export * from "./commitMetadata";
 import type { BuildCandidate, UpdatePolicy } from "./roadmapTypes";
 export * from "./roadmapTypes";
@@ -21,6 +23,7 @@ export type Track =
 export type TrackMode = Track["mode"];
 
 export interface SourceInstall {
+  storage?: SourceStorage;
   verify_command?: string | null;
   method: "source";
   build: string;
@@ -43,6 +46,10 @@ export type Source =
   | {
       readonly source: "github";
       readonly repo: string;
+      readonly repositories?: RepositoryOption[];
+      readonly source_build?: SourceInstall | null;
+      readonly release_asset?: AssetInstall | null;
+      readonly variant?: VariantInfo | null;
       readonly git_url?: string | null;
       readonly track: Track;
       readonly install: Install;

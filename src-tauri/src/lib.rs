@@ -5,6 +5,7 @@ mod cli_link;
 mod commands;
 #[cfg(test)]
 mod ipc_tests;
+mod revision_runner;
 mod runner;
 mod scheduler;
 mod self_update;
@@ -39,6 +40,16 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
         commands::management::fix_cli_link,
         commands::management::ensure_self_subscription,
         commands::management::commit_metadata,
+        commands::revisions::source_storage_status,
+        commands::revisions::list_commits,
+        commands::revisions::revision_options,
+        commands::revisions::plan_revision,
+        commands::revisions::plan_variant,
+        commands::revisions::install_revision,
+        commands::revisions::install_variant,
+        commands::revisions::launch_variant,
+        commands::revisions::list_repositories,
+        commands::revisions::select_repository,
         self_update::self_update_status,
         self_update::request_self_restart,
         commands::ops::check_app,

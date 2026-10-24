@@ -1,3 +1,4 @@
+import { handleRevisions, seedRevisionMock } from "./mockRevisions";
 import { mockCommitMetadata } from "./mockCommitMetadata";
 import { buildCandidates, handleRoadmap } from "./mockRoadmap";
 // Browser preview of the UI without the Rust backend: `pnpm dev:renderer`, then open
@@ -28,19 +29,34 @@ function handle(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
+  const revision = handleRevisions(cmd, args, apps);
+  if (revision !== undefined) return revision;
   const roadmap = handleRoadmap(cmd, args, apps);
   if (roadmap !== undefined) return roadmap;
   const id = typeof args?.id === "string" ? args.id : "";
   const find = () => apps.find((view) => view.app.id === id) ?? apps[0];
   switch (cmd) {
-    case "commit_metadata":
-      return mockCommitMetadata(args);
+    case "commit_metadata": {
+      const metadata = mockCommitMetadata(args);
+      const active = find();
+      const repo =
+        active?.app.source === "github"
+          ? active.app.repo
+          : "zed-industries/zed";
+      return {
+        ...metadata,
+        release_url: metadata.release_url?.replace("zed-industries/zed", repo),
+        ci_url: metadata.ci_url?.replace("zed-industries/zed", repo),
+      };
+    }
     case "list_apps":
-      return new URLSearchParams(location.search).has("empty") ? [] : apps;
+      return structuredClone(
+        new URLSearchParams(location.search).has("empty") ? [] : apps,
+      );
     case "get_app":
     case "check_app":
     case "mark_installed":
-      return find();
+      return structuredClone(find());
     case "app_history":
       return id === "zed"
         ? history
@@ -166,6 +182,7 @@ function handle(
 
 export function installMockBackend(): void {
   mockWindows("main");
+  seedRevisionMock(apps);
   const scenario = new URLSearchParams(location.search).get("scenario");
   handleRoadmap("ensure_self_subscription", undefined, apps);
   const first = apps.find((view) => view.app.id === "zed");
@@ -206,6 +223,7 @@ export function installMockBackend(): void {
   }
   mockIPC(
     (cmd, args) => {
+      if (cmd === "list_commits" && new URLSearchParams(location.search).get("scenario") === "commits-loading") return new Promise(resolve => setTimeout(() => resolve(handle(cmd, args as Record<string, unknown> | undefined)), 1500));
       if (cmd === "inspect_repo")
         return new Promise((resolve) =>
           setTimeout(

@@ -1,6 +1,10 @@
 import { DEFAULT_UPDATE_POLICY, type UpdatePolicy } from "@/lib/api";
 import type {
   AppKind,
+  RepositoryOption,
+  SourceInstall,
+  AssetInstall,
+  VariantInfo,
   Install,
   Preset,
   RepoInspection,
@@ -39,6 +43,14 @@ export interface AppFormState {
   autoUpdate: boolean;
   updatePolicy: UpdatePolicy;
   verifyCommand: string;
+  sourceVerifyCommand: string;
+  assetVerifyCommand: string;
+  storageKeep: boolean;
+  storageRoot: string;
+  repositories: RepositoryOption[];
+  sourceBuild: SourceInstall | null;
+  releaseAsset: AssetInstall | null;
+  variant: VariantInfo | null;
 }
 
 /** A fresh form for a new repository. */
@@ -71,6 +83,14 @@ export function emptyForm(): AppFormState {
     autoUpdate: false,
     updatePolicy: DEFAULT_UPDATE_POLICY,
     verifyCommand: "",
+    sourceVerifyCommand: "",
+    assetVerifyCommand: "",
+    storageKeep: true,
+    storageRoot: "",
+    repositories: [],
+    sourceBuild: null,
+    releaseAsset: null,
+    variant: null,
   };
 }
 
@@ -102,6 +122,8 @@ export function formFromApp(app: TrackedApp): AppFormState {
   }
   const track = app.track;
   const install = app.install;
+  const sourceRecipe = install.method === "source" ? install : app.source_build;
+  const assetRecipe = install.method === "asset" ? install : app.release_asset;
 
   return {
     ...common,
@@ -115,14 +137,22 @@ export function formFromApp(app: TrackedApp): AppFormState {
     tagFilter: track.mode === "commit" ? "" : (track.tag_filter ?? "") || "",
     installMethod: install.method,
     presetId: "",
-    build: install.method === "source" ? install.build : "",
-    workdir: install.method === "source" ? (install.workdir ?? "") || "" : "",
-    artifact: install.method === "source" ? (install.artifact ?? "") || "" : "",
+    build: sourceRecipe?.build ?? "",
+    workdir: sourceRecipe?.workdir ?? "",
+    artifact: sourceRecipe?.artifact ?? "",
     verifyCommand: install.verify_command ?? "",
+    sourceVerifyCommand: sourceRecipe?.verify_command ?? "",
+    assetVerifyCommand: assetRecipe?.verify_command ?? "",
     dest: install.dest ?? "",
-    pattern: install.method === "asset" ? (install.pattern ?? "") || "" : "",
-    binary: install.method === "asset" ? (install.binary ?? "") || "" : "",
+    pattern: assetRecipe?.pattern ?? "",
+    binary: assetRecipe?.binary ?? "",
     gitUrl: app.git_url ?? "",
+    storageKeep: sourceRecipe?.storage?.keep ?? true,
+    storageRoot: sourceRecipe?.storage?.root ?? "",
+    repositories: app.repositories ?? [],
+    sourceBuild: app.source_build ?? null,
+    releaseAsset: app.release_asset ?? null,
+    variant: app.variant ?? null,
     autoUpdate: app.auto_update,
     updatePolicy: app.update_policy ?? DEFAULT_UPDATE_POLICY,
   };
@@ -194,6 +224,10 @@ export function appFromForm(form: AppFormState): TrackedApp {
         }
       : {
           method: "source",
+          storage: {
+            keep: form.storageKeep,
+            root: form.storageRoot.trim() || null,
+          },
           verify_command: form.verifyCommand.trim() || null,
           build: form.build.trim(),
           workdir: form.workdir.trim() || null,
@@ -210,8 +244,54 @@ export function appFromForm(form: AppFormState): TrackedApp {
     auto_update: form.updatePolicy.mode === "notify" ? false : form.autoUpdate,
     update_policy: form.updatePolicy,
     git_url: form.gitUrl.trim() || null,
+    ...(form.repositories.length
+      ? {
+          repositories: form.repositories.map((item) => ({
+            ...item,
+            repo: item.repo.trim(),
+            label: item.label.trim() || item.repo.trim(),
+            git_url: item.git_url?.trim() || null,
+            branch: item.branch?.trim() || null,
+          })),
+        }
+      : {}),
+    ...(form.sourceBuild ? { source_build: form.sourceBuild } : {}),
+    ...(form.releaseAsset ? { release_asset: form.releaseAsset } : {}),
+    ...(form.variant ? { variant: form.variant } : {}),
     track,
     install,
+  };
+}
+
+/** Switch visible recipes without moving the current installation destination. */
+export function withInstallMethod(
+  form: AppFormState,
+  method: AppFormState["installMethod"],
+): AppFormState {
+  if (method === form.installMethod) return form;
+  const current = appFromForm(form);
+  if (current.source !== "github") return { ...form, installMethod: method };
+  if (method === "asset") {
+    return {
+      ...form,
+      installMethod: method,
+      sourceVerifyCommand: form.verifyCommand,
+      verifyCommand: form.assetVerifyCommand,
+      sourceBuild:
+        form.sourceBuild ??
+        (current.install.method === "source" && current.install.build
+          ? current.install
+          : null),
+    };
+  }
+  return {
+    ...form,
+    installMethod: method,
+    assetVerifyCommand: form.verifyCommand,
+    verifyCommand: form.sourceVerifyCommand,
+    releaseAsset:
+      form.releaseAsset ??
+      (current.install.method === "asset" ? current.install : null),
   };
 }
 

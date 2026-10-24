@@ -22,8 +22,14 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
         if let Err(error) = state.hw.confirm_self_restart() {
             eprintln!("headway: restart confirmation: {error}");
         }
-        match state.hw.cli_status(None).await {
-            Ok(status) if status.needs_repair && status.points_to.is_some() => {
+        let primary = std::env::var_os("HEADWAY_VARIANT_ID").is_none()
+            && !state.hw.running_is_variant().unwrap_or(true);
+        match if primary {
+            state.hw.cli_status(None).await.map(Some)
+        } else {
+            Ok(None)
+        } {
+            Ok(Some(status)) if status.needs_repair && status.points_to.is_some() => {
                 if let Err(error) = state.hw.fix_cli_link(None).await {
                     eprintln!("headway: CLI link repair: {error}");
                 }

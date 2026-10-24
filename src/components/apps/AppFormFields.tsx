@@ -1,3 +1,4 @@
+import { RepositoryFields } from "./RepositoryFields";
 import { AppFormInstallFields } from "./AppFormInstallFields";
 import { Switch } from "@/components/ui/switch";
 import { UpdatePolicyFields } from "./UpdatePolicyFields";
@@ -98,6 +99,7 @@ export function AppFormFields({
           <Input
             aria-label={t("form.id")}
             id={idId}
+            maxLength={64}
             value={form.id}
             readOnly={mode === "edit"}
             onChange={(event) => onSetId(event.target.value)}
@@ -130,20 +132,7 @@ export function AppFormFields({
               size="sm"
               aria-label={t("form.follow")}
               value={form.trackMode}
-              onValueChange={(value) => {
-                const mode = value as AppFormState["trackMode"];
-                onUpdate("trackMode", mode);
-                // release assets only exist for releases
-                if (mode !== "release" && form.installMethod === "asset") {
-                  onUpdate("installMethod", "source");
-                }
-                // following releases that ship a macOS asset: download it by default
-                const assetKind = inspection?.latest_release?.suggested_kind;
-                if (mode === "release" && assetKind) {
-                  onUpdate("installMethod", "asset");
-                  onUpdate("kind", assetKind);
-                }
-              }}
+              onValueChange={(value) => onUpdate("trackMode", value)}
               items={[
                 { value: "commit", label: t("form.followCommit") },
                 { value: "release", label: t("form.followRelease") },
@@ -202,6 +191,12 @@ export function AppFormFields({
         </>
       ) : null}
       {/* 5 — automation */}
+      {form.source === "github" ? (
+        <RepositoryFields
+          rows={form.repositories}
+          onChange={(rows) => onUpdate("repositories", rows)}
+        />
+      ) : null}
       <UpdatePolicyFields form={form} onUpdate={onUpdate} />
     </div>
   );

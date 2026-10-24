@@ -172,6 +172,71 @@ to detect installation. Headway bundles also undergo native signature verificati
 package managers and builds that install themselves do not use this cache. Old cache manifests
 without source identity are rejected explicitly. `remove --purge` also removes retained backups.
 
+## Source storage and the full commit history
+
+```sh
+headway edit headway --keep-source true --source-root ~/Developer/HeadwaySources
+headway --json source-storage headway
+headway edit headway --keep-source false
+headway --json commits headway --page 1 --per-page 20
+headway --json commits headway --page 2 --per-page 20 --anchor <sha-from-page-1>
+```
+
+Source builds keep their checkout and build cache by default. A custom root contains a managed
+child named after the app ID. With retention off, each build uses a temporary checkout under the
+selected base and removes it after success, failure or cancellation. Turning retention off or
+changing roots preserves older retained data. An empty `--source-root ''` restores the default.
+Headway refuses to reuse or purge an unowned directory; purge leaves the custom root and siblings.
+
+The app's **Commits** tab browses history one page at a time, including commits older than the
+pending-update window. Pages reuse the first page's SHA anchor, so new commits arriving upstream
+do not shift the history while you browse. Refresh begins a new snapshot.
+
+## Choose a commit, recipe or independent version
+
+```sh
+headway --json commit-options headway <sha-or-tag>
+headway --json install-commit headway <sha> --method source --dry-run
+headway --json install-commit headway <tag> --method asset --dry-run
+headway --json install-commit headway <sha> --method asset --release-tag <tag> --dry-run
+headway --json install-commit headway <sha> --as headway-old --name 'Headway old' --dry-run
+headway --json install-commit headway <sha> --as headway-old --name 'Headway old'
+headway --json launch-variant headway-old
+```
+
+Any available commit can be installed again, upgraded to or downgraded to. A commit with a verified
+published release can use a downloaded asset or a source build. Build fields and asset patterns
+remain editable; the one-off choice preserves the main subscription's configured recipe and
+destination. Download selection checks that the release tag identifies the selected SHA.
+When an older release was resolved separately, `--release-tag` carries its tag alongside the SHA;
+the app does this automatically and rechecks the association before installation.
+
+`--as` creates a separate tracked installation with automatic updates off and an exact commit pin.
+Apps go to `apps_dir/Headway Versions/<id>.app`; CLI binaries go to `bin_dir/<id>`. The preview
+shows that independent destination. Existing destinations are refused, and a build that installs
+itself without a managed artifact cannot be used for an independent version. A failed install
+remains visible for inspection and retry. App launch uses the installed bundle's executable;
+CLI versions run by their new name on PATH. **Application data remains shared** according to the
+application's normal behavior; this release does not add profile/data isolation.
+
+## Official repositories and forks
+
+```sh
+headway --json repo list headway
+headway --json repo add headway my-account/headway --label 'My fork' --branch work
+headway --json repo use headway my-account/headway
+headway --json repo use headway FrankieeW/headway
+headway --json repo remove headway my-account/headway
+```
+
+Each GitHub app can save several named repositories, with optional branch and clone URL per
+origin. The active repository drives checks, commit browsing and installation. Switching is an
+explicit action in the app; it retains installed bytes and clears the old repository's revision
+baseline. Restore checks still enforce the backup's repository identity. Repository metadata and
+commit badge caches are separated by origin.
+An existing Headway fork at its managed location keeps its subscription and installer-recorded
+baseline. Independent Headway instances keep the primary subscription and CLI link in place.
+
 ## The desktop app
 
 - Select GitHub, npm, Homebrew (formula/cask), or a custom official updater in the add/edit dialog.

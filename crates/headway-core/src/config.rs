@@ -132,6 +132,8 @@ impl Install {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceInstall {
+    #[serde(default)]
+    pub storage: crate::source_storage::SourceStorage,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verify_command: Option<String>,
     /// Shell command run with `/bin/sh -c` in `workdir`.
@@ -262,21 +264,34 @@ impl TrackedApp {
 
 /// Checks the GitHub-specific fields (branch, git URL, build/asset settings).
 pub(crate) fn validate_github(github: &GithubSource) -> std::result::Result<(), String> {
+    validate_remote(&github.track, github.git_url.as_deref())?;
+    validate_install(&github.install)
+}
+
+pub(crate) fn validate_remote(
+    track: &Track,
+    git_url: Option<&str>,
+) -> std::result::Result<(), String> {
     if let Track::Commit {
         branch: Some(branch),
-    } = &github.track
+    } = track
         && (branch.trim().is_empty() || branch.contains(char::is_whitespace))
     {
         return Err(format!("branch `{branch}` is not a valid branch name"));
     }
     let accepted = ["https://", "http://", "ssh://", "git@", "file://", "/"];
-    if let Some(url) = &github.git_url
+    if let Some(url) = git_url
         && !accepted.iter().any(|prefix| url.starts_with(prefix))
     {
         return Err(format!("git_url `{url}` is not a git URL"));
     }
-    match &github.install {
+    Ok(())
+}
+
+pub(crate) fn validate_install(install: &Install) -> std::result::Result<(), String> {
+    match install {
         Install::Source(source) => {
+            source.storage.validate().map_err(|err| err.to_string())?;
             if source.build.trim().is_empty() {
                 return Err("install.build is empty".into());
             }
@@ -292,12 +307,6 @@ pub(crate) fn validate_github(github: &GithubSource) -> std::result::Result<(), 
             validate_dest(source.dest.as_deref()).map_err(|err| err.to_string())
         }
         Install::Asset(asset) => {
-            if !matches!(github.track, Track::Release { .. }) {
-                return Err(format!(
-                    "install.method = \"asset\" needs track.mode = \"release\" (got \"{}\")",
-                    github.track.mode()
-                ));
-            }
             if let Some(binary) = &asset.binary
                 && (binary.is_empty() || binary.contains('/'))
             {

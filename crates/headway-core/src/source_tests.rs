@@ -123,6 +123,7 @@ fn github_identity_uses_canonical_case_insensitive_repo_and_track_mode() {
     // Given equivalent GitHub spellings and a distinct tracking mode.
     let source = |repo: &str, track| {
         Source::Github(GithubSource {
+            options: Box::default(),
             repo: repo.into(),
             git_url: None,
             track,

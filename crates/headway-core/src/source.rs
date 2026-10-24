@@ -148,6 +148,8 @@ pub struct GithubSource {
     pub git_url: Option<String>,
     pub track: Track,
     pub install: Install,
+    #[serde(flatten)]
+    pub options: Box<crate::source_options::GithubOptions>,
 }
 
 impl GithubSource {
@@ -165,6 +167,7 @@ impl GithubSource {
     fn validate(&self) -> std::result::Result<(), String> {
         self.repo_id().map_err(|err| err.to_string())?;
         self.track.tag_regex().map_err(|err| err.to_string())?;
+        self.options.validate().map_err(|err| err.to_string())?;
         crate::config::validate_github(self)
     }
 }

@@ -3,6 +3,12 @@ use clap::{Args, ValueEnum};
 /// Config fields settable from `add` and `edit`. An empty string clears an optional field.
 #[derive(Args, Debug, Default, Clone)]
 pub struct AppFields {
+    /// Keep the source checkout and build cache after each source build
+    #[arg(long, value_name="BOOL", action=clap::ArgAction::Set)]
+    pub keep_source: Option<bool>,
+    /// Base folder for per-app source checkouts (empty resets to Headway's cache)
+    #[arg(long)]
+    pub source_root: Option<String>,
     /// Automatic update behavior
     #[arg(long, value_enum)]
     pub update_mode: Option<UpdateModeArg>,

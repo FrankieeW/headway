@@ -41,8 +41,37 @@ pub fn apply(base: TrackedApp, fields: &AppFields) -> Result<TrackedApp> {
     let source = match base.source {
         Source::Github(github) => {
             let track = apply_track(&github.track, fields)?;
-            let install = apply_install(github.install, &track, fields, &github.repo, &name)?;
+            let mut options = github.options.clone();
+            let mut base = match (install_method(&github.install, fields), &github.install) {
+                (MethodArg::Source, Install::Asset(_)) => options
+                    .source_build
+                    .clone()
+                    .map_or_else(|| github.install.clone(), Install::Source),
+                (MethodArg::Asset, Install::Source(_)) => options
+                    .release_asset
+                    .clone()
+                    .map_or_else(|| github.install.clone(), Install::Asset),
+                _ => github.install.clone(),
+            };
+            if base.method() != github.install.method() {
+                let dest = match &github.install {
+                    Install::Source(source) => source.dest.clone(),
+                    Install::Asset(asset) => asset.dest.clone(),
+                };
+                match &mut base {
+                    Install::Source(source) => source.dest = dest,
+                    Install::Asset(asset) => asset.dest = dest,
+                }
+            }
+            let install = apply_install(base, fields, &github.repo, &name)?;
+            if install.method() != github.install.method() {
+                match &github.install {
+                    Install::Source(source) => options.source_build = Some(source.clone()),
+                    Install::Asset(asset) => options.release_asset = Some(asset.clone()),
+                }
+            }
             Source::Github(GithubSource {
+                options,
                 git_url: optional(fields.git_url.as_ref(), github.git_url),
                 track,
                 install,
@@ -128,18 +157,29 @@ fn apply_track(base: &Track, fields: &AppFields) -> Result<Track> {
     }
 }
 
-fn apply_install(
-    base: Install,
-    track: &Track,
-    fields: &AppFields,
-    repo: &str,
-    name: &str,
-) -> Result<Install> {
-    let method = fields.method.unwrap_or(match (&base, track) {
-        // Asset installs only exist for releases; leaving release mode means building.
-        (Install::Asset(_), Track::Release { .. }) => MethodArg::Asset,
-        _ => MethodArg::Source,
-    });
+fn install_method(base: &Install, fields: &AppFields) -> MethodArg {
+    fields.method.unwrap_or_else(|| {
+        if fields.build.is_some()
+            || fields.workdir.is_some()
+            || fields.artifact.is_some()
+            || fields.preset.is_some()
+        {
+            MethodArg::Source
+        } else {
+            match base {
+                Install::Source(_) => MethodArg::Source,
+                Install::Asset(_) => MethodArg::Asset,
+            }
+        }
+    })
+}
+
+fn apply_install(base: Install, fields: &AppFields, repo: &str, name: &str) -> Result<Install> {
+    let method = install_method(&base, fields);
+    let destination = match &base {
+        Install::Source(source) => source.dest.clone(),
+        Install::Asset(asset) => asset.dest.clone(),
+    };
     match method {
         MethodArg::Source => {
             for (flag, value) in [("--pattern", &fields.pattern), ("--binary", &fields.binary)] {
@@ -152,13 +192,20 @@ fn apply_install(
             }
             let base = match base {
                 Install::Source(source) => source,
-                Install::Asset(_) => SourceInstall::default(),
+                Install::Asset(_) => SourceInstall {
+                    dest: destination,
+                    ..SourceInstall::default()
+                },
             };
             let base = match &fields.preset {
                 Some(id) => preset_source(id, fields.binary.as_deref(), repo, name, base)?,
                 None => base,
             };
             Ok(Install::Source(SourceInstall {
+                storage: headway_core::SourceStorage {
+                    keep: fields.keep_source.unwrap_or(base.storage.keep),
+                    root: optional(fields.source_root.as_ref(), base.storage.root),
+                },
                 build: fields.build.clone().unwrap_or(base.build),
                 workdir: optional(fields.workdir.as_ref(), base.workdir),
                 artifact: optional(fields.artifact.as_ref(), base.artifact),
@@ -167,6 +214,9 @@ fn apply_install(
             }))
         }
         MethodArg::Asset => {
+            if fields.keep_source.is_some() || fields.source_root.is_some() {
+                return Err(misuse("--keep-source/--source-root", "--method source"));
+            }
             for (flag, value) in [
                 ("--build", &fields.build),
                 ("--workdir", &fields.workdir),
@@ -179,7 +229,10 @@ fn apply_install(
             }
             let base = match base {
                 Install::Asset(asset) => asset,
-                Install::Source(_) => AssetInstall::default(),
+                Install::Source(_) => AssetInstall {
+                    dest: destination,
+                    ..AssetInstall::default()
+                },
             };
             Ok(Install::Asset(AssetInstall {
                 pattern: optional(fields.pattern.as_ref(), base.pattern),

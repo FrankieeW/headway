@@ -3,7 +3,7 @@ use chrono::Utc;
 
 use crate::{
     AppKind, AppView, AutoUpdateMode, Error, GithubSource, Headway, Install, InstalledRef, Result,
-    Source, SourceInstall, Track, TrackedApp, UpdatePolicy,
+    Source, Track, TrackedApp,
 };
 
 fn is_self(app: &TrackedApp) -> bool {
@@ -55,53 +55,64 @@ fn matches_destination(
         .is_some_and(|(expected, observed)| expected == observed)
 }
 
+fn new_self_app(config: &crate::Config, dest: &str) -> Result<TrackedApp> {
+    let mut app = crate::recipes::recipes()
+        .into_iter()
+        .find(|recipe| recipe.id == "headway-app")
+        .ok_or_else(|| Error::Config("Headway app recipe is unavailable".into()))?
+        .app;
+    app.id = "headway".into();
+    let mut suffix = 1_u32;
+    while config.apps.iter().any(|existing| existing.id == app.id) {
+        app.id = format!("headway-self-{suffix}");
+        suffix = suffix
+            .checked_add(1)
+            .ok_or_else(|| Error::Config("no free self subscription id".into()))?;
+    }
+    app.auto_update = false;
+    app.update_policy.mode = AutoUpdateMode::Notify;
+    let Source::Github(github) = &mut app.source else {
+        return Err(Error::Config("Headway recipe must use GitHub".into()));
+    };
+    let Install::Source(source) = &mut github.install else {
+        return Err(Error::Config(
+            "Headway recipe must build from source".into(),
+        ));
+    };
+    source.dest = Some(dest.into());
+    source.verify_command =
+        Some("\"$HEADWAY_INSTALLED_PATH/Contents/MacOS/headway\" --json version".into());
+    Ok(app)
+}
+
 impl Headway {
     /// Ensures that the installed Headway desktop app is the first tracked subscription.
     /// Existing self configuration is preserved; new subscriptions only notify.
     pub async fn ensure_self_subscription(&self) -> Result<AppView> {
+        if let Some(id) = self.running_variant_id()? {
+            return self.get(&id);
+        }
         let bundle = crate::cli_link::bundle(self, None).await?.ok_or_else(|| {
             Error::InvalidInput("no installed Headway desktop app was found".into())
         })?;
         let dest = bundle.display().to_string();
+        let observed = self.store().state()?;
         let id = self.store().update_config(|mut config| {
-            let app = if let Some(index) = config.apps.iter().position(is_self) {
+            let app = if let Some(index) = config.apps.iter().position(|app| {
+                is_self(app)
+                    || (app.kind == AppKind::App
+                        && app.github().is_some_and(|github| {
+                            matches_destination(
+                                github,
+                                &config.settings.apps_dir,
+                                observed.app(&app.id).installed,
+                                &bundle,
+                            )
+                        }))
+            }) {
                 config.apps.remove(index)
             } else {
-                let mut id = "headway".to_owned();
-                let mut suffix = 1_u32;
-                while config.apps.iter().any(|app| app.id == id) {
-                    id = format!("headway-self-{suffix}");
-                    suffix = suffix
-                        .checked_add(1)
-                        .ok_or_else(|| Error::Config("no free self subscription id".into()))?;
-                }
-                TrackedApp {
-                    id,
-                    name: "Headway".into(),
-                    kind: AppKind::App,
-                    auto_update: false,
-                    update_policy: UpdatePolicy {
-                        mode: AutoUpdateMode::Notify,
-                        ..UpdatePolicy::default()
-                    },
-                    source: Source::Github(GithubSource {
-                        repo: "FrankieeW/headway".into(),
-                        git_url: None,
-                        track: Track::Commit {
-                            branch: Some("main".into()),
-                        },
-                        install: Install::Source(SourceInstall {
-                            build: "./scripts/build-headway.sh app".into(),
-                            artifact: Some(".headway-out/Headway.app".into()),
-                            dest: Some(dest.clone()),
-                            verify_command: Some(
-                                "\"$HEADWAY_INSTALLED_PATH/Contents/MacOS/headway\" --json version"
-                                    .into(),
-                            ),
-                            ..SourceInstall::default()
-                        }),
-                    }),
-                }
+                new_self_app(&config, &dest)?
             };
             let id = app.id.clone();
             config.apps.insert(0, app);
@@ -118,6 +129,16 @@ impl Headway {
             drop(lock);
             return self.get(&id);
         };
+        // A clean SHA alone does not prove which fork produced the bundle.
+        // Fork subscriptions keep the baseline recorded by their actual installer.
+        if !github
+            .repo_id()?
+            .full_name()
+            .eq_ignore_ascii_case("FrankieeW/headway")
+        {
+            drop(lock);
+            return self.get(&id);
+        }
         if !matches_destination(
             github,
             &config.settings.apps_dir,

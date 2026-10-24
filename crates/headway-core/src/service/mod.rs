@@ -115,6 +115,7 @@ impl HeadwayBuilder {
 
 mod apps;
 mod checks;
+mod commits;
 mod github;
 mod inventory;
 #[path = "update.rs"]
@@ -124,11 +125,17 @@ mod presence;
 #[cfg(test)]
 mod presence_tests;
 mod recovery;
+mod repositories;
 mod resolve;
+mod revision_install;
+mod revision_prepare;
 #[cfg(test)]
 mod source_tests;
 #[cfg(test)]
 mod tests;
+mod variant_launch;
+mod variant_prepare;
+mod variants;
 mod views;
 
 pub use views::{AppStatus, AppView, LogFile, RemovedApp, TokenStatus};

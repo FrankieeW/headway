@@ -303,3 +303,18 @@ fn truncates_on_char_boundaries() {
     assert_eq!(truncate("héllo", 2), "hé…");
     assert_eq!(truncate("hi", 5), "hi");
 }
+
+#[test]
+fn a_source_sha_is_not_compared_as_a_large_release_version() {
+    let candidates = release_candidates(&[release("v2.0.0", false, 1)], false, None);
+    let mut current = installed("999999999aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    current.sha = Some(current.id.clone());
+    let checked = evaluate_versions(candidates.clone(), Some(&current));
+    assert_eq!(checked.status, UpdateStatus::Unknown);
+    assert_eq!(checked.pending_total, 0);
+    current.id = "v9.0.0".into();
+    assert_eq!(
+        evaluate_versions(candidates, Some(&current)).status,
+        UpdateStatus::UpToDate
+    );
+}

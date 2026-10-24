@@ -102,6 +102,16 @@ async fn failed_startup_confirmation_clears_queued_status() {
     let mut saved: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     saved["dispatched"] = serde_json::json!(true);
+    // Deliver to this process; the failed confirmation is a build mismatch,
+    // while another installed instance must leave this request alone.
+    saved["app_path"] = serde_json::json!(
+        std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .display()
+            .to_string()
+    );
     // Legacy request files lack the new optional field.
     saved.as_object_mut().unwrap().remove("restart_error");
     std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
@@ -110,6 +120,22 @@ async fn failed_startup_confirmation_clears_queued_status() {
     assert!(!status.restart_requested);
     assert!(!status.confirmed);
     assert!(status.restart_error.is_some());
+    assert!(!hw.take_self_restart().unwrap());
+}
+
+#[tokio::test]
+async fn another_installation_does_not_fail_the_target_instances_restart() {
+    let (_dir, hw, _app) = fixture();
+    hw.request_self_restart().await.unwrap();
+    let path = hw.paths().config_dir.join("self-restart.json");
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    saved["dispatched"] = serde_json::json!(true);
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    assert!(!hw.confirm_self_restart().unwrap());
+    let status = hw.self_update_status().await.unwrap();
+    assert!(status.restart_requested);
+    assert!(status.restart_error.is_none());
     assert!(!hw.take_self_restart().unwrap());
 }
 

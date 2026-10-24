@@ -25,6 +25,7 @@ interface ConfirmDialogProps {
   checkboxLabel?: string;
   checkboxDefaultChecked?: boolean;
   pending?: boolean;
+  scrollable?: boolean;
   onConfirm: (checkboxChecked: boolean) => void;
   onCancel: () => void;
 }
@@ -40,6 +41,7 @@ export function ConfirmDialog({
   checkboxLabel,
   checkboxDefaultChecked = false,
   pending = false,
+  scrollable = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -56,7 +58,9 @@ export function ConfirmDialog({
 
   const IconComponent = variant === "destructive" ? AlertTriangle : Info;
   const iconClass =
-    variant === "destructive" ? "h-5 w-5 text-destructive" : "h-5 w-5 text-fg-1";
+    variant === "destructive"
+      ? "h-5 w-5 text-destructive"
+      : "h-5 w-5 text-fg-1";
 
   return (
     <Dialog
@@ -73,7 +77,13 @@ export function ConfirmDialog({
             <IconComponent className={iconClass} />
             {title}
           </DialogTitle>
-          <DialogDescription className="whitespace-pre-line text-sm leading-relaxed">
+          <DialogDescription
+            className={
+              scrollable
+                ? "max-h-[50vh] overflow-y-auto whitespace-pre-line break-words text-sm leading-relaxed"
+                : "whitespace-pre-line text-sm leading-relaxed"
+            }
+          >
             {message}
           </DialogDescription>
         </DialogHeader>

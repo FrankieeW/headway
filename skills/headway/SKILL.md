@@ -144,7 +144,58 @@ manifests remain explicit errors. Purge removes them. Package-manager/script ins
 self-installing builds do not use this cache. A failed verifier rolls back the payload/ref; an
 emergency rollback failure reports the rescue path and clears installed certainty.
 
-## Optional update sources
+## Source retention, paginated commits and alternate repositories
+
+`edit <id> --keep-source true|false --source-root <base>` controls source builds. Default keep=true
+uses the existing cache checkout. A custom base contains the app ID's managed child; keep=false
+uses a unique temporary checkout under the base and cleans up on success/failure/cancellation.
+Changing roots or disabling keep preserves old retained paths. `--source-root ''` resets the base.
+`headway --ai source-storage <id>` reports `path`, `keep`, `exists`, `custom_root`; the path is the
+configured retained location, while disabled retention builds use a temporary child instead.
+Only Headway-owned checkout directories can be reused/purged; the base and siblings remain.
+
+`headway --ai commits <id> --page 1 --per-page 20` returns a `CommitPage` with `repo`, `branch`,
+immutable `anchor`, `page`, `per_page`, `commits`, `has_more`, `next_page`. Later pages require
+`--anchor <returned-sha>`. Read only requested pages; restart at page 1 without an anchor to refresh.
+
+`headway --ai repo list <id>` lists current and saved origins. `repo add <id> <owner/repo>
+--label 'My fork' --branch work [--git-url ...]` saves an alternative. `repo use <id> <owner/repo>`
+explicitly activates a configured origin and forgets foreign revision certainty while retaining
+the actual installed payload. `repo remove <id> <owner/repo>` removes an inactive choice. Do not
+report the old source's SHA as the newly selected repository's installed revision.
+
+## Exact revisions and independent installations
+
+```sh
+headway --ai commit-options <id> <sha-or-tag>
+headway --ai install-commit <id> <sha-or-tag> --method source --dry-run
+headway --ai install-commit <id> <tag> --method asset --dry-run
+headway --ai install-commit <id> <sha> --as <new-id> --name 'Independent version' --dry-run
+headway --ai install-commit <id> <sha> --as <new-id> --name 'Independent version'
+headway --ai launch-variant <new-id>
+```
+
+The exact-revision action supports upgrade, downgrade and reinstall. `--method configured|source|asset`
+chooses a one-off recipe. Source overrides: `--build`, `--artifact`, `--workdir`, `--verify-command`;
+asset overrides: `--pattern`, `--binary`, `--verify-command`. A source build needs a valid build
+recipe; a download needs a real published release whose tag resolves to that commit. Unknown
+release evidence must not be treated as a confirmed release. Main subscription recipes are preserved.
+When a prior lookup resolved a release tag to a SHA, pass `--release-tag <tag>` together with
+that SHA. The tag is rechecked through its full tag ref before planning/installing, including
+source builds, so older releases remain selectable without guessing from a bounded badge scan.
+Moved or mismatched tag associations are rejected before installing.
+
+`--as` registers a new ID with a separate destination and disabled auto-update, pinned to the
+resolved commit. Apps use `apps_dir/Headway Versions/<id>.app`; CLI binaries use `bin_dir/<id>`.
+Always review the dry-run's destination. Existing paths are refused, and source commands without
+a managed artifact are ineligible because they cannot guarantee a separate install location.
+Failed child installs remain registered for diagnosis and explicit retry. App children can be
+launched with `launch-variant`; CLI children run from their installed path/name. Data remains
+shared using the app's own normal behavior: no profile or data-dir isolation is provided.
+Independent Headway startup preserves the main subscription and CLI entry. A Headway fork at
+the managed bundle retains its own installer baseline; a clean SHA alone is not official-origin proof.
+
+## Optional update source examples
 
 GitHub remains the default for `owner/repo` and GitHub URLs. Other sources are opt-in:
 

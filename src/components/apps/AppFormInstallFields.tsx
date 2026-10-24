@@ -1,3 +1,4 @@
+import { SourceStorageFields } from "./SourceStorageFields";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
@@ -38,8 +39,7 @@ export function AppFormInstallFields({
   const destId = useId();
   const patternId = useId();
   const binaryId = useId();
-  const canUseAsset = form.trackMode === "release";
-  const installMethod = canUseAsset ? form.installMethod : "source";
+  const installMethod = form.installMethod;
   return (
     <>
       {/* 4 — how to install */}
@@ -56,15 +56,10 @@ export function AppFormInstallFields({
             {
               value: "asset",
               label: t("form.installAsset"),
-              disabled: !canUseAsset,
             },
           ]}
         />
-        {!canUseAsset ? (
-          <p className="text-caption text-fg-3">
-            {t("form.assetNeedsRelease")}
-          </p>
-        ) : null}
+        <p className="text-caption text-fg-3">{t("form.assetNeedsRelease")}</p>
       </Field>
 
       {installMethod === "source" ? (
@@ -144,6 +139,13 @@ export function AppFormInstallFields({
             </Field>
           </div>
 
+          <SourceStorageFields
+            value={{ keep: form.storageKeep, root: form.storageRoot || null }}
+            onChange={(storage) => {
+              onUpdate("storageKeep", storage.keep);
+              onUpdate("storageRoot", storage.root ?? "");
+            }}
+          />
           <Field label={t("form.dest")}>
             <Input
               id={destId}

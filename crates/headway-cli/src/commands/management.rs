@@ -223,8 +223,16 @@ pub async fn cli(hw: &Headway, command: CliCommand) -> Result<Reply> {
 pub async fn self_command(hw: &Headway, command: SelfCommand) -> Result<Reply> {
     if matches!(command, SelfCommand::Subscribe) {
         let view = hw.ensure_self_subscription().await?;
-        return Ok(Reply::new(&view, "Headway is the first subscription")
-            .next(vec![format!("headway show {}", view.app.id)]));
+        let message = if view
+            .app
+            .github()
+            .is_some_and(|github| github.options.variant.is_some())
+        {
+            "Independent Headway keeps the shared subscriptions"
+        } else {
+            "Headway is the first subscription"
+        };
+        return Ok(Reply::new(&view, message).next(vec![format!("headway show {}", view.app.id)]));
     }
     let status = match command {
         SelfCommand::Status => hw.self_update_status().await?,

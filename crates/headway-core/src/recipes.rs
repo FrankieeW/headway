@@ -53,6 +53,7 @@ pub fn recipes() -> Vec<AppRecipe> {
             "Build the menu-bar app and its bundled CLI from main using Headway's build helper.",
             AppKind::App,
             Source::Github(GithubSource {
+                options: Box::default(),
                 repo: "FrankieeW/headway".into(),
                 git_url: None,
                 track: Track::Commit {

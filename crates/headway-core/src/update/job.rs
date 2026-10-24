@@ -42,8 +42,19 @@ impl Job<'_> {
             ));
         }
         let url = self.app.require_github("source builds")?.clone_url()?;
-        let dir = self.paths.source_dir(&self.app.id);
         let git_env = git::git_env(self.env, &url, self.token);
+        let location =
+            crate::source_storage::Location::new(&source.storage, self.paths, &self.app.id)?;
+        let workspace = crate::source_storage::SourceCheckout::prepare(
+            &location,
+            &crate::source_storage::CheckoutContext {
+                url: &url,
+                env: &git_env,
+                cancel: self.cancel,
+            },
+        )
+        .await?;
+        let dir = workspace.path().to_path_buf();
         let checkout = Checkout {
             dir: &dir,
             env: &git_env,
@@ -118,7 +129,7 @@ impl Job<'_> {
         let repo = self.app.repo_id()?;
         self.log
             .stage(Stage::Resolve, format!("Looking up release {}", target.id));
-        let release = self.gh.release_by_tag(&repo, &target.id).await?;
+        let release = self.release_for_target(target).await?;
         let chosen = asset::select(
             &release.assets,
             self.app.kind,
