@@ -21,6 +21,8 @@ pub struct AppState {
     pub wake: Arc<tokio::sync::Notify>,
     /// "Check now" from the tray: run a check cycle on the next wake-up.
     check_requested: AtomicBool,
+    /// Quitting: the first exit request cancels running updates, the next one exits.
+    exiting: AtomicBool,
 }
 
 impl AppState {
@@ -30,7 +32,25 @@ impl AppState {
             runs: Mutex::new(HashMap::new()),
             wake: Arc::new(tokio::sync::Notify::new()),
             check_requested: AtomicBool::new(false),
+            exiting: AtomicBool::new(false),
         }
+    }
+
+    /// Cancels every update this process runs; returns how many there were.
+    pub fn cancel_all(&self) -> usize {
+        self.runs.lock().map_or(0, |runs| {
+            runs.values().for_each(CancellationToken::cancel);
+            runs.len()
+        })
+    }
+
+    pub fn active_runs(&self) -> usize {
+        self.runs.lock().map_or(0, |runs| runs.len())
+    }
+
+    /// Marks the app as quitting; returns whether it already was.
+    pub fn begin_exit(&self) -> bool {
+        self.exiting.swap(true, Ordering::SeqCst)
     }
 
     /// Asks the scheduler for an immediate check cycle.

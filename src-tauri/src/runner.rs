@@ -27,6 +27,17 @@ struct UpdateFinished {
     error: Option<ErrorInfo>,
 }
 
+struct RunGuard<'a> {
+    state: &'a AppState,
+    id: &'a str,
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.state.end_run(self.id);
+    }
+}
+
 /// Who asked for the update; background runs notify when they finish.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
@@ -45,10 +56,11 @@ pub async fn run_update<R: Runtime>(
     let Some(cancel) = state.begin_run(id) else {
         return false;
     };
+    // Ends the run even if the update panics, or this app could never update again.
+    let _run = RunGuard { state: &state, id };
     apps_changed(app);
     let sink = WindowSink { app: app.clone() };
     let result = state.hw.update(id, target, &sink, &cancel).await;
-    state.end_run(id);
 
     let payload = match &result {
         Ok(outcome) => UpdateFinished {
