@@ -11,7 +11,7 @@ const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(20);
 
 #[derive(Debug)]
 pub struct AppLock {
-    _file: File,
+    file: File,
 }
 
 impl AppLock {
@@ -23,12 +23,22 @@ impl AppLock {
         let file = open(path)?;
         for _ in 0..ACQUIRE_ATTEMPTS {
             match file.try_lock() {
-                Ok(()) => return Ok(Self { _file: file }),
+                Ok(()) => return Ok(Self { file }),
                 Err(TryLockError::WouldBlock) => std::thread::sleep(RETRY_DELAY),
                 Err(TryLockError::Error(err)) => return Err(Error::io_at("lock", path, err)),
             }
         }
         Err(Error::Busy(app_id.to_owned()))
+    }
+}
+
+impl Drop for AppLock {
+    fn drop(&mut self) {
+        // A concurrently spawning child can briefly inherit this descriptor before exec.
+        // Unlock explicitly so that copy cannot keep an already-finished job busy.
+        if let Err(err) = self.file.unlock() {
+            eprintln!("headway: release update lock: {err}");
+        }
     }
 }
 
@@ -79,5 +89,19 @@ mod tests {
         drop(held);
         assert!(!is_locked(&path));
         AppLock::acquire(&path, "rg").unwrap();
+    }
+
+    #[test]
+    fn dropping_the_guard_releases_a_lock_even_when_a_descriptor_copy_survives() {
+        // Given the extra descriptor a concurrently spawned child may inherit.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tool.lock");
+        let held = AppLock::acquire(&path, "tool").unwrap();
+        let inherited = held.file.try_clone().unwrap();
+        // When the owning operation finishes.
+        drop(held);
+        // Then its logical lock ends immediately, before the child closes its copy.
+        assert!(!is_locked(&path));
+        drop(inherited);
     }
 }

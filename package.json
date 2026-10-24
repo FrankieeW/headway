@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "build:self": "./scripts/build-headway.sh app",
+    "build:cli": "./scripts/build-headway.sh cli",
     "tauri": "tauri",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
@@ -51,6 +53,9 @@
     "jsdom": "^25.0.0",
     "postcss": "^8.4.49",
     "prettier": "^3.6.2",
+    "react-doctor": "^0.9.18",
+    "react-grab": "^0.2.0",
+    "react-scan": "^0.5.7",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.3.0",

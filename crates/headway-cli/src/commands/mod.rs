@@ -4,6 +4,7 @@
 mod admin;
 mod apps;
 mod ops;
+mod register;
 
 use headway_core::{AppStatus, AppView, EnvMode, Headway, Result};
 
@@ -15,14 +16,18 @@ pub const API_ENV: &str = "HEADWAY_API_URL";
 
 pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
     let p = printer.palette;
+    if matches!(command, Command::Version) {
+        return Ok(version());
+    }
     let hw = open()?;
     match command {
+        Command::Version => Ok(version()),
         Command::List => apps::list(&hw, p),
         Command::Show { id } => apps::show(&hw, &id, p),
         Command::Check { ids } => ops::check(&hw, &ids, p).await,
         Command::Update(args) => ops::update(&hw, &args, printer).await,
         Command::Mark { id, reference } => ops::mark(&hw, &id, &reference, p).await,
-        Command::Add(args) => apps::add(&hw, &args, p).await,
+        Command::Add(args) => register::add(&hw, &args, p).await,
         Command::Edit(args) => apps::edit(&hw, &args, p),
         Command::Remove { id, purge, dry_run } => apps::remove(&hw, &id, purge, dry_run, p),
         Command::Inspect { repo } => apps::inspect(&hw, &repo, p).await,
@@ -36,6 +41,11 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
         Command::Commands => Ok(admin::commands()),
         Command::Completions { shell } => Ok(admin::completions(shell)),
     }
+}
+
+fn version() -> Reply {
+    let info = Headway::build_info();
+    Reply::new(&info, info.to_string()).next(vec!["headway commands --json".to_owned()])
 }
 
 fn open() -> Result<Headway> {
@@ -62,15 +72,18 @@ fn next_for(view: &AppView) -> Vec<String> {
     match view.status {
         AppStatus::UpdateAvailable | AppStatus::Diverged => {
             let mut next = vec![format!("headway update {id}")];
-            if view.pending_count > 1 {
+            if view.pending_count > 1 && view.app.source.picks_versions() {
                 next.push(format!("headway update {id} --next"));
             }
             next
         }
-        AppStatus::NotInstalled => vec![
+        AppStatus::NotInstalled if view.app.github().is_some() => vec![
             format!("headway update {id}"),
             format!("headway mark {id} latest"),
         ],
+        AppStatus::NotInstalled | AppStatus::Unknown => {
+            vec![format!("headway update {id} --dry-run")]
+        }
         AppStatus::Unchecked => vec![format!("headway check {id}")],
         AppStatus::Error => vec![format!("headway log {id}"), format!("headway check {id}")],
         AppStatus::Busy | AppStatus::UpToDate => Vec::new(),

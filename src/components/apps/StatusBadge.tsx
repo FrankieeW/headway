@@ -64,16 +64,16 @@ export function StatusBadge({
     );
   }
 
-  if (status === "unchecked") {
+  if (status === "unchecked" || status === "unknown") {
     return (
       <span
         className={cn(
           "inline-flex h-5 items-center justify-center rounded-full px-1.5 text-badge text-fg-3",
-          compact ? "w-5 px-0" : "",
+          compact ? "max-w-[90px] truncate" : "",
         )}
-        title={t("status.unchecked")}
+        title={t(status === "unknown" ? "status.unknown" : "status.unchecked")}
       >
-        {t("status.unchecked")}
+        {t(status === "unknown" ? "status.unknown" : "status.unchecked")}
       </span>
     );
   }

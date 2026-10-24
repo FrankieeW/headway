@@ -10,6 +10,7 @@ import {
 import type { Preset, TrackedApp } from "@/lib/api";
 
 const cliApp: TrackedApp = {
+  source: "github",
   id: "my-tool",
   name: "My Tool",
   repo: "owner/my-tool",
@@ -27,6 +28,7 @@ const cliApp: TrackedApp = {
 };
 
 const releaseApp: TrackedApp = {
+  source: "github",
   id: "some-app",
   name: "Some App",
   repo: "owner/some-app",
@@ -88,6 +90,7 @@ describe("appFromForm", () => {
   it("sends an empty branch as null", () => {
     const form = { ...emptyForm(), id: "x", name: "X", repo: "o/x" };
     const app = appFromForm(form);
+    if (app.source !== "github") throw new Error("Expected GitHub payload");
     expect(app.track).toEqual({ mode: "commit", branch: null });
   });
 
@@ -100,7 +103,12 @@ describe("appFromForm", () => {
       trackMode: "tag" as const,
     };
     const app = appFromForm(form);
-    expect(app.track).toEqual({ mode: "tag", prerelease: false, tag_filter: null });
+    if (app.source !== "github") throw new Error("Expected GitHub payload");
+    expect(app.track).toEqual({
+      mode: "tag",
+      prerelease: false,
+      tag_filter: null,
+    });
   });
 
   it("sends empty source fields as null", () => {
@@ -112,6 +120,7 @@ describe("appFromForm", () => {
       build: "make",
     };
     const app = appFromForm(form);
+    if (app.source !== "github") throw new Error("Expected GitHub payload");
     expect(app.install).toEqual({
       method: "source",
       build: "make",
@@ -130,6 +139,7 @@ describe("appFromForm", () => {
       branch: "  main  ",
     };
     const app = appFromForm(form);
+    if (app.source !== "github") throw new Error("Expected GitHub payload");
     expect(app.id).toBe("x");
     expect(app.name).toBe("X");
     expect(app.repo).toBe("o/x");

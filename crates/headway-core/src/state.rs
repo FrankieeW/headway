@@ -96,6 +96,8 @@ pub struct InstalledRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateStatus {
+    /// This source has no latest-version probe.
+    Unknown,
     UpToDate,
     UpdateAvailable,
     /// Nothing recorded as installed yet; `pending` lists recent candidates.

@@ -57,7 +57,7 @@ export function AppFormDialog({
   // start over when the dialog opens — not on every refetch of the app
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (open && !wasOpen.current) {
+    if (open !== wasOpen.current) {
       form.reset(app);
       setError(null);
     }
@@ -74,9 +74,7 @@ export function AppFormDialog({
 
   const handleApplyPreset = (preset: NonNullable<typeof presets>[number]) => {
     const bin =
-      inspectedBinary(form.inspection) ||
-      form.form.repo.split("/").pop() ||
-      "";
+      inspectedBinary(form.inspection) || form.form.repo.split("/").pop() || "";
     form.replace(
       applyPreset(form.form, preset, {
         bin,
@@ -97,11 +95,22 @@ export function AppFormDialog({
       setError(t("form.missingName"));
       return;
     }
-    if (!payload.repo) {
+    if (payload.source === "github" && !payload.repo) {
       setError(t("form.repoRequired"));
       return;
     }
 
+    if (
+      (payload.source === "npm" || payload.source === "brew") &&
+      !payload.package
+    ) {
+      setError(t("form.packageRequired"));
+      return;
+    }
+    if (payload.source === "script" && !payload.update_command) {
+      setError(t("form.updateRequired"));
+      return;
+    }
     setSaving(true);
     try {
       if (app) {
@@ -144,10 +153,17 @@ export function AppFormDialog({
             mode={app ? "edit" : "add"}
             presets={presets}
             inspection={form.inspection}
+            lookup={form.lookup}
             inspecting={form.inspecting}
             inspectionError={form.inspectionError}
             destPlaceholder={destPlaceholder}
-            onInspect={() => void form.inspect(form.form.repo)}
+            onInspect={() =>
+              void form.inspect(
+                form.form.source === "github"
+                  ? form.form.repo
+                  : form.form.package,
+              )
+            }
             onUpdate={form.update}
             onSetName={form.setName}
             onSetId={form.setId}
@@ -163,7 +179,11 @@ export function AppFormDialog({
           >
             {t("common.cancel")}
           </Button>
-          <Button variant="solid" onClick={() => void handleSave()} disabled={busy}>
+          <Button
+            variant="solid"
+            onClick={() => void handleSave()}
+            disabled={busy}
+          >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("common.save")}
           </Button>

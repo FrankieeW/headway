@@ -40,7 +40,7 @@ export function Sidebar({
   const hasToken = Boolean(token && token.source !== "none");
 
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col border-r border-border bg-sidebar">
+    <aside className="flex h-52 w-full shrink-0 flex-col sm:h-auto sm:w-[248px] border-r border-border bg-sidebar">
       <header
         {...DRAG_REGION_ATTR}
         style={DRAG_REGION_STYLE as React.CSSProperties}
@@ -105,7 +105,7 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="shrink-0 border-t border-border p-2">
+      <div className="flex shrink-0 border-t border-border px-2 sm:block sm:p-2">
         <button
           type="button"
           onClick={onOpenSettings}

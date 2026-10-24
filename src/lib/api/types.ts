@@ -1,6 +1,13 @@
 // Types mirroring the serde shapes of `headway-core` (snake_case on purpose:
 // they are the same JSON the `headway --json` CLI prints).
 
+export interface BuildInfo {
+  readonly version: string;
+  readonly commit: string | null;
+  readonly dirty: boolean;
+  readonly target: string | null;
+}
+
 export type AppKind = "cli" | "app";
 
 export type Track =
@@ -27,16 +34,47 @@ export interface AssetInstall {
 
 export type Install = SourceInstall | AssetInstall;
 
-export interface TrackedApp {
-  id: string;
-  name: string;
-  /** `owner/name` */
-  repo: string;
-  kind: AppKind;
-  auto_update: boolean;
-  git_url?: string | null;
-  track: Track;
-  install: Install;
+export type Source =
+  | {
+      readonly source: "github";
+      readonly repo: string;
+      readonly git_url?: string | null;
+      readonly track: Track;
+      readonly install: Install;
+    }
+  | {
+      readonly source: "npm";
+      readonly package: string;
+      readonly dist_tag: string;
+    }
+  | {
+      readonly source: "brew";
+      readonly package: string;
+      readonly cask: boolean;
+    }
+  | {
+      readonly source: "script";
+      readonly update_command: string;
+      readonly version_command?: string | null;
+      readonly latest_command?: string | null;
+    };
+
+export type TrackedApp = Source & {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: AppKind;
+  readonly auto_update: boolean;
+};
+
+export interface SourceLookup {
+  readonly source: "npm" | "brew";
+  readonly package: string;
+  readonly description?: string | null;
+  readonly homepage?: string | null;
+  readonly latest?: string | null;
+  readonly installed?: string | null;
+  readonly suggestion: TrackedApp;
+  readonly notes: string[];
 }
 
 export interface Settings {
@@ -58,10 +96,7 @@ export interface InstalledRef {
 }
 
 export type UpdateStatus =
-  | "up_to_date"
-  | "update_available"
-  | "not_installed"
-  | "diverged";
+  "up_to_date" | "update_available" | "not_installed" | "unknown" | "diverged";
 
 export interface Candidate {
   /** commit SHA or tag */
@@ -98,6 +133,7 @@ export type AppStatus =
   | "up_to_date"
   | "update_available"
   | "not_installed"
+  | "unknown"
   | "diverged"
   | "error"
   | "busy";
@@ -142,7 +178,7 @@ export interface UpdatePlan {
   up_to_date: boolean;
   /** `--to` the installed version: a real run installs it again */
   reinstall: boolean;
-  method: Install["method"];
+  method: Install["method"] | "npm" | "brew" | "script";
   steps: string[];
   asset?: AssetChoice | null;
 }
@@ -192,12 +228,7 @@ export interface UpdateFinished {
 }
 
 export type TokenSource =
-  | "headway_env"
-  | "keychain"
-  | "github_env"
-  | "gh_env"
-  | "gh_cli"
-  | "none";
+  "headway_env" | "keychain" | "github_env" | "gh_env" | "gh_cli" | "none";
 
 export interface RateLimit {
   limit: number;

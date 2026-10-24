@@ -1,17 +1,13 @@
 //! Managing tracked apps: list, show, add, edit, remove, inspect, history, log.
 
-use std::fmt::Write as _;
-
-use headway_core::config::{Install, SourceInstall, Track, TrackedApp};
-use headway_core::inspect::RepoInspection;
+use headway_core::config::{Track, TrackedApp};
 use headway_core::paths::display_path;
 use headway_core::presets::PRESETS;
-use headway_core::repo::{RepoId, slugify};
-use headway_core::{AppKind, AppView, Error, Headway, Result};
+use headway_core::{AppView, Error, Headway, Result, SourceSpec};
 use serde_json::{Value, json};
 
 use super::{next_for, without_dry_run};
-use crate::args::{AddArgs, AppFields, EditArgs, KindArg, MethodArg, TrackArg};
+use crate::args::EditArgs;
 use crate::fields;
 use crate::human::{self, Palette};
 use crate::output::Reply;
@@ -39,22 +35,24 @@ pub fn list(hw: &Headway, p: Palette) -> Result<Reply> {
 
 /// The compact per-app record `list` prints (`show` has everything).
 fn summary(view: &AppView) -> Value {
-    let branch = match &view.app.track {
-        Track::Commit { branch } => branch.clone().or_else(|| {
+    let branch = match view.app.github().map(|github| &github.track) {
+        Some(Track::Commit { branch }) => branch.clone().or_else(|| {
             view.last_check
                 .as_ref()
                 .and_then(|check| check.branch.clone())
         }),
-        Track::Release { .. } | Track::Tag { .. } => None,
+        Some(Track::Release { .. } | Track::Tag { .. }) | None => None,
     };
     json!({
         "id": view.app.id,
         "name": view.app.name,
-        "repo": view.app.repo,
+        "repo": view.app.github().map(|github| &github.repo),
+        "source": view.app.source.kind(),
+        "label": view.app.source.label(),
         "kind": view.app.kind,
-        "mode": view.app.track.mode(),
+        "mode": view.app.github().map(|github| github.track.mode()),
         "branch": branch,
-        "method": view.app.install.method(),
+        "method": view.app.source.method(),
         "status": view.status,
         "pending_count": view.pending_count,
         "busy": view.busy,
@@ -97,114 +95,7 @@ pub fn show(hw: &Headway, id: &str, p: Palette) -> Result<Reply> {
     })
 }
 
-pub async fn add(hw: &Headway, args: &AddArgs, p: Palette) -> Result<Reply> {
-    let repo = RepoId::parse(&args.repo)?;
-    let (base, notes, fields) = if args.no_inspect {
-        (bare_app(&repo), Vec::new(), args.fields.clone())
-    } else {
-        let found = hw.inspect(&args.repo).await?;
-        let fields = prefer_release_asset(&args.fields, &found);
-        (found.suggestion, found.notes, fields)
-    };
-    let base = match &args.id {
-        Some(id) => TrackedApp {
-            id: id.clone(),
-            ..base
-        },
-        None => base,
-    };
-    let app = fields::apply(base.clone(), &fields)?;
-    let overridden =
-        app.track.mode() != base.track.mode() || app.install.method() != base.install.method();
-    let notes = if overridden && !notes.is_empty() {
-        vec![format!(
-            "Flags override the suggested setup (follows {}, {}).",
-            human::mode_label(&base.track),
-            human::install_label(&base.install)
-        )]
-    } else {
-        notes
-    };
-    app.validate().map_err(|err| with_add_hint(err, &app))?;
-
-    let mut human = String::new();
-    if args.dry_run {
-        let _ = writeln!(human, "{}", p.dim("dry run, nothing saved:"));
-        human.push_str(&toml_of(&app));
-        append_notes(&mut human, &notes);
-        let data = json!({"app": app, "notes": notes, "saved": false});
-        return Ok(Reply::new(&data, human).next(vec![without_dry_run()]));
-    }
-    let view = hw.add(app)?;
-    let id = view.app.id.clone();
-    let _ = writeln!(
-        human,
-        "{} tracking {} as `{id}`: follows {}, {}",
-        p.green("✓"),
-        repo,
-        human::mode_label(&view.app.track),
-        human::install_label(&view.app.install)
-    );
-    append_notes(&mut human, &notes);
-    let data = json!({"app": view.app, "notes": notes, "saved": true});
-    Ok(Reply::new(&data, human).next(vec![
-        format!("headway check {id}"),
-        format!("headway update {id} --dry-run"),
-        format!("headway mark {id} latest"),
-    ]))
-}
-
-/// `--track release` without `--method` means "download it" when the release has a macOS asset.
-fn prefer_release_asset(fields: &AppFields, found: &RepoInspection) -> AppFields {
-    let asset_kind = found
-        .latest_release
-        .as_ref()
-        .and_then(|release| release.suggested_kind);
-    match (fields.track, fields.method, asset_kind) {
-        (Some(TrackArg::Release), None, Some(kind)) => AppFields {
-            method: Some(MethodArg::Asset),
-            kind: fields.kind.or(Some(match kind {
-                AppKind::Cli => KindArg::Cli,
-                AppKind::App => KindArg::App,
-            })),
-            ..fields.clone()
-        },
-        _ => fields.clone(),
-    }
-}
-
-/// The starting point for `add --no-inspect`: everything must come from flags.
-fn bare_app(repo: &RepoId) -> TrackedApp {
-    TrackedApp {
-        id: slugify(&repo.name),
-        name: repo.name.clone(),
-        repo: repo.full_name(),
-        kind: AppKind::Cli,
-        auto_update: false,
-        git_url: None,
-        track: Track::Commit { branch: None },
-        install: Install::Source(SourceInstall::default()),
-    }
-}
-
-fn with_add_hint(err: Error, app: &TrackedApp) -> Error {
-    match (&err, &app.install) {
-        (Error::Config(message), Install::Source(source)) if source.build.trim().is_empty() => {
-            Error::InvalidInput(format!(
-                "{message}; pass --build '<command>' or --preset <id> (see `headway presets`), or --track release --method asset"
-            ))
-        }
-        _ => err,
-    }
-}
-
-fn append_notes(out: &mut String, notes: &[String]) {
-    for note in notes {
-        let _ = writeln!(out, "  • {note}");
-    }
-}
-
-fn toml_of(app: &TrackedApp) -> String {
+pub(super) fn toml_of(app: &TrackedApp) -> String {
     #[derive(serde::Serialize)]
     struct Wrapper<'a> {
         app: [&'a TrackedApp; 1],
@@ -240,8 +131,8 @@ pub fn edit(hw: &Headway, args: &EditArgs, p: Palette) -> Result<Reply> {
     let human = format!(
         "{} updated `{id}`: follows {}, {}",
         p.green("✓"),
-        human::mode_label(&view.app.track),
-        human::install_label(&view.app.install)
+        human::source_mode(&view.app),
+        human::source_install(&view.app)
     );
     Ok(Reply::new(
         &json!({"app": view.app, "changed": true, "saved": true}),
@@ -289,7 +180,24 @@ pub fn remove(hw: &Headway, id: &str, purge: bool, dry_run: bool, p: Palette) ->
 }
 
 pub async fn inspect(hw: &Headway, repo: &str, p: Palette) -> Result<Reply> {
+    match SourceSpec::parse(repo)? {
+        SourceSpec::Npm(_) | SourceSpec::Brew { .. } => {
+            let found = hw.lookup(repo).await?;
+            let human = format!("{}\n{}", found.package, toml_of(&found.suggestion));
+            return Ok(Reply::new(&found, human).next(vec![format!(
+                "headway add {}",
+                headway_core::process::shell_quote(repo)
+            )]));
+        }
+        SourceSpec::Script(_) => {
+            return Err(Error::InvalidInput(
+                "script sources use explicit --update-command; no inspection available".into(),
+            ));
+        }
+        SourceSpec::Github(_) => {}
+    }
     let found = hw.inspect(repo).await?;
+
     let human = human::inspection(p, &found);
     let next = vec![format!("headway add {}", found.repo)];
     Ok(Reply::new(&found, human).next(next))

@@ -1,6 +1,6 @@
 # Headway
 
-Keep apps and CLI tools built from GitHub current on your Mac: **every commit, or every release**.
+Keep Mac apps and CLI tools current: **GitHub commits/releases, npm, Homebrew, or official updaters**.
 
 Headway tracks GitHub repositories and installs new versions for you: a CLI tool into `~/.local/bin`,
 an app bundle into `/Applications`. Each repository is followed one of two ways:
@@ -42,13 +42,90 @@ headway update ripgrep --to 4a1b2c3          # roll back to any commit or tag
 
 `headway --help` lists every command. `headway doctor` checks git, the token, `PATH` and build tools.
 
+## Optional npm, Homebrew and official updater sources
+
+GitHub tracking stays available. Select another source with a prefix or package URL:
+
+```sh
+headway add npm:@openai/codex --dist-tag latest
+headway add https://www.npmjs.com/package/pnpm
+headway add brew:ripgrep
+headway add cask:zed                         # also: brew:zed --cask
+headway add https://formulae.brew.sh/formula/jq
+headway add script:claude --update-command 'claude update' --version-command 'claude --version'
+headway check
+headway update codex --dry-run
+headway update codex --next
+headway edit codex --dist-tag beta
+```
+
+npm installs globally through your `npm` and registry configuration. Homebrew delegates to your
+`brew install`/`brew upgrade`, selecting `--formula` or `--cask`. Both detect installed versions
+from your system. Script sources execute the updater command you supply; use the project's
+trusted official instructions. Optional `--version-command` and `--latest-command` probes compare
+installed and newest versions (the latter also accepts an HTTP(S) URL). Without enough information,
+status is `unknown`; run that updater explicitly. `update --all` selects known available updates.
+
+`--no-inspect` works for every source; scripts still need `--update-command`. `--package` edits an
+npm/Homebrew package, and an empty version/latest command clears that script probe. GitHub and npm
+support `--next` and `--to` rollback; Homebrew and scripts support only latest. `mark` and all
+build/asset/track flags are GitHub-only. Inapplicable flags return an error. Existing GitHub config
+continues to load; JSON/XML app records now expose a flattened `source` discriminator.
+
+## Update Headway itself, one commit at a time
+
+After these build recipes are on the tracked branch, Headway can build and update its own app:
+
+```sh
+headway --json add FrankieeW/headway --preset headway-app --branch main --dest ~/Applications/Headway.app
+headway --json update headway --dry-run
+headway --json update headway                 # first installation, latest supported commit
+headway --json check headway
+headway --json update headway --next          # subsequent updates, one commit at a time
+```
+
+The desktop preset runs `./scripts/build-headway.sh app`, builds only the `.app` (no DMG), and
+bundles the matching CLI, ad-hoc signs the app, and verifies the staged signature before publishing
+the artifact. The stable artifact is `.headway-out/Headway.app`; the script honors
+`CARGO_TARGET_DIR`, uses the native Rust target by default, and retains Cargo/pnpm caches between
+commits. Open the updated app after quitting the running instance to load the new code. A CLI
+symlink installed by the app follows the bundled CLI on its next invocation.
+
+For a standalone CLI instead, use a separate tracking id:
+
+```sh
+headway --json add FrankieeW/headway --id headway-cli --preset headway-cli --branch main
+headway --json update headway-cli --dry-run
+headway --json update headway-cli
+headway --json update headway-cli --next
+```
+
+This recipe needs only git and Rust, runs `./scripts/build-headway.sh cli`, and stages
+`.headway-out/headway`. Explicit `--kind` still overrides a preset's app/CLI default. Both recipes
+use locked dependencies, build the exact checked-out commit, and leave installation to Headway's
+existing staged replacement. They do not install, restart, or rewrite config by themselves.
+
+For a local build, run `pnpm build:self` or `./scripts/build-headway.sh cli`. `--target` selects
+`aarch64-apple-darwin` or `x86_64-apple-darwin` when that Rust target/toolchain is installed.
+`headway --version` shows a short revision; `headway --json version` (or `version --ai`) returns
+the full compile-time `commit`, `dirty`, and `target` beside the release version. The app's
+existing version display uses the same compact identity. Unstamped plain Cargo builds report
+null commit/target; a dirty build is explicitly labeled and is not a clean remote-commit baseline.
+
+Only mark a baseline when you know the installed build's exact clean commit. The new recipes
+require a commit containing `scripts/build-headway.sh`; older commits need their historical build
+command. See [`examples/self-update.toml`](examples/self-update.toml) for equivalent config entries.
+CI builds the self-hosted app and verifies its bundled CLI and signature on every change.
+
 ## The desktop app
 
+- Select GitHub, npm, Homebrew (formula/cask), or a custom official updater in the add/edit dialog.
 - Menu-bar icon with the number of apps that are behind, and a menu to check, update all, or jump to an app.
-- Background checks every hour (configurable), notifications for new commits/releases, and per-app
+- Background checks every hour (configurable), notifications for available updates, and per-app
   automatic updates.
-- Per app: installed vs latest, the list of newer commits or releases (install or mark any of them),
-  history with one-click reinstall, the live build log, and the config.
+- Per app: installed vs latest, pending commits or versions, history, live update logs, and source
+  configuration. GitHub and npm offer version selection/reinstall; GitHub also supports manual
+  baselines. Scripts without enough probes show an unknown version status and can be run manually.
 - Settings: GitHub token (stored in the macOS Keychain, or taken from `gh`), check interval, install
   locations, launch at login, theme, 中文/English, diagnostics, and an "Install `headway` command" button
   that links the CLI shipped inside the app into your `bin_dir`.

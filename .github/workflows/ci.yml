@@ -54,6 +54,24 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Build the self-hosted app for this commit
+        run: ./scripts/build-headway.sh app
+
+      - name: Verify self-hosted artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEADWAY_HOME="$(mktemp -d)" .headway-out/Headway.app/Contents/MacOS/headway --json version > .headway-out/build-info.json
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(".headway-out/build-info.json", "utf8"));
+            assert.equal(report.ok, true);
+            assert.equal(report.data.commit, process.env.GITHUB_SHA);
+            assert.equal(report.data.dirty, false);
+          '
+          codesign --verify --deep --strict .headway-out/Headway.app
+
   frontend:
     name: frontend (ubuntu)
     runs-on: ubuntu-latest

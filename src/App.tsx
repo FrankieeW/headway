@@ -24,11 +24,10 @@ export default function App() {
     onShowLog: navigation.showLog,
   });
 
-  const selectedId =
-    navigation.view.kind === "app" ? navigation.view.id : null;
+  const selectedId = navigation.view.kind === "app" ? navigation.view.id : null;
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-app text-fg-1">
+    <div className="flex h-screen w-full flex-col sm:flex-row overflow-hidden bg-app text-fg-1">
       <Sidebar
         selectedId={selectedId}
         onSelectApp={navigation.selectApp}
@@ -36,7 +35,7 @@ export default function App() {
         onAddApp={() => setAddOpen(true)}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col bg-app">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-app">
         {navigation.view.kind === "settings" ? <SettingsPage /> : null}
 
         {navigation.view.kind === "app" ? (

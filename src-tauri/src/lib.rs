@@ -27,6 +27,7 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
         commands::apps::save_app,
         commands::apps::remove_app,
         commands::apps::inspect_repo,
+        commands::apps::lookup_source,
         commands::apps::list_presets,
         commands::ops::check_app,
         commands::ops::check_all,
@@ -49,6 +50,7 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
         commands::system::open_url,
         commands::system::reveal_path,
         commands::system::app_version,
+        commands::system::get_build_info,
     ]
 }
 

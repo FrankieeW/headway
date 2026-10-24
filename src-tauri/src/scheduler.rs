@@ -15,6 +15,10 @@ use crate::state::{AppState, apps_changed};
 const STARTUP_DELAY: Duration = Duration::from_secs(15);
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
+#[cfg(test)]
+#[path = "scheduler_tests.rs"]
+mod tests;
+
 pub fn start<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(STARTUP_DELAY).await;

@@ -1,0 +1,56 @@
+//! Package executables confined to each test's injected PATH.
+
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::Path;
+
+use headway_core::shell::ShellEnv;
+use serde_json::{Value, json};
+
+use super::support::{Harness, harness_with_env};
+
+pub(crate) fn executable(path: &Path, body: &str) {
+    std::fs::write(path, format!("#!/bin/sh\nset -eu\n{body}\n")).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+pub(crate) fn package_harness() -> Harness {
+    let home = tempfile::tempdir().unwrap();
+    let bin = home.path().join("tools");
+    std::fs::create_dir(&bin).unwrap();
+    executable(
+        &bin.join("npm"),
+        r#"
+case "$*" in
+  'view @test/tool versions dist-tags time description homepage --json')
+    printf '%s\n' '{"versions":["1.0.0","2.0.0"],"dist-tags":{"latest":"2.0.0"},"description":"Fixture npm","homepage":"https://example.invalid/npm"}' ;;
+  'ls --global --depth=0 --json @test/tool')
+    printf '%s\n' '{"dependencies":{"@test/tool":{"version":"1.0.0"}}}' ;;
+  *) exit 64 ;;
+esac
+"#,
+    );
+    executable(
+        &bin.join("brew"),
+        r#"
+case "$*" in
+  'info --json=v2 --formula fixture')
+    printf '%s\n' '{"formulae":[{"versions":{"stable":"3.0.0"},"installed":[{"version":"2.0.0"}],"outdated":true,"desc":"Fixture formula","homepage":"https://example.invalid/formula"}]}' ;;
+  'info --json=v2 --cask fixture')
+    printf '%s\n' '{"casks":[{"name":["Fixture App"],"version":"4.0.0","installed":"3.0.0","outdated":true,"desc":"Fixture cask","homepage":"https://example.invalid/cask"}]}' ;;
+  *) exit 64 ;;
+esac
+"#,
+    );
+    let env = ShellEnv::default()
+        .with_var("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .with_var("HOME", home.path().display().to_string())
+        .with_var("FIXTURE_HOME", home.path().display().to_string());
+    harness_with_env("http://127.0.0.1:9", home, env)
+}
+
+pub(crate) fn script_app(id: &str) -> Value {
+    json!({
+        "id": id, "name": id, "kind": "cli", "auto_update": false,
+        "source": "script", "update_command": "printf updated > \"$FIXTURE_HOME/updated\""
+    })
+}

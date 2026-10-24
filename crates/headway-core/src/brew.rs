@@ -1,0 +1,373 @@
+//! Homebrew formulae and casks: `brew info --json=v2` knows the current and the
+//! installed version, `brew upgrade` (or `brew install`) updates.
+//!
+//! Homebrew only installs its current version, so there is no `--next` or `--to`.
+
+use tokio_util::sync::CancellationToken;
+
+use chrono::Utc;
+use serde::Deserialize;
+
+use crate::check::{Checked, InstalledSync};
+use crate::config::{AppKind, TrackedApp};
+use crate::error::{Error, Result};
+use crate::events::Stage;
+use crate::inspect::PackageLookup;
+use crate::probe;
+use crate::process::{self, Cmd};
+use crate::repo::slugify;
+use crate::shell::ShellEnv;
+use crate::source::{BrewSource, Source};
+use crate::state::{Candidate, CheckResult, UpdateStatus};
+use crate::update::{Installed, Job};
+
+#[derive(Debug, Default, Deserialize)]
+struct Info {
+    #[serde(default)]
+    formulae: Vec<Formula>,
+    #[serde(default)]
+    casks: Vec<Cask>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Formula {
+    #[serde(default)]
+    desc: Option<String>,
+    #[serde(default)]
+    homepage: Option<String>,
+    versions: FormulaVersions,
+    #[serde(default)]
+    revision: u64,
+    #[serde(default)]
+    installed: Vec<Keg>,
+    #[serde(default)]
+    outdated: bool,
+    #[serde(default)]
+    pinned: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct FormulaVersions {
+    #[serde(default)]
+    stable: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Keg {
+    version: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Cask {
+    #[serde(default)]
+    name: Vec<String>,
+    #[serde(default)]
+    desc: Option<String>,
+    #[serde(default)]
+    homepage: Option<String>,
+    version: String,
+    #[serde(default)]
+    installed: Option<String>,
+    #[serde(default)]
+    outdated: bool,
+}
+
+/// What Homebrew knows about one formula or cask.
+#[derive(Debug, Clone)]
+struct Status {
+    latest: String,
+    installed: Option<String>,
+    outdated: bool,
+    pinned: bool,
+    title: Option<String>,
+    desc: Option<String>,
+    homepage: Option<String>,
+}
+
+fn noun(cask: bool) -> &'static str {
+    if cask { "cask" } else { "formula" }
+}
+
+async fn status(cancel: &CancellationToken, env: &ShellEnv, source: &BrewSource) -> Result<Status> {
+    let flag = if source.cask { "--cask" } else { "--formula" };
+    let cmd = Cmd::new("brew", env)
+        .args(["info", "--json=v2", flag, &source.package])
+        .env("HOMEBREW_NO_ENV_HINTS", "1");
+    let out = probe::capture(cancel, &cmd).await?;
+    if !out.success() {
+        if out.stderr.contains("No available") || out.stderr.contains("No formulae or casks found")
+        {
+            return Err(Error::RemoteNotFound(format!(
+                "Homebrew {} `{}`",
+                noun(source.cask),
+                source.package
+            )));
+        }
+        return Err(probe::failed(&cmd, &out));
+    }
+    let info: Info = serde_json::from_str(&out.stdout)
+        .map_err(|err| Error::parse(format!("`brew info {}` output", source.package), &err))?;
+    let missing = || {
+        Error::RemoteNotFound(format!(
+            "Homebrew {} `{}`",
+            noun(source.cask),
+            source.package
+        ))
+    };
+    if source.cask {
+        let cask = info.casks.into_iter().next().ok_or_else(missing)?;
+        Ok(Status {
+            latest: cask.version,
+            installed: cask.installed,
+            outdated: cask.outdated,
+            pinned: false,
+            title: cask.name.into_iter().next(),
+            desc: cask.desc,
+            homepage: cask.homepage,
+        })
+    } else {
+        let formula = info.formulae.into_iter().next().ok_or_else(missing)?;
+        let stable = formula.versions.stable.ok_or_else(missing)?;
+        // Rebuilds of the same version are installed as `1.2.3_1`.
+        let latest = if formula.revision > 0 {
+            format!("{stable}_{}", formula.revision)
+        } else {
+            stable
+        };
+        Ok(Status {
+            latest,
+            installed: formula.installed.last().map(|keg| keg.version.clone()),
+            outdated: formula.outdated,
+            pinned: formula.pinned,
+            title: None,
+            desc: formula.desc,
+            homepage: formula.homepage,
+        })
+    }
+}
+
+pub async fn check(
+    cancel: &CancellationToken,
+    env: &ShellEnv,
+    source: &BrewSource,
+) -> Result<Checked> {
+    let status = status(cancel, env, source).await?;
+    let latest = Candidate {
+        id: status.latest.clone(),
+        sha: None,
+        title: status.latest.clone(),
+        body: status
+            .pinned
+            .then(|| "Pinned: `brew upgrade` leaves it alone until `brew unpin`.".to_owned()),
+        author: None,
+        date: None,
+        url: Source::Brew(source.clone()).web_url(),
+        prerelease: false,
+    };
+    let (update_status, pending) = match (&status.installed, status.outdated) {
+        (None, _) => (UpdateStatus::NotInstalled, vec![latest.clone()]),
+        (Some(_), true) => (UpdateStatus::UpdateAvailable, vec![latest.clone()]),
+        (Some(_), false) => (UpdateStatus::UpToDate, Vec::new()),
+    };
+    let pending_total = u32::from(update_status == UpdateStatus::UpdateAvailable);
+    Ok(Checked {
+        result: CheckResult {
+            checked_at: Utc::now(),
+            status: update_status,
+            branch: None,
+            latest: Some(latest),
+            pending,
+            pending_total,
+        },
+        installed: InstalledSync::Detected(status.installed),
+    })
+}
+
+/// `brew upgrade` when installed, `brew install` otherwise; `--cask` for casks.
+pub fn update_cmd(env: &ShellEnv, source: &BrewSource, installed: bool) -> Cmd {
+    let verb = if installed { "upgrade" } else { "install" };
+    let cmd = Cmd::new("brew", env).arg(verb);
+    let cmd = cmd.arg(if source.cask { "--cask" } else { "--formula" });
+    cmd.arg(source.package.clone())
+        .env("HOMEBREW_NO_ENV_HINTS", "1")
+}
+
+pub async fn install(job: &Job<'_>, source: &BrewSource) -> Result<Installed> {
+    let cancel = job.cancel;
+    let before = status(cancel, job.env, source).await?;
+    if before.pinned {
+        return Err(Error::InvalidInput(format!(
+            "{} is pinned; use `brew unpin {}` before updating",
+            source.package, source.package
+        )));
+    }
+    let cmd = update_cmd(job.env, source, before.installed.is_some());
+    job.log
+        .stage(Stage::Install, format!("Running `{}`", cmd.display()));
+    process::run(&cmd, job.cancel, &mut job.output()).await?;
+    let after = status(cancel, job.env, source).await?;
+    let installed = after.installed.ok_or_else(|| {
+        Error::Config(format!(
+            "brew finished but {} is not installed",
+            source.package
+        ))
+    })?;
+    Ok(Installed {
+        sha: None,
+        version: Some(installed),
+        path: None,
+    })
+}
+
+pub async fn lookup(
+    cancel: &CancellationToken,
+    env: &ShellEnv,
+    package: &str,
+    cask: bool,
+) -> Result<PackageLookup> {
+    let source = BrewSource {
+        package: package.to_owned(),
+        cask,
+    };
+    let status = status(cancel, env, &source).await?;
+    let short = package.rsplit('/').next().unwrap_or(package);
+    let mut notes = vec![format!(
+        "Homebrew {} {package}: current version {}.",
+        noun(cask),
+        status.latest
+    )];
+    notes.push(match (&status.installed, status.outdated) {
+        (None, _) => "Not installed yet: `headway update` installs it with brew.".to_owned(),
+        (Some(version), true) => format!("Installed {version}; an upgrade is available."),
+        (Some(version), false) => format!("Installed {version}, up to date."),
+    });
+    Ok(PackageLookup {
+        source: "brew",
+        package: package.to_owned(),
+        description: status.desc.clone(),
+        homepage: status.homepage.clone(),
+        latest: Some(status.latest.clone()),
+        installed: status.installed.clone(),
+        suggestion: TrackedApp {
+            id: slugify(short),
+            name: status.title.clone().unwrap_or_else(|| short.to_owned()),
+            kind: if cask { AppKind::App } else { AppKind::Cli },
+            auto_update: false,
+            source: Source::Brew(source),
+        },
+        notes,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::FakeTools;
+
+    fn formula_json(installed: &str, outdated: bool) -> String {
+        format!(
+            r#"{{"formulae":[{{"name":"ripgrep","desc":"Search tool","homepage":"https://x","versions":{{"stable":"15.2.0"}},"revision":1,"installed":[{installed}],"outdated":{outdated},"pinned":false}}],"casks":[]}}"#
+        )
+    }
+
+    fn fake_brew(info: &str) -> FakeTools {
+        FakeTools::new().tool(
+            "brew",
+            &format!("case \"$1\" in info) echo '{info}';; *) echo \"brew $*\";; esac"),
+        )
+    }
+
+    fn ripgrep() -> BrewSource {
+        BrewSource {
+            package: "ripgrep".into(),
+            cask: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn outdated_formulae_offer_the_current_version() {
+        let tools = fake_brew(&formula_json(r#"{"version":"15.1.0"}"#, true));
+        let checked = check(&CancellationToken::new(), &tools.env(), &ripgrep())
+            .await
+            .unwrap();
+        assert_eq!(checked.result.status, UpdateStatus::UpdateAvailable);
+        assert_eq!(checked.result.latest.unwrap().id, "15.2.0_1");
+        assert_eq!(checked.result.pending_total, 1);
+        assert_eq!(
+            checked.installed,
+            InstalledSync::Detected(Some("15.1.0".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn current_and_missing_formulae() {
+        let current = fake_brew(&formula_json(r#"{"version":"15.2.0_1"}"#, false));
+        assert_eq!(
+            check(&CancellationToken::new(), &current.env(), &ripgrep())
+                .await
+                .unwrap()
+                .result
+                .status,
+            UpdateStatus::UpToDate
+        );
+        let missing = fake_brew(&formula_json("", false));
+        let checked = check(&CancellationToken::new(), &missing.env(), &ripgrep())
+            .await
+            .unwrap();
+        assert_eq!(checked.result.status, UpdateStatus::NotInstalled);
+        assert_eq!(checked.installed, InstalledSync::Detected(None));
+    }
+
+    #[tokio::test]
+    async fn casks_and_lookups() {
+        let info = r#"{"formulae":[],"casks":[{"token":"zed","name":["Zed"],"desc":"Editor","version":"0.200.1","installed":"0.199.0","outdated":true}]}"#;
+        let tools = fake_brew(info);
+        let source = BrewSource {
+            package: "zed".into(),
+            cask: true,
+        };
+        let checked = check(&CancellationToken::new(), &tools.env(), &source)
+            .await
+            .unwrap();
+        assert_eq!(checked.result.latest.unwrap().id, "0.200.1");
+        let found = lookup(&CancellationToken::new(), &tools.env(), "zed", true)
+            .await
+            .unwrap();
+        assert_eq!(found.suggestion.name, "Zed");
+        assert_eq!(found.suggestion.kind, AppKind::App);
+        assert!(found.notes[1].contains("upgrade is available"));
+    }
+
+    #[tokio::test]
+    async fn unknown_names_are_not_found() {
+        let tools = FakeTools::new().tool(
+            "brew",
+            "echo 'Error: No available formula with the name \"nope\".' >&2; exit 1",
+        );
+        let source = BrewSource {
+            package: "nope".into(),
+            cask: false,
+        };
+        assert!(matches!(
+            check(&CancellationToken::new(), &tools.env(), &source).await,
+            Err(Error::RemoteNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn update_commands() {
+        let env = ShellEnv::from_vars([]);
+        let cask = BrewSource {
+            package: "zed".into(),
+            cask: true,
+        };
+        assert_eq!(
+            update_cmd(&env, &cask, true).display(),
+            "brew upgrade --cask zed"
+        );
+        assert_eq!(
+            update_cmd(&env, &ripgrep(), false).display(),
+            "brew install --formula ripgrep"
+        );
+    }
+}

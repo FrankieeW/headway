@@ -19,6 +19,22 @@ pub struct Preset {
 
 pub const PRESETS: &[Preset] = &[
     Preset {
+        id: "headway-app",
+        label: "Headway app",
+        kind: AppKind::App,
+        build: "./scripts/build-headway.sh app",
+        artifact: Some(".headway-out/Headway.app"),
+        description: "Headway desktop app with its bundled CLI, built for this Mac.",
+    },
+    Preset {
+        id: "headway-cli",
+        label: "Headway CLI",
+        kind: AppKind::Cli,
+        build: "./scripts/build-headway.sh cli",
+        artifact: Some(".headway-out/headway"),
+        description: "Headway CLI built for this Mac.",
+    },
+    Preset {
         id: "cargo",
         label: "Cargo",
         kind: AppKind::Cli,
@@ -160,68 +176,30 @@ pub fn cargo_binaries(manifest: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn entries(names: &[&str]) -> Vec<ContentEntry> {
-        names
-            .iter()
-            .map(|name| ContentEntry {
-                name: (*name).to_owned(),
-                kind: "file".to_owned(),
+/// Whether a root manifest explicitly includes a package in its workspace.
+pub fn cargo_workspace_contains(manifest: &str, member: &str) -> bool {
+    let Ok(value) = manifest.parse::<toml::Table>() else {
+        return false;
+    };
+    let Some(workspace) = value.get("workspace").and_then(toml::Value::as_table) else {
+        return false;
+    };
+    let contains = |key: &str| {
+        workspace
+            .get(key)
+            .and_then(toml::Value::as_array)
+            .is_some_and(|paths| {
+                paths.iter().filter_map(toml::Value::as_str).any(|path| {
+                    std::path::Path::new(path)
+                        .components()
+                        .filter(|part| *part != std::path::Component::CurDir)
+                        .eq(std::path::Path::new(member).components())
+                })
             })
-            .collect()
-    }
-
-    #[test]
-    fn detects_build_systems() {
-        let id = |names: &[&str]| detect(&entries(names)).map(|preset| preset.id);
-        assert_eq!(id(&["Cargo.toml", "src"]), Some("cargo"));
-        assert_eq!(
-            id(&["Cargo.toml", "src-tauri", "package.json"]),
-            Some("tauri")
-        );
-        assert_eq!(id(&["go.mod", "Makefile"]), Some("go"));
-        assert_eq!(id(&["Package.swift"]), Some("swiftpm"));
-        assert_eq!(id(&["Foo.xcodeproj", "README.md"]), Some("xcode"));
-        assert_eq!(id(&["package.json"]), Some("npm"));
-        assert_eq!(id(&["Makefile"]), Some("make"));
-        assert_eq!(id(&["README.md"]), None);
-    }
-
-    #[test]
-    fn renders_placeholders() {
-        let cargo = find("cargo").unwrap();
-        assert_eq!(
-            render(cargo.artifact.unwrap(), "rg", "ripgrep"),
-            "target/release/rg"
-        );
-        let xcode = find("xcode").unwrap();
-        assert!(render(xcode.build, "x", "Ice").contains("-scheme Ice"));
-        assert!(
-            PRESETS
-                .iter()
-                .all(|preset| preset.id == "custom" || !preset.build.is_empty())
-        );
-    }
-
-    #[test]
-    fn build_commands_quote_substituted_names() {
-        let xcode = find("xcode").unwrap();
-        let command = render_command(xcode.build, "x", "Hidden Bar");
-        assert!(command.contains("-scheme 'Hidden Bar' "));
-        let hostile = render_command(xcode.build, "x", "$(touch pwned)");
-        assert!(hostile.contains("-scheme '$(touch pwned)' "));
-        assert_eq!(render_command("make {bin}", "rg", "x"), "make rg");
-    }
-
-    #[test]
-    fn reads_cargo_binaries() {
-        let with_bins = "[package]\nname = \"ripgrep\"\n\n[[bin]]\nname = \"rg\"\npath = \"crates/core/main.rs\"\n";
-        assert_eq!(cargo_binaries(with_bins), ["rg"]);
-        assert_eq!(cargo_binaries("[package]\nname = \"bat\"\n"), ["bat"]);
-        assert!(cargo_binaries("[workspace]\nmembers = [\"a\"]\n").is_empty());
-        assert!(cargo_binaries("not toml [").is_empty());
-    }
+    };
+    contains("members") && !contains("exclude")
 }
+
+#[cfg(test)]
+#[path = "presets_tests.rs"]
+mod tests;

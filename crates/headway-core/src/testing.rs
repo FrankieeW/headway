@@ -3,21 +3,63 @@
 use std::process::Command;
 
 use crate::config::{AppKind, Install, SourceInstall, Track, TrackedApp};
+use crate::source::{GithubSource, Source};
+
+/// Executable fixtures scoped to a per-test PATH, without changing process env.
+pub struct FakeTools {
+    dir: tempfile::TempDir,
+}
+
+impl FakeTools {
+    pub fn new() -> Self {
+        Self {
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+
+    pub fn tool(self, name: &str, body: &str) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = self.dir.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        self
+    }
+
+    pub fn env(&self) -> crate::shell::ShellEnv {
+        crate::shell::ShellEnv::from_vars([(
+            "PATH".to_owned(),
+            format!("{}:/usr/bin:/bin", self.dir.path().display()),
+        )])
+    }
+}
 
 pub fn cli_app(id: &str) -> TrackedApp {
     TrackedApp {
         id: id.into(),
         name: id.into(),
-        repo: format!("owner/{id}"),
         kind: AppKind::Cli,
         auto_update: false,
-        git_url: None,
-        track: Track::Commit { branch: None },
-        install: Install::Source(SourceInstall {
-            build: "cargo build --release".into(),
-            artifact: Some(format!("target/release/{id}")),
-            ..SourceInstall::default()
+        source: Source::Github(GithubSource {
+            repo: format!("owner/{id}"),
+            git_url: None,
+            track: Track::Commit { branch: None },
+            install: Install::Source(SourceInstall {
+                build: "cargo build --release".into(),
+                artifact: Some(format!("target/release/{id}")),
+                ..SourceInstall::default()
+            }),
         }),
+    }
+}
+
+/// `app` with its GitHub source changed by `f`.
+pub fn with_github(app: TrackedApp, f: impl FnOnce(GithubSource) -> GithubSource) -> TrackedApp {
+    match app.source {
+        Source::Github(github) => TrackedApp {
+            source: Source::Github(f(github)),
+            ..app
+        },
+        source => TrackedApp { source, ..app },
     }
 }
 

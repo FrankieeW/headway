@@ -21,7 +21,6 @@ export interface AppFormRepoSectionProps {
  */
 export function AppFormRepoSection({
   repo,
-  mode,
   inspection,
   inspecting,
   inspectionError,
@@ -32,7 +31,10 @@ export function AppFormRepoSection({
 
   return (
     <div className="space-y-1.5">
-      <label htmlFor="app-form-repo" className="text-caption font-medium text-fg-2">
+      <label
+        htmlFor="app-form-repo"
+        className="text-caption font-medium text-fg-2"
+      >
         {t("form.repository")}
       </label>
 
@@ -40,7 +42,6 @@ export function AppFormRepoSection({
         <Input
           id="app-form-repo"
           value={repo}
-          readOnly={mode === "edit"}
           placeholder={t("form.repositoryPlaceholder")}
           onChange={(event) => onRepoChange(event.target.value)}
           onKeyDown={(event) => {
@@ -54,7 +55,7 @@ export function AppFormRepoSection({
           variant="neutral"
           size="regular"
           onClick={onInspect}
-          disabled={inspecting || mode === "edit"}
+          disabled={inspecting}
           className="shrink-0"
         >
           {inspecting ? (

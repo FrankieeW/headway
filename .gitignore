@@ -4,7 +4,9 @@ node_modules/
 src-tauri/gen/schemas
 src-tauri/binaries/
 .local/
+/.headway-out/
 .DS_Store
 *.log
 .omc/
+/.omo/evidence/
 coverage/

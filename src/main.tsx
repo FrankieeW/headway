@@ -30,6 +30,15 @@ function render(): void {
 
 /** `?mock` in a dev build previews the UI in a browser with fixture data. */
 async function boot(): Promise<void> {
+  if (
+    import.meta.env.DEV &&
+    import.meta.env.VITE_DISABLE_REACT_DEVTOOLS !== "1"
+  ) {
+    void import("react-grab");
+    void import("react-scan").then(({ scan }) =>
+      scan({ enabled: true, showToolbar: false }),
+    );
+  }
   const params = new URLSearchParams(window.location.search);
   if (import.meta.env.DEV && params.has("mock")) {
     const { installMockBackend } = await import("./dev/mockBackend");

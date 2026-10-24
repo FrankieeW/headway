@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppView,
+  BuildInfo,
   CheckAllSummary,
   CliStatus,
   CommandError,
@@ -11,6 +12,7 @@ import type {
   Preset,
   RemovedApp,
   RepoInspection,
+  SourceLookup,
   Settings,
   Target,
   TokenStatus,
@@ -41,6 +43,7 @@ export const appsApi = {
   remove: (id: string, purge: boolean) =>
     invoke<RemovedApp>("remove_app", { id, purge }),
   inspect: (repo: string) => invoke<RepoInspection>("inspect_repo", { repo }),
+  lookup: (input: string) => invoke<SourceLookup>("lookup_source", { input }),
   presets: () => invoke<Preset[]>("list_presets"),
 };
 
@@ -78,6 +81,7 @@ export const systemApi = {
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   appVersion: () => invoke<string>("app_version"),
+  buildInfo: () => invoke<BuildInfo>("get_build_info"),
 };
 
 export function isCommandError(value: unknown): value is CommandError {

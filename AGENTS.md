@@ -14,7 +14,7 @@ src                   React 18 + TS + Vite + Tailwind 3 + shadcn/Radix UI (cc-sw
 skills/headway        agent skill for operating the CLI
 ```
 
-`headway_core::Headway` (`crates/headway-core/src/service.rs`) is the only API both front ends call.
+`headway_core::Headway` (`crates/headway-core/src/service/mod.rs`) is the only API both front ends call.
 
 ## Commands
 
@@ -30,6 +30,15 @@ pnpm dev:renderer  →  http://localhost:1420/?mock   # UI preview with fixture 
 ```
 
 Use `HEADWAY_HOME=$(mktemp -d)` when running the CLI or app by hand so the real config is untouched.
+
+## Self-hosting builds
+
+`./scripts/build-headway.sh app|cli` builds the exact checkout with locked dependencies and
+commit/dirty/target metadata. It stages `.headway-out/Headway.app` (including its matching CLI)
+or `.headway-out/headway`, preserving build caches and leaving installation to Headway. The app
+recipe ad-hoc signs and verifies the staged bundle. Use the `headway-app` / `headway-cli` presets
+for commit tracking; see `examples/self-update.toml`. Only a known clean installed commit is a
+valid baseline for `mark`; dirty local builds must not be presented as clean remote revisions.
 
 ## Rules
 

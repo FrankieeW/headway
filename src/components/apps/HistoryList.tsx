@@ -8,6 +8,7 @@ import { formatDuration, shortSha, timeAgo } from "@/lib/format";
 export interface HistoryListProps {
   entries: HistoryEntry[] | undefined;
   loading: boolean;
+  canReinstall: boolean;
   onReinstall: (ref: string) => void;
 }
 
@@ -34,6 +35,7 @@ function describe(
 export function HistoryList({
   entries,
   loading,
+  canReinstall,
   onReinstall,
 }: HistoryListProps) {
   const { t, i18n } = useTranslation();
@@ -81,9 +83,7 @@ export function HistoryList({
           </span>
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-body text-fg-1">
-              {describe(entry, t)}
-            </p>
+            <p className="truncate text-body text-fg-1">{describe(entry, t)}</p>
             <p className="truncate text-caption text-fg-3">
               {[
                 entry.version,
@@ -102,8 +102,8 @@ export function HistoryList({
             ) : null}
           </div>
 
-          {entry.ok ? (
-            <div className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {entry.ok && canReinstall ? (
+            <div className="shrink-0 sm:opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
               <Button
                 variant="neutral"
                 size="compact"

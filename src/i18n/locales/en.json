@@ -1,10 +1,10 @@
 {
   "app": {
     "name": "Headway",
-    "tagline": "Track GitHub repositories and keep local builds up to date",
-    "addRepository": "Add repository",
-    "emptyTitle": "No repositories yet",
-    "emptyDescription": "Add a GitHub repository to keep its apps and CLI tools up to date."
+    "tagline": "Keep GitHub, npm, Homebrew and script-installed apps up to date",
+    "addRepository": "Add app",
+    "emptyTitle": "No apps yet",
+    "emptyDescription": "Add a GitHub repository, npm package, Homebrew package or official update script."
   },
   "common": {
     "confirm": "Confirm",
@@ -20,7 +20,7 @@
     "appsLabel": "Tracked apps",
     "settings": "Settings",
     "checkAll": "Check all",
-    "addRepository": "Track a repository",
+    "addRepository": "Add app",
     "tokenReady": "@{{login}}",
     "tokenSaved": "GitHub token saved",
     "tokenMissing": "No GitHub token — 60 requests/h"
@@ -32,7 +32,8 @@
     "error": "Error",
     "busy": "Working…",
     "unchecked": "—",
-    "newCount": "{{count}} new"
+    "newCount": "{{count}} new",
+    "unknown": "Unknown"
   },
   "track": {
     "commit": "Every commit",
@@ -113,8 +114,11 @@
       "failed": "The last check failed",
       "busy": "An update is running",
       "unchecked": "Not checked yet",
-      "updateFailed": "The last update failed"
-    }
+      "updateFailed": "The last update failed",
+      "unknown": "No latest-version probe is configured, so update availability is unknown."
+    },
+    "nextVersion": "Next version",
+    "detectedAt": "detected {{when}}"
   },
   "pending": {
     "preRelease": "pre",
@@ -127,11 +131,13 @@
     "emptyUpToDate": "You're on the latest",
     "emptyUpToDateDescription": "Nothing new upstream. Headway checks again in the background.",
     "notChecked": "Not checked yet",
-    "notCheckedDescription": "Headway has not looked at this repository since it was added.",
+    "notCheckedDescription": "Headway has not checked this source since it was added.",
     "emptyNotInstalled": "Nothing installed yet",
     "emptyNotInstalledDescription": "Install the latest release, or mark the version you already have as installed.",
     "emptyNothing": "Nothing to install",
-    "emptyNothingDescription": "No release or commit is available for this repository yet."
+    "emptyNothingDescription": "No update is available from this source yet.",
+    "openSource": "Open source page",
+    "emptyLocalNotInstalledDescription": "Install the latest version using the update action above."
   },
   "history": {
     "updated": "Updated {{from}} → {{to}}",
@@ -172,7 +178,7 @@
     "edit": "Edit"
   },
   "form": {
-    "titleAdd": "Track a repository",
+    "titleAdd": "Add app",
     "titleEdit": "Edit app",
     "repository": "Repository",
     "repositoryPlaceholder": "owner/name or a GitHub URL",
@@ -214,7 +220,17 @@
     "autoUpdate": "Install updates automatically",
     "fileName": "file",
     "invalidId": "The id must start with a letter or digit and may contain letters, digits, dots, dashes and underscores.",
-    "missingName": "Give the app a name."
+    "missingName": "Give the app a name.",
+    "source": "Source",
+    "package": "Package",
+    "distTag": "Dist-tag",
+    "cask": "Use Homebrew Cask",
+    "updateCommand": "Update command (required)",
+    "versionCommand": "Installed version command (optional)",
+    "latestCommand": "Latest version command or URL (optional)",
+    "scriptHelp": "Use the update command provided by the software publisher. Without a latest-version probe, update status remains unknown.",
+    "packageRequired": "Enter a package name.",
+    "updateRequired": "Enter an update command."
   },
   "settings": {
     "title": "Settings",
@@ -277,10 +293,10 @@
     "reinstallCli": "Reinstall"
   },
   "empty": {
-    "title": "Keep your tools at HEAD",
-    "description": "Track a GitHub repository and Headway builds it, installs it and keeps it up to date — one commit at a time or release by release.",
-    "addRepository": "Track a repository",
-    "cliHint": "headway add owner/repo"
+    "title": "No apps yet",
+    "description": "Add a GitHub repository, npm package, Homebrew package or official update script.",
+    "addRepository": "Add app",
+    "cliHint": "headway add npm:package"
   },
   "toast": {
     "updated": "Updated {{name}}",
@@ -298,5 +314,11 @@
     "cliInstalled": "The headway command was installed",
     "copied": "Copied: {{value}}",
     "copyFailed": "Could not copy to the clipboard"
+  },
+  "sources": {
+    "github": "GitHub",
+    "npm": "npm",
+    "brew": "Homebrew",
+    "script": "Script"
   }
 }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { StatusBadge } from "@/components/apps/StatusBadge";
 import type { AppView } from "@/lib/api";
+import { sourceDetail } from "@/lib/sources";
 import { trackLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +27,7 @@ export function AppNavItem({ app, selected, onSelect }: AppNavItemProps) {
       aria-current={selected ? "true" : undefined}
       className={cn(
         "flex h-11 w-full items-center gap-2.5 rounded-control px-2 text-start transition-colors",
-        selected
-          ? "bg-selected"
-          : "hover:bg-subtle focus-visible:bg-subtle",
+        selected ? "bg-selected" : "hover:bg-subtle focus-visible:bg-subtle",
       )}
     >
       <span
@@ -43,7 +42,10 @@ export function AppNavItem({ app, selected, onSelect }: AppNavItemProps) {
           {app.app.name}
         </span>
         <span className="truncate text-caption text-fg-3">
-          {app.app.repo} · {trackLabel(app.app.track, t)}
+          {t(`sources.${app.app.source}`)} · {sourceDetail(app.app)}
+          {app.app.source === "github"
+            ? ` · ${trackLabel(app.app.track, t)}`
+            : ""}
         </span>
       </span>
 

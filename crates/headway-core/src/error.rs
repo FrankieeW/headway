@@ -22,7 +22,7 @@ pub enum Error {
     Auth(String),
     #[error("GitHub API rate limit exceeded (resets at {reset})")]
     RateLimited { reset: String },
-    #[error("not found on GitHub: {0}")]
+    #[error("not found: {0}")]
     RemoteNotFound(String),
     #[error("GitHub API error (HTTP {status}): {message}")]
     GitHub { status: u16, message: String },
@@ -165,7 +165,7 @@ impl Error {
                 "configure a GitHub token with `headway token set` to raise the limit to 5000 requests/hour"
             }
             Self::RemoteNotFound(_) => {
-                "check owner/name, branch or ref; private repositories need a token that can read them"
+                "check the repository, package, branch, channel or version; private GitHub repositories need a token that can read them"
             }
             Self::NoAsset(_) => {
                 "set an asset glob with `headway edit <id> --pattern '<glob>'`, or build from source with `--method source`"

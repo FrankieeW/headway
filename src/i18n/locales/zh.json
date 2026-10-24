@@ -1,10 +1,10 @@
 {
   "app": {
     "name": "Headway",
-    "tagline": "跟踪 GitHub 仓库，自动更新本地构建的应用与命令行工具",
-    "addRepository": "添加仓库",
-    "emptyTitle": "还没有仓库",
-    "emptyDescription": "添加一个 GitHub 仓库，让它构建的应用与命令行工具保持最新。"
+    "tagline": "统一更新 GitHub、npm、Homebrew 和官方脚本安装的软件",
+    "addRepository": "添加软件",
+    "emptyTitle": "尚未添加软件",
+    "emptyDescription": "选择 GitHub、npm、Homebrew 或官方脚本，开始跟踪更新。"
   },
   "common": {
     "confirm": "确认",
@@ -20,7 +20,7 @@
     "appsLabel": "已跟踪的应用",
     "settings": "设置",
     "checkAll": "检查全部",
-    "addRepository": "跟踪一个仓库",
+    "addRepository": "添加软件",
     "tokenReady": "@{{login}}",
     "tokenSaved": "已保存 GitHub 令牌",
     "tokenMissing": "没有 GitHub 令牌 — 每小时 60 次请求"
@@ -32,7 +32,8 @@
     "error": "出错",
     "busy": "处理中…",
     "unchecked": "—",
-    "newCount": "{{count}} 个更新"
+    "newCount": "{{count}} 个更新",
+    "unknown": "未知"
   },
   "track": {
     "commit": "每个提交",
@@ -113,8 +114,11 @@
       "failed": "上一次检查失败了",
       "busy": "正在更新",
       "unchecked": "尚未检查",
-      "updateFailed": "上一次更新失败了"
-    }
+      "updateFailed": "上一次更新失败了",
+      "unknown": "未配置最新版本探测，无法判断是否有更新。"
+    },
+    "nextVersion": "下一个版本",
+    "detectedAt": "检测于 {{when}}"
   },
   "pending": {
     "preRelease": "预发布",
@@ -127,11 +131,13 @@
     "emptyUpToDate": "你已经是最新版本",
     "emptyUpToDateDescription": "上游没有新变化，Headway 会在后台继续检查。",
     "notChecked": "尚未检查",
-    "notCheckedDescription": "添加这个仓库之后，Headway 还没有去看过它。",
+    "notCheckedDescription": "添加后尚未检查此来源。",
     "emptyNotInstalled": "还没有安装任何版本",
     "emptyNotInstalledDescription": "可以安装最新发行版，或把你已有的版本标记为已安装。",
     "emptyNothing": "没有可安装的内容",
-    "emptyNothingDescription": "这个仓库暂时还没有可用的发行版或提交。"
+    "emptyNothingDescription": "此来源暂时没有可用更新。",
+    "openSource": "打开来源页面",
+    "emptyLocalNotInstalledDescription": "使用上方的更新操作安装最新版本。"
   },
   "history": {
     "updated": "已更新 {{from}} → {{to}}",
@@ -172,8 +178,8 @@
     "edit": "编辑"
   },
   "form": {
-    "titleAdd": "跟踪一个仓库",
-    "titleEdit": "编辑应用",
+    "titleAdd": "添加软件",
+    "titleEdit": "编辑软件",
     "repository": "仓库",
     "repositoryPlaceholder": "owner/name 或 GitHub 网址",
     "repoRequired": "请先填写仓库",
@@ -214,7 +220,17 @@
     "autoUpdate": "自动安装更新",
     "fileName": "文件",
     "invalidId": "标识要以字母或数字开头，只能包含字母、数字、点、短横线和下划线。",
-    "missingName": "请给应用起个名字。"
+    "missingName": "请给应用起个名字。",
+    "source": "来源",
+    "package": "软件包",
+    "distTag": "分发标签",
+    "cask": "使用 Homebrew Cask",
+    "updateCommand": "更新命令（必填）",
+    "versionCommand": "已安装版本命令（可选）",
+    "latestCommand": "最新版本命令或 URL（可选）",
+    "scriptHelp": "填写软件官方提供的更新命令。未配置最新版本探测时，更新状态显示为未知。",
+    "packageRequired": "请输入软件包名称。",
+    "updateRequired": "请输入更新命令。"
   },
   "settings": {
     "title": "设置",
@@ -277,10 +293,10 @@
     "reinstallCli": "重新安装"
   },
   "empty": {
-    "title": "让你的工具始终停在 HEAD",
-    "description": "跟踪一个 GitHub 仓库，Headway 会帮你构建、安装并保持最新 —— 可以逐个提交更新，也可以按发行版更新。",
-    "addRepository": "跟踪一个仓库",
-    "cliHint": "headway add owner/repo"
+    "title": "尚未添加软件",
+    "description": "添加 GitHub 仓库、npm 软件包、Homebrew 软件包或官方更新脚本。",
+    "addRepository": "添加软件",
+    "cliHint": "headway add npm:package"
   },
   "toast": {
     "updated": "已更新 {{name}}",
@@ -298,5 +314,11 @@
     "cliInstalled": "headway 命令已安装",
     "copied": "已复制：{{value}}",
     "copyFailed": "无法复制到剪贴板"
+  },
+  "sources": {
+    "github": "GitHub",
+    "npm": "npm",
+    "brew": "Homebrew",
+    "script": "官方脚本"
   }
 }

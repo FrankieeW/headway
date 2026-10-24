@@ -12,6 +12,19 @@ use crate::error::Result;
 use crate::github::{GitHub, Release};
 use crate::presets::{self, Preset};
 use crate::repo::{RepoId, slugify};
+use crate::source::{GithubSource, Source};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PackageLookup {
+    pub source: &'static str,
+    pub package: String,
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub latest: Option<String>,
+    pub installed: Option<String>,
+    pub suggestion: TrackedApp,
+    pub notes: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReleaseSummary {
@@ -58,14 +71,37 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
     let releases = gh.releases(&repo).await?;
     // Empty repositories have no contents; that only means "nothing detected".
     let entries = gh.root_entries(&repo).await.unwrap_or_default();
-    let preset = presets::detect(&entries);
-    let binaries = match preset.map(|preset| preset.id) {
-        Some("cargo" | "tauri") => gh
-            .file_text(&repo, "Cargo.toml")
+    let mut preset = presets::detect(&entries);
+    let manifest = match preset.map(|preset| preset.id) {
+        Some("cargo" | "tauri") => gh.file_text(&repo, "Cargo.toml").await?,
+        _ => None,
+    };
+    let binaries = manifest
+        .as_deref()
+        .map(presets::cargo_binaries)
+        .unwrap_or_default();
+    if repo.owner.eq_ignore_ascii_case("FrankieeW")
+        && repo.name.eq_ignore_ascii_case("headway")
+        && ["scripts", "src-tauri"].iter().all(|name| {
+            entries
+                .iter()
+                .any(|entry| entry.name == *name && entry.kind == "dir")
+        })
+        && gh
+            .file_text(&repo, "scripts/build-headway.sh")
             .await?
-            .map(|manifest| presets::cargo_binaries(&manifest))
-            .unwrap_or_default(),
-        _ => Vec::new(),
+            .is_some_and(|script| !script.trim().is_empty())
+    {
+        preset = presets::find("headway-app");
+    }
+    let artifact = if preset.is_some_and(|preset| preset.id == "tauri")
+        && manifest
+            .as_deref()
+            .is_some_and(|manifest| presets::cargo_workspace_contains(manifest, "src-tauri"))
+    {
+        Some("target/release/bundle/macos/*.app")
+    } else {
+        preset.and_then(|preset| preset.artifact)
     };
     let xcode_scheme = entries
         .iter()
@@ -91,6 +127,7 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
         repo: &repo,
         default_branch: &info.default_branch,
         preset,
+        artifact,
         binaries: &binaries,
         xcode_scheme: xcode_scheme.as_deref(),
         release: latest_release.as_ref(),
@@ -140,6 +177,7 @@ struct Facts<'a> {
     repo: &'a RepoId,
     default_branch: &'a str,
     preset: Option<&'static Preset>,
+    artifact: Option<&'static str>,
     binaries: &'a [String],
     xcode_scheme: Option<&'a str>,
     release: Option<&'a ReleaseSummary>,
@@ -155,13 +193,18 @@ fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
         .unwrap_or_else(|| repo.name.clone());
     let base = |kind, track, install| TrackedApp {
         id: slugify(&repo.name),
-        name: repo.name.clone(),
-        repo: repo.full_name(),
+        name: match facts.preset.map(|preset| preset.id) {
+            Some("headway-app") => "Headway".to_owned(),
+            _ => repo.name.clone(),
+        },
         kind,
         auto_update: false,
-        git_url: None,
-        track,
-        install,
+        source: Source::Github(GithubSource {
+            repo: repo.full_name(),
+            git_url: None,
+            track,
+            install,
+        }),
     };
     let mut notes = Vec::new();
     let mac_asset = facts.release.and_then(|release| {
@@ -198,7 +241,7 @@ fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                 Install::Source(SourceInstall {
                     build: presets::render_command(preset.build, &bin, name),
                     workdir: None,
-                    artifact: preset
+                    artifact: facts
                         .artifact
                         .map(|artifact| presets::render(artifact, &bin, name)),
                     dest: None,
@@ -239,136 +282,5 @@ fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-    use wiremock::matchers::path;
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    use super::*;
-
-    async fn mock_repo(
-        server: &MockServer,
-        entries: serde_json::Value,
-        releases: serde_json::Value,
-    ) {
-        Mock::given(path("/repos/BurntSushi/ripgrep"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "full_name": "BurntSushi/ripgrep", "description": "fast grep", "default_branch": "master",
-                "private": false, "archived": false, "html_url": "https://github.com/BurntSushi/ripgrep"
-            })))
-            .mount(server)
-            .await;
-        Mock::given(path("/repos/BurntSushi/ripgrep/releases"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(releases))
-            .mount(server)
-            .await;
-        Mock::given(path("/repos/BurntSushi/ripgrep/contents"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(entries))
-            .mount(server)
-            .await;
-        Mock::given(path("/repos/BurntSushi/ripgrep/contents/Cargo.toml"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                "[package]\nname = \"ripgrep\"\n[[bin]]\nname = \"rg\"\npath = \"main.rs\"\n",
-            ))
-            .mount(server)
-            .await;
-    }
-
-    fn releases() -> serde_json::Value {
-        json!([{
-            "id": 1, "tag_name": "14.1.1", "name": "", "draft": false, "prerelease": false,
-            "published_at": "2026-01-01T00:00:00Z",
-            "assets": [
-                {"id": 10, "name": "ripgrep-14.1.1-aarch64-apple-darwin.tar.gz", "size": 1},
-                {"id": 11, "name": "ripgrep-14.1.1-x86_64-apple-darwin.tar.gz", "size": 1},
-                {"id": 12, "name": "ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz", "size": 1}
-            ]
-        }])
-    }
-
-    #[tokio::test]
-    async fn cargo_repo_suggests_commit_tracking_with_the_real_binary_name() {
-        let server = MockServer::start().await;
-        mock_repo(
-            &server,
-            json!([{"name": "Cargo.toml", "type": "file"}, {"name": "crates", "type": "dir"}]),
-            releases(),
-        )
-        .await;
-        let gh = GitHub::new(&server.uri(), None).unwrap();
-        let found = inspect(&gh, "https://github.com/BurntSushi/ripgrep")
-            .await
-            .unwrap();
-
-        assert_eq!(found.build_system.as_deref(), Some("cargo"));
-        assert_eq!(found.binaries, ["rg"]);
-        assert_eq!(found.description.as_deref(), Some("fast grep"));
-        let app = &found.suggestion;
-        assert_eq!(app.id, "ripgrep");
-        assert_eq!(app.track, Track::Commit { branch: None });
-        match &app.install {
-            Install::Source(source) => {
-                assert_eq!(source.build, "cargo build --release --locked");
-                assert_eq!(source.artifact.as_deref(), Some("target/release/rg"));
-            }
-            other @ Install::Asset(_) => panic!("unexpected {other:?}"),
-        }
-        app.validate().unwrap();
-        let release = found.latest_release.unwrap();
-        assert!(release.suggested_asset.unwrap().contains("apple-darwin"));
-        assert!(found.notes.iter().any(|note| note.contains("Releases")));
-    }
-
-    #[tokio::test]
-    async fn unknown_build_with_mac_assets_follows_releases() {
-        let server = MockServer::start().await;
-        mock_repo(
-            &server,
-            json!([{"name": "README.md", "type": "file"}]),
-            releases(),
-        )
-        .await;
-        let gh = GitHub::new(&server.uri(), None).unwrap();
-        let found = inspect(&gh, "BurntSushi/ripgrep").await.unwrap();
-        let app = &found.suggestion;
-        assert!(matches!(
-            app.track,
-            Track::Release {
-                prerelease: false,
-                ..
-            }
-        ));
-        assert!(matches!(app.install, Install::Asset(_)));
-        assert_eq!(app.kind, AppKind::Cli);
-        app.validate().unwrap();
-    }
-
-    #[tokio::test]
-    async fn nothing_detected_asks_for_a_build_command() {
-        let server = MockServer::start().await;
-        mock_repo(&server, json!([]), json!([])).await;
-        let gh = GitHub::new(&server.uri(), None).unwrap();
-        let found = inspect(&gh, "BurntSushi/ripgrep").await.unwrap();
-        assert!(found.latest_release.is_none());
-        assert!(
-            found.suggestion.validate().is_err(),
-            "build command must be filled in"
-        );
-        assert!(found.notes[0].contains("build command"));
-    }
-
-    #[test]
-    fn dmg_releases_are_apps() {
-        let release: Release = serde_json::from_value(json!({
-            "id": 1, "tag_name": "v1", "assets": [
-                {"id": 1, "name": "Ice.dmg", "size": 1},
-                {"id": 2, "name": "Ice.zip", "size": 1}
-            ]
-        }))
-        .unwrap();
-        assert_eq!(
-            mac_asset(&release),
-            (AppKind::App, Some("Ice.dmg".to_owned()))
-        );
-    }
-}
+#[path = "inspect_tests.rs"]
+mod tests;

@@ -8,6 +8,7 @@ use crate::paths::{display_path, expand_tilde};
 use crate::process::{self, Cmd};
 use crate::service::TokenStatus;
 use crate::shell::ShellEnv;
+use crate::source::Source;
 use crate::store::Store;
 use crate::token::TokenSource;
 
@@ -195,23 +196,29 @@ pub fn apps_dir_check(settings: &Settings) -> DoctorCheck {
 
 /// Programs a source build needs that are not on PATH.
 pub fn tools_check(app: &TrackedApp, env: &ShellEnv) -> Option<DoctorCheck> {
-    let Install::Source(source) = &app.install else {
-        return None;
+    let programs = match &app.source {
+        Source::Github(github) => match &github.install {
+            Install::Source(source) => command_programs(&source.build),
+            Install::Asset(_) => return None,
+        },
+        Source::Npm(_) => vec!["npm".into()],
+        Source::Brew(_) => vec!["brew".into()],
+        Source::Script(source) => command_programs(&source.update_command),
     };
-    let missing: Vec<String> = command_programs(&source.build)
+    let missing: Vec<String> = programs
         .into_iter()
         .filter(|program| env.which(program).is_none())
         .collect();
     let name = format!("app:{}", app.id);
     Some(if missing.is_empty() {
-        check(&name, CheckStatus::Ok, "build tools found", None)
+        check(&name, CheckStatus::Ok, "update tools found", None)
     } else {
         DoctorCheck {
             name,
             status: CheckStatus::Warn,
             message: format!("not on PATH: {}", missing.join(", ")),
             hint: Some(format!(
-                "install them, or change the build with `headway edit {} --build '…'`",
+                "install them, or change the source settings with `headway edit {}`",
                 app.id
             )),
         }

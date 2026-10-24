@@ -30,6 +30,11 @@ pub async fn reveal_path<R: Runtime>(app: AppHandle<R>, path: String) -> CmdResu
 }
 
 #[tauri::command]
-pub async fn app_version<R: Runtime>(app: AppHandle<R>) -> String {
-    app.package_info().version.to_string()
+pub async fn app_version() -> String {
+    headway_core::Headway::build_info().to_string()
+}
+
+#[tauri::command]
+pub async fn get_build_info() -> headway_core::BuildInfo {
+    headway_core::Headway::build_info()
 }

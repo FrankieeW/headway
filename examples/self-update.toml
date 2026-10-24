@@ -1,0 +1,22 @@
+# Pick the app entry OR the standalone CLI entry. The app already bundles its matching CLI.
+# The tracked commit must contain scripts/build-headway.sh.
+
+[[app]]
+id = "headway"
+name = "Headway"
+source = "github"
+repo = "FrankieeW/headway"
+kind = "app"
+auto_update = false
+track = { mode = "commit", branch = "main" }
+install = { method = "source", build = "./scripts/build-headway.sh app", artifact = ".headway-out/Headway.app", dest = "~/Applications/Headway.app" }
+
+[[app]]
+id = "headway-cli"
+name = "Headway CLI"
+source = "github"
+repo = "FrankieeW/headway"
+kind = "cli"
+auto_update = false
+track = { mode = "commit", branch = "main" }
+install = { method = "source", build = "./scripts/build-headway.sh cli", artifact = ".headway-out/headway" }

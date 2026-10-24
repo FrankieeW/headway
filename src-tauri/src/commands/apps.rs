@@ -1,6 +1,6 @@
 //! Tracked apps: list, add, edit, remove, inspect.
 
-use headway_core::inspect::RepoInspection;
+use headway_core::inspect::{PackageLookup, RepoInspection};
 use headway_core::presets::{PRESETS, Preset};
 use headway_core::{AppView, HistoryEntry, RemovedApp, TrackedApp};
 use tauri::{AppHandle, Runtime, State};
@@ -59,6 +59,11 @@ pub async fn remove_app<R: Runtime>(
 #[tauri::command]
 pub async fn inspect_repo(state: State<'_, AppState>, repo: String) -> CmdResult<RepoInspection> {
     state.hw.inspect(&repo).await.cmd()
+}
+
+#[tauri::command]
+pub async fn lookup_source(state: State<'_, AppState>, input: String) -> CmdResult<PackageLookup> {
+    state.hw.lookup(&input).await.cmd()
 }
 
 #[tauri::command]

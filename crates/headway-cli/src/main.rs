@@ -12,6 +12,7 @@ mod fields;
 mod human;
 mod output;
 mod progress;
+mod source_fields;
 mod xml;
 
 use std::process::ExitCode;

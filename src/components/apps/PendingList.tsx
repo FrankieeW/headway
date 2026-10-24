@@ -1,3 +1,4 @@
+import { supportsRefs } from "@/lib/sources";
 import { useState } from "react";
 import { Check, ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -48,10 +49,7 @@ function ReleaseNotes({ body }: { body: string }) {
       >
         {t("pending.notes")}
         <ChevronDown
-          className={cn(
-            "h-3 w-3 transition-transform",
-            open && "rotate-180",
-          )}
+          className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
           strokeWidth={2}
         />
       </button>
@@ -68,6 +66,8 @@ function CandidateRow({
   candidate,
   installing,
   showNotes,
+  canMark,
+  canInstall,
   onInstall,
   onMarkInstalled,
 }: {
@@ -75,6 +75,8 @@ function CandidateRow({
   installing: boolean;
   /** release notes only make sense for releases and tags */
   showNotes: boolean;
+  canMark: boolean;
+  canInstall: boolean;
   onInstall: (ref: string) => void;
   onMarkInstalled: (ref: string) => void;
 }) {
@@ -88,7 +90,7 @@ function CandidateRow({
     .join(" · ");
 
   return (
-    <li className="group flex items-start gap-3 rounded-control px-2 py-2 transition-colors hover:bg-subtle">
+    <li className="group flex flex-wrap items-start gap-3 rounded-control px-2 py-2 transition-colors hover:bg-subtle">
       <RefPill candidate={candidate} />
 
       <div className="min-w-0 flex-1">
@@ -105,34 +107,38 @@ function CandidateRow({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        <Button
-          variant="neutral"
-          size="compact"
-          onClick={() => onInstall(candidate.id)}
-          disabled={installing}
-        >
-          {installing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Check className="h-3.5 w-3.5" strokeWidth={2} />
-          )}
-          {t("pending.install")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => onMarkInstalled(candidate.id)}
-          disabled={installing}
-        >
-          {t("pending.markInstalled")}
-        </Button>
+      <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto sm:opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        {canInstall ? (
+          <Button
+            variant="neutral"
+            size="compact"
+            onClick={() => onInstall(candidate.id)}
+            disabled={installing}
+          >
+            {installing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="h-3.5 w-3.5" strokeWidth={2} />
+            )}
+            {t("pending.install")}
+          </Button>
+        ) : null}
+        {canMark ? (
+          <Button
+            variant="ghost"
+            size="compact"
+            onClick={() => onMarkInstalled(candidate.id)}
+            disabled={installing}
+          >
+            {t("pending.markInstalled")}
+          </Button>
+        ) : null}
         {candidate.url ? (
           <button
             type="button"
             onClick={() => void systemApi.openUrl(candidate.url as string)}
-            title={t("pending.openOnGitHub")}
-            aria-label={t("pending.openOnGitHub")}
+            title={t("pending.openSource")}
+            aria-label={t("pending.openSource")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-control text-fg-2 transition-colors hover:bg-surface hover:text-fg-1"
           >
             <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -156,8 +162,16 @@ export function PendingList({
   const { t } = useTranslation();
   const check = app.last_check;
   const pending = check?.pending ?? [];
-  const showNotes = app.app.track.mode !== "commit";
+  const showNotes =
+    app.app.source === "github" && app.app.track.mode !== "commit";
 
+  if (app.status === "unknown")
+    return (
+      <EmptyState
+        title={t("status.unknown")}
+        description={t("appPage.status.unknown")}
+      />
+    );
   if (pending.length === 0) {
     if (app.status === "up_to_date") {
       return (
@@ -185,7 +199,11 @@ export function PendingList({
       return (
         <EmptyState
           title={t("pending.emptyNotInstalled")}
-          description={t("pending.emptyNotInstalledDescription")}
+          description={t(
+            app.app.source === "github"
+              ? "pending.emptyNotInstalledDescription"
+              : "pending.emptyLocalNotInstalledDescription",
+          )}
           action={
             <Button variant="neutral" size="compact" onClick={onCheck}>
               <Check className="h-3.5 w-3.5" strokeWidth={2} />
@@ -214,13 +232,15 @@ export function PendingList({
             candidate={candidate}
             installing={installing}
             showNotes={showNotes}
+            canMark={app.app.source === "github"}
+            canInstall={supportsRefs(app.app)}
             onInstall={onInstall}
             onMarkInstalled={onMarkInstalled}
           />
         ))}
       </ul>
 
-      {remaining > 0 ? (
+      {remaining > 0 && app.app.source === "github" ? (
         <p className="mt-2 px-2 text-caption text-fg-3">
           {t("pending.moreOnGitHub", { count: remaining })}
         </p>

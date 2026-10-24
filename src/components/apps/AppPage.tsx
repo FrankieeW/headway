@@ -1,3 +1,4 @@
+import { supportsRefs } from "@/lib/sources";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -98,7 +99,7 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
         onRemove={() => setRemoveOpen(true)}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-6">
         <AppSummary
           app={view}
           run={run}
@@ -138,13 +139,16 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
           />
         </div>
 
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 shrink-0 flex-1">
           {tab === "changes" ? (
             <PendingList
               app={view}
               installing={installing}
               onInstall={(ref) =>
-                startUpdate.mutate({ id: view.app.id, target: { ref } })
+                startUpdate.mutate({
+                  id: view.app.id,
+                  target: supportsRefs(view.app) ? { ref } : "latest",
+                })
               }
               onMarkInstalled={(ref) =>
                 markInstalled.mutate({ id: view.app.id, reference: ref })
@@ -155,6 +159,7 @@ export function AppPage({ appId, tab, onTabChange }: AppPageProps) {
 
           {tab === "history" ? (
             <HistoryList
+              canReinstall={supportsRefs(view.app)}
               entries={history}
               loading={historyLoading}
               onReinstall={(ref) =>

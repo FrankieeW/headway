@@ -1,6 +1,6 @@
 ---
 name: headway
-description: Use when keeping apps or CLI tools built from GitHub repositories up to date on this Mac with Headway — tracking a repo, checking for new commits or releases, updating one commit at a time, rolling back, setting the GitHub token, or diagnosing a failed build or download.
+description: Use when keeping apps or CLI tools from GitHub, npm, Homebrew or official updater scripts up to date on this Mac with Headway — tracking a repo, checking for new commits or releases, updating one commit at a time, rolling back, setting the GitHub token, or diagnosing a failed build or download.
 ---
 
 # Headway
@@ -19,9 +19,9 @@ share config, state, logs and locks, so whatever you do here shows up in the app
 - Run `headway update <id> --dry-run --ai` before the first real update of an app and tell the user
   what will be built or downloaded and where it will be installed.
 - Source builds execute code from the repository. Only add repositories the user asked for.
-- Use `--next` to install just the commit/release after the installed one, `--to <sha|tag>` for a
-  specific version or a rollback. Plain `update` installs the latest.
-- If the tool is already installed by other means, record a baseline with `headway mark <id> latest`
+- GitHub and npm support `--next` and `--to <ref-or-version>` (including rollback). Homebrew
+  and script sources only support the latest version. Plain `update` installs the latest.
+- For GitHub tools already installed by other means, record a baseline with `headway mark <id> latest`
   instead of rebuilding it.
 - Never put a token on the command line. Pipe it: `printf %s "$TOKEN" | headway token set --stdin`,
   or reuse the GitHub CLI login with `headway token set --from-gh`.
@@ -74,7 +74,57 @@ headway --ai update <id> --to <sha-or-tag>   # roll back to a known-good version
 
 Discover every flag with `headway --ai commands` (the whole command tree as data).
 
+## Headway self-hosting
+
+For a branch that includes `scripts/build-headway.sh`, track the app with `headway --ai add
+FrankieeW/headway --preset headway-app --branch main --dest ~/Applications/Headway.app`, inspect
+`update headway --dry-run`, then install the first supported commit with `update headway`.
+Future `update headway --next` builds one commit at a time. The app carries its matching CLI;
+the app-managed CLI symlink follows it. Quit and reopen the app after installation to run the new
+code; the build recipe never restarts it while other updates may be active.
+
+For a standalone CLI, use `add FrankieeW/headway --id headway-cli --preset headway-cli --branch
+main`, then the same dry-run/update/--next workflow. `headway --ai version` exposes compile-time
+`version`, full `commit`, `dirty`, and `target`; `--version` and the app's version label show a short
+revision. Only use a known clean installed commit as a `mark` baseline. Older commits without the
+helper require their historical recipe. Presets use stable `.headway-out` artifacts and preserve
+build caches; source installs still go through Headway's staged replacement.
+
+## Optional update sources
+
+GitHub remains the default for `owner/repo` and GitHub URLs. Other sources are opt-in:
+
+```sh
+headway --ai inspect npm:@openai/codex
+headway --ai add npm:@openai/codex --dist-tag latest
+headway --ai add https://www.npmjs.com/package/pnpm
+headway --ai add brew:ripgrep
+headway --ai add cask:zed
+headway --ai add https://formulae.brew.sh/formula/jq
+headway --ai add script:claude --update-command 'claude update' --version-command 'claude --version'
+headway --ai edit codex --dist-tag beta
+headway --ai edit zed --cask true
+```
+
+- `add --no-inspect` skips lookup for every source. GitHub still needs a build command/preset or
+  release-asset setup; scripts require `--update-command`. npm defaults to `latest`; `brew:` defaults
+  to a formula, `cask:` to a cask. `--cask` can also select a cask for a `brew:` input.
+- npm uses the user's `npm` registry configuration and global installs. Homebrew uses the user's
+  `brew` executable. Both read the system's installed version, including changes outside Headway.
+- `--package` edits an npm/Homebrew package; `--dist-tag` is npm-only and `--cask` is Homebrew-only.
+- Scripts run the explicitly supplied official updater with `/bin/sh -c`. Choose commands from the
+  project's official instructions and only run what the user authorized. Headway does not discover
+  or certify arbitrary scripts. `--version-command` reads the installed version;
+  `--latest-command` accepts a command or HTTP(S) URL returning a version. Empty strings clear these
+  two optional probes. Without enough version information, status is `unknown`: explicitly run
+  `update <id> --dry-run`, then `update <id>`; `update --all` only selects known available updates.
+- `mark` is GitHub-only. Build/asset/track flags are also GitHub-only; irrelevant flags return an
+  error rather than being ignored. Homebrew and scripts reject `--next` and `--to`.
+- Legacy GitHub config without `source` remains readable. Serialized app records now include
+  `source: github|npm|brew|script` with source-specific fields flattened into the record.
+
 ## Error codes
+
 
 | code | exit | meaning / what to do |
 |---|---|---|
@@ -100,7 +150,8 @@ code. `doctor` exits 1 when a check fails.
 
 `list`/`show` give each app one `status`: `up_to_date`, `update_available` (`pending_count` newer
 commits/releases), `not_installed` (nothing recorded yet), `diverged` (installed commit no longer on
-the branch, e.g. after a force-push), `error` (see `last_error`), `busy`, `unchecked`.
+the branch, e.g. after a force-push), `error` (see `last_error`), `busy`, `unchecked`, or
+`unknown` (a script cannot compare installed and latest versions).
 
 ## Environment
 

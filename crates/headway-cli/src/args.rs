@@ -5,6 +5,12 @@ use clap_complete::Shell;
 
 use crate::output::Format;
 
+fn build_version() -> &'static str {
+    static VERSION: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| headway_core::Headway::build_info().to_string());
+    VERSION.as_str()
+}
+
 const AFTER_HELP: &str = "\
 Examples:
   headway add BurntSushi/ripgrep        track every commit, build with cargo (inferred)
@@ -22,8 +28,8 @@ Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 GitHub/network, 5 build/insta
 #[allow(clippy::struct_excessive_bools)] // independent global flags
 #[command(
     name = "headway",
-    version,
-    about = "Keep apps and CLI tools built from GitHub current on your Mac: every commit, or every release.",
+    version = build_version(),
+    about = "Keep Mac apps and CLI tools current via GitHub, npm, Homebrew or official scripts.",
     after_help = AFTER_HELP
 )]
 pub struct Cli {
@@ -63,6 +69,8 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Show the running binary version and compile-time build metadata
+    Version,
     /// List tracked apps with their cached status
     List,
     /// Show one app: config, installed ref, pending updates, recent history
@@ -70,7 +78,7 @@ pub enum Command {
         /// App id
         id: String,
     },
-    /// Ask GitHub for new commits or releases (all apps when no id is given)
+    /// Check configured sources for updates (all apps when no id is given)
     Check {
         /// App ids
         ids: Vec<String>,
@@ -85,7 +93,7 @@ pub enum Command {
         #[arg(default_value = "latest")]
         reference: String,
     },
-    /// Start tracking a GitHub repository (settings are inferred; flags override)
+    /// Start tracking a GitHub, npm, Homebrew or script source (settings are inferred; flags override)
     Add(AddArgs),
     /// Change how an app is tracked, built or installed
     Edit(EditArgs),
@@ -100,9 +108,9 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Analyze a repository and print the config `add` would use
+    /// Inspect a GitHub repository or look up an npm/Homebrew package
     Inspect {
-        /// owner/name or a GitHub URL
+        /// owner/name, npm:package, brew:formula, cask:cask, script:name, or a source URL
         repo: String,
     },
     /// List build presets for source installs
@@ -145,6 +153,7 @@ pub enum Command {
 impl Command {
     pub const fn name(&self) -> &'static str {
         match self {
+            Self::Version => "version",
             Self::List => "list",
             Self::Show { .. } => "show",
             Self::Check { .. } => "check",
@@ -175,10 +184,10 @@ pub struct UpdateArgs {
     /// Check every app and update the ones that are behind
     #[arg(long)]
     pub all: bool,
-    /// Install only the next commit/release after the installed one
+    /// Install the next GitHub commit/release or npm version
     #[arg(long, conflicts_with = "to")]
     pub next: bool,
-    /// Install this commit SHA, branch or tag (also older ones, to roll back)
+    /// Install a GitHub ref or npm version (also older ones, to roll back)
     #[arg(long, value_name = "REF", conflicts_with = "all")]
     pub to: Option<String>,
     /// Print the plan without building or installing anything
@@ -188,12 +197,12 @@ pub struct UpdateArgs {
 
 #[derive(Args, Debug)]
 pub struct AddArgs {
-    /// owner/name or a GitHub URL
+    /// owner/name, npm:package, brew:formula, cask:cask, script:name, or a source URL
     pub repo: String,
-    /// App id (default: derived from the repository name)
+    /// App id (default: derived from the source name)
     #[arg(long)]
     pub id: Option<String>,
-    /// Do not query GitHub; build the config from flags only
+    /// Skip remote inspection; build the config from source defaults and flags
     #[arg(long)]
     pub no_inspect: bool,
     /// Print the resulting config without saving it
@@ -217,6 +226,25 @@ pub struct EditArgs {
 /// Config fields settable from `add` and `edit`. An empty string clears an optional field.
 #[derive(Args, Debug, Default, Clone)]
 pub struct AppFields {
+    /// npm dist-tag to follow (default: latest)
+    #[arg(long)]
+    pub dist_tag: Option<String>,
+    /// Homebrew cask instead of formula
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
+    pub cask: Option<bool>,
+    /// npm or Homebrew package name
+    #[arg(long)]
+    pub package: Option<String>,
+    /// Official updater command, run with /bin/sh -c (script source)
+    #[arg(long)]
+    pub update_command: Option<String>,
+    /// Command printing the installed version (empty clears it)
+    #[arg(long)]
+    pub version_command: Option<String>,
+    /// Command or URL returning the latest version (empty clears it)
+    #[arg(long)]
+    pub latest_command: Option<String>,
+
     /// Display name
     #[arg(long)]
     pub name: Option<String>,

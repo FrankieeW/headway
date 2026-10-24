@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::repo::{RepoId, validate_app_id};
+use crate::source::{GithubSource, Source};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -245,98 +246,135 @@ pub struct AssetInstall {
     pub dest: Option<String>,
 }
 
-/// One repository Headway keeps installed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One app or tool Headway keeps up to date.
+///
+/// The source's fields sit next to these (`source = "npm"`, `package = "…"`), so a
+/// GitHub app reads `source = "github"`, `repo`, `track`, `install`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrackedApp {
     /// Stable id used by the CLI and in file names.
     pub id: String,
     pub name: String,
-    /// `owner/name` on GitHub.
-    pub repo: String,
     #[serde(default)]
     pub kind: AppKind,
     /// Install updates as soon as a check finds them (desktop app only).
     #[serde(default)]
     pub auto_update: bool,
-    /// Clone URL override (e.g. SSH); defaults to `https://github.com/<repo>.git`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub git_url: Option<String>,
-    pub track: Track,
-    pub install: Install,
+    #[serde(flatten)]
+    pub source: Source,
+}
+
+impl<'de> Deserialize<'de> for TrackedApp {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        // Older configs predate `source`; their GitHub fields keep the same layout.
+        #[derive(Deserialize)]
+        struct Wire {
+            id: String,
+            name: String,
+            #[serde(default)]
+            kind: AppKind,
+            #[serde(default)]
+            auto_update: bool,
+            #[serde(flatten)]
+            source: Source,
+        }
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        if let Some(map) = value.as_object_mut() {
+            map.entry("source").or_insert_with(|| "github".into());
+        }
+        let wire: Wire = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            id: wire.id,
+            name: wire.name,
+            kind: wire.kind,
+            auto_update: wire.auto_update,
+            source: wire.source,
+        })
+    }
 }
 
 impl TrackedApp {
-    pub fn repo_id(&self) -> Result<RepoId> {
-        RepoId::parse(&self.repo)
+    pub const fn github(&self) -> Option<&GithubSource> {
+        match &self.source {
+            Source::Github(github) => Some(github),
+            Source::Npm(_) | Source::Brew(_) | Source::Script(_) => None,
+        }
     }
 
-    pub fn clone_url(&self) -> Result<String> {
-        match &self.git_url {
-            Some(url) => Ok(url.clone()),
-            None => Ok(self.repo_id()?.https_clone_url()),
-        }
+    /// The GitHub source, or an error saying `what` needs one.
+    pub fn require_github(&self, what: &str) -> Result<&GithubSource> {
+        self.github().ok_or_else(|| {
+            Error::InvalidInput(format!(
+                "{what} only applies to GitHub sources; `{}` follows {}",
+                self.id,
+                self.source.label()
+            ))
+        })
+    }
+
+    pub fn repo_id(&self) -> Result<RepoId> {
+        self.require_github("a repository")?.repo_id()
     }
 
     pub fn validate(&self) -> Result<()> {
         let fail = |message: String| Error::Config(format!("app `{}`: {message}", self.id));
-
         validate_app_id(&self.id).map_err(|err| fail(err.to_string()))?;
         if self.name.trim().is_empty() {
             return Err(fail("name is empty".into()));
         }
-        self.repo_id().map_err(|err| fail(err.to_string()))?;
-        self.track.tag_regex()?;
-        if let Track::Commit {
-            branch: Some(branch),
-        } = &self.track
-            && (branch.trim().is_empty() || branch.contains(char::is_whitespace))
-        {
-            return Err(fail(format!(
-                "branch `{branch}` is not a valid branch name"
-            )));
-        }
-        let accepted = ["https://", "http://", "ssh://", "git@", "file://", "/"];
-        if let Some(url) = &self.git_url
-            && !accepted.iter().any(|prefix| url.starts_with(prefix))
-        {
-            return Err(fail(format!("git_url `{url}` is not a git URL")));
-        }
+        self.source.validate().map_err(fail)
+    }
+}
 
-        match &self.install {
-            Install::Source(source) => {
-                if source.build.trim().is_empty() {
-                    return Err(fail("install.build is empty".into()));
-                }
-                for (field, value) in [("workdir", &source.workdir), ("artifact", &source.artifact)]
-                {
-                    if let Some(value) = value
-                        && !is_inside_repo(value)
-                    {
-                        return Err(fail(format!(
-                            "install.{field} `{value}` must be a relative path inside the repository"
-                        )));
-                    }
-                }
-                validate_dest(source.dest.as_deref()).map_err(|err| fail(err.to_string()))?;
+/// Checks the GitHub-specific fields (branch, git URL, build/asset settings).
+pub(crate) fn validate_github(github: &GithubSource) -> std::result::Result<(), String> {
+    if let Track::Commit {
+        branch: Some(branch),
+    } = &github.track
+        && (branch.trim().is_empty() || branch.contains(char::is_whitespace))
+    {
+        return Err(format!("branch `{branch}` is not a valid branch name"));
+    }
+    let accepted = ["https://", "http://", "ssh://", "git@", "file://", "/"];
+    if let Some(url) = &github.git_url
+        && !accepted.iter().any(|prefix| url.starts_with(prefix))
+    {
+        return Err(format!("git_url `{url}` is not a git URL"));
+    }
+    match &github.install {
+        Install::Source(source) => {
+            if source.build.trim().is_empty() {
+                return Err("install.build is empty".into());
             }
-            Install::Asset(asset) => {
-                if !matches!(self.track, Track::Release { .. }) {
-                    return Err(fail(format!(
-                        "install.method = \"asset\" needs track.mode = \"release\" (got \"{}\")",
-                        self.track.mode()
-                    )));
-                }
-                if let Some(binary) = &asset.binary
-                    && (binary.is_empty() || binary.contains('/'))
+            for (field, value) in [("workdir", &source.workdir), ("artifact", &source.artifact)] {
+                if let Some(value) = value
+                    && !is_inside_repo(value)
                 {
-                    return Err(fail(format!(
-                        "install.binary `{binary}` must be a plain file name"
-                    )));
+                    return Err(format!(
+                        "install.{field} `{value}` must be a relative path inside the repository"
+                    ));
                 }
-                validate_dest(asset.dest.as_deref()).map_err(|err| fail(err.to_string()))?;
             }
+            validate_dest(source.dest.as_deref()).map_err(|err| err.to_string())
         }
-        Ok(())
+        Install::Asset(asset) => {
+            if !matches!(github.track, Track::Release { .. }) {
+                return Err(format!(
+                    "install.method = \"asset\" needs track.mode = \"release\" (got \"{}\")",
+                    github.track.mode()
+                ));
+            }
+            if let Some(binary) = &asset.binary
+                && (binary.is_empty() || binary.contains('/'))
+            {
+                return Err(format!(
+                    "install.binary `{binary}` must be a plain file name"
+                ));
+            }
+            validate_dest(asset.dest.as_deref()).map_err(|err| err.to_string())
+        }
     }
 }
 
@@ -358,163 +396,5 @@ fn validate_dest(dest: Option<&str>) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::testing::cli_app;
-
-    #[test]
-    fn toml_round_trip_keeps_every_field() {
-        let config = Config {
-            settings: Settings {
-                check_interval_minutes: 15,
-                ..Settings::default()
-            },
-            apps: vec![
-                cli_app("rg"),
-                TrackedApp {
-                    id: "zed".into(),
-                    name: "Zed".into(),
-                    repo: "zed-industries/zed".into(),
-                    kind: AppKind::App,
-                    auto_update: true,
-                    git_url: Some("git@github.com:zed-industries/zed.git".into()),
-                    track: Track::Release {
-                        prerelease: true,
-                        tag_filter: Some("^v".into()),
-                    },
-                    install: Install::Asset(AssetInstall {
-                        pattern: Some("Zed-aarch64.dmg".into()),
-                        binary: None,
-                        dest: Some("~/Applications/Zed.app".into()),
-                    }),
-                },
-            ],
-        };
-        let text = toml::to_string_pretty(&config).unwrap();
-        let parsed: Config = toml::from_str(&text).unwrap();
-        assert_eq!(parsed, config);
-        parsed.validate().unwrap();
-    }
-
-    #[test]
-    fn hand_written_toml_uses_defaults() {
-        let text = r#"
-            [[app]]
-            id = "rg"
-            name = "ripgrep"
-            repo = "BurntSushi/ripgrep"
-            track = { mode = "commit" }
-            install = { method = "source", build = "cargo build --release", artifact = "target/release/rg" }
-        "#;
-        let config: Config = toml::from_str(text).unwrap();
-        assert_eq!(config.settings, Settings::default());
-        assert_eq!(config.apps[0].kind, AppKind::Cli);
-        assert!(!config.apps[0].auto_update);
-        config.validate().unwrap();
-    }
-
-    #[test]
-    fn rejects_duplicate_ids() {
-        let config = Config {
-            settings: Settings::default(),
-            apps: vec![cli_app("rg"), cli_app("rg")],
-        };
-        assert!(matches!(config.validate(), Err(Error::Config(msg)) if msg.contains("twice")));
-    }
-
-    #[test]
-    fn asset_installs_require_release_tracking() {
-        let app = TrackedApp {
-            install: Install::Asset(AssetInstall::default()),
-            ..cli_app("rg")
-        };
-        assert!(app.validate().is_err());
-        let app = TrackedApp {
-            track: Track::Release {
-                prerelease: false,
-                tag_filter: None,
-            },
-            ..app
-        };
-        app.validate().unwrap();
-    }
-
-    #[test]
-    fn source_paths_must_stay_inside_the_repository() {
-        for artifact in ["../evil", "/abs/path", ""] {
-            let app = TrackedApp {
-                install: Install::Source(SourceInstall {
-                    build: "make".into(),
-                    artifact: Some(artifact.into()),
-                    ..SourceInstall::default()
-                }),
-                ..cli_app("x")
-            };
-            assert!(app.validate().is_err(), "{artifact}");
-        }
-    }
-
-    #[test]
-    fn rejects_bad_fields() {
-        let bad_regex = TrackedApp {
-            track: Track::Tag {
-                prerelease: false,
-                tag_filter: Some("(".into()),
-            },
-            ..cli_app("x")
-        };
-        assert!(bad_regex.validate().is_err());
-
-        let bad_dest = TrackedApp {
-            install: Install::Source(SourceInstall {
-                build: "make".into(),
-                dest: Some("relative/bin".into()),
-                ..SourceInstall::default()
-            }),
-            ..cli_app("x")
-        };
-        assert!(bad_dest.validate().is_err());
-
-        let empty_build = TrackedApp {
-            install: Install::Source(SourceInstall::default()),
-            ..cli_app("x")
-        };
-        assert!(empty_build.validate().is_err());
-
-        let bad_branch = TrackedApp {
-            track: Track::Commit {
-                branch: Some("two words".into()),
-            },
-            ..cli_app("x")
-        };
-        assert!(bad_branch.validate().is_err());
-    }
-
-    #[test]
-    fn settings_keys_parse_from_strings() {
-        let base = Settings::default();
-        assert_eq!(
-            base.with_key("check_interval_minutes", "30")
-                .unwrap()
-                .check_interval_minutes,
-            30
-        );
-        assert!(!base.with_key("notify", "off").unwrap().notify);
-        assert_eq!(base.with_key("bin_dir", "~/bin").unwrap().bin_dir, "~/bin");
-        assert!(base.with_key("bin_dir", "bin").is_err());
-        assert!(base.with_key("notify", "maybe").is_err());
-        assert!(base.with_key("nope", "1").is_err());
-        assert_eq!(base, Settings::default(), "with_key must not mutate");
-    }
-
-    #[test]
-    fn clone_url_prefers_override() {
-        let app = cli_app("rg");
-        assert_eq!(app.clone_url().unwrap(), "https://github.com/owner/rg.git");
-        let ssh = TrackedApp {
-            git_url: Some("git@github.com:owner/rg.git".into()),
-            ..app
-        };
-        assert_eq!(ssh.clone_url().unwrap(), "git@github.com:owner/rg.git");
-    }
-}
+#[path = "config_tests.rs"]
+mod tests;

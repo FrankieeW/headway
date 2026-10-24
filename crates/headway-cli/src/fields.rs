@@ -4,12 +4,12 @@
 
 use headway_core::config::{AppKind, AssetInstall, Install, SourceInstall, Track, TrackedApp};
 use headway_core::presets;
-use headway_core::{Error, Result};
+use headway_core::{Error, GithubSource, Result, Source};
 
 use crate::args::{AppFields, KindArg, MethodArg, TrackArg};
 
 /// `None` keeps the base value, `Some("")` clears it, anything else sets it.
-fn optional(flag: Option<&String>, base: Option<String>) -> Option<String> {
+pub(crate) fn optional(flag: Option<&String>, base: Option<String>) -> Option<String> {
     match flag {
         None => base,
         Some(value) if value.trim().is_empty() => None,
@@ -25,18 +25,36 @@ pub fn apply(base: TrackedApp, fields: &AppFields) -> Result<TrackedApp> {
     let kind = match fields.kind {
         Some(KindArg::Cli) => AppKind::Cli,
         Some(KindArg::App) => AppKind::App,
-        None => base.kind,
+        None => match (&base.source, fields.cask) {
+            (Source::Brew(_), Some(true)) => AppKind::App,
+            (Source::Brew(_), Some(false)) => AppKind::Cli,
+            _ => fields
+                .preset
+                .as_deref()
+                .and_then(presets::find)
+                .map_or(base.kind, |preset| preset.kind),
+        },
     };
     let name = fields.name.clone().unwrap_or(base.name);
-    let track = apply_track(&base.track, fields)?;
-    let install = apply_install(base.install, &track, fields, &base.repo, &name)?;
+    crate::source_fields::validate(&base.source, fields)?;
+    let source = match base.source {
+        Source::Github(github) => {
+            let track = apply_track(&github.track, fields)?;
+            let install = apply_install(github.install, &track, fields, &github.repo, &name)?;
+            Source::Github(GithubSource {
+                git_url: optional(fields.git_url.as_ref(), github.git_url),
+                track,
+                install,
+                ..github
+            })
+        }
+        source => crate::source_fields::apply(source, fields),
+    };
     Ok(TrackedApp {
         name,
         kind,
         auto_update: fields.auto_update.unwrap_or(base.auto_update),
-        git_url: optional(fields.git_url.as_ref(), base.git_url),
-        track,
-        install,
+        source,
         ..base
     })
 }
@@ -184,158 +202,5 @@ fn preset_source(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn base() -> TrackedApp {
-        TrackedApp {
-            id: "rg".into(),
-            name: "ripgrep".into(),
-            repo: "BurntSushi/ripgrep".into(),
-            kind: AppKind::Cli,
-            auto_update: false,
-            git_url: None,
-            track: Track::Commit { branch: None },
-            install: Install::Source(SourceInstall {
-                build: "cargo build --release --locked".into(),
-                artifact: Some("target/release/rg".into()),
-                ..SourceInstall::default()
-            }),
-        }
-    }
-
-    #[test]
-    fn no_flags_keep_the_base() {
-        assert_eq!(apply(base(), &AppFields::default()).unwrap(), base());
-    }
-
-    #[test]
-    fn switching_to_release_assets() {
-        let fields = AppFields {
-            track: Some(TrackArg::Release),
-            method: Some(MethodArg::Asset),
-            pattern: Some("*aarch64-apple-darwin.tar.gz".into()),
-            binary: Some("rg".into()),
-            prerelease: Some(true),
-            ..AppFields::default()
-        };
-        let app = apply(base(), &fields).unwrap();
-        assert_eq!(
-            app.track,
-            Track::Release {
-                prerelease: true,
-                tag_filter: None
-            }
-        );
-        assert_eq!(
-            app.install,
-            Install::Asset(AssetInstall {
-                pattern: Some("*aarch64-apple-darwin.tar.gz".into()),
-                binary: Some("rg".into()),
-                dest: None,
-            })
-        );
-        app.validate().unwrap();
-    }
-
-    #[test]
-    fn leaving_release_mode_switches_assets_back_to_source() {
-        let release = apply(
-            base(),
-            &AppFields {
-                track: Some(TrackArg::Release),
-                method: Some(MethodArg::Asset),
-                ..AppFields::default()
-            },
-        )
-        .unwrap();
-        let tags = apply(
-            release,
-            &AppFields {
-                track: Some(TrackArg::Tag),
-                build: Some("make".into()),
-                ..AppFields::default()
-            },
-        )
-        .unwrap();
-        assert!(matches!(&tags.install, Install::Source(source) if source.build == "make"));
-    }
-
-    #[test]
-    fn presets_fill_the_build_and_flags_override() {
-        let fields = AppFields {
-            preset: Some("go".into()),
-            binary: Some("lazygit".into()),
-            dest: Some("~/bin/lg".into()),
-            ..AppFields::default()
-        };
-        let app = apply(base(), &fields).unwrap();
-        let Install::Source(source) = app.install else {
-            panic!("source")
-        };
-        assert_eq!(source.build, "go build -trimpath -o .headway-out/lazygit .");
-        assert_eq!(source.artifact.as_deref(), Some(".headway-out/lazygit"));
-        assert_eq!(source.dest.as_deref(), Some("~/bin/lg"));
-    }
-
-    #[test]
-    fn empty_strings_clear_optional_fields() {
-        let fields = AppFields {
-            artifact: Some(String::new()),
-            branch: Some("dev".into()),
-            ..AppFields::default()
-        };
-        let app = apply(base(), &fields).unwrap();
-        assert_eq!(
-            app.track,
-            Track::Commit {
-                branch: Some("dev".into())
-            }
-        );
-        assert!(matches!(&app.install, Install::Source(source) if source.artifact.is_none()));
-        let cleared = apply(
-            app,
-            &AppFields {
-                branch: Some(String::new()),
-                ..AppFields::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(cleared.track, Track::Commit { branch: None });
-    }
-
-    #[test]
-    fn mismatched_flags_are_rejected() {
-        let cases = [
-            AppFields {
-                branch: Some("x".into()),
-                track: Some(TrackArg::Release),
-                ..AppFields::default()
-            },
-            AppFields {
-                prerelease: Some(true),
-                ..AppFields::default()
-            },
-            AppFields {
-                pattern: Some("*".into()),
-                ..AppFields::default()
-            },
-            AppFields {
-                track: Some(TrackArg::Release),
-                method: Some(MethodArg::Asset),
-                build: Some("make".into()),
-                ..AppFields::default()
-            },
-            AppFields {
-                preset: Some("nope".into()),
-                ..AppFields::default()
-            },
-        ];
-        for fields in cases {
-            assert!(
-                matches!(apply(base(), &fields), Err(Error::InvalidInput(_))),
-                "{fields:?}"
-            );
-        }
-    }
-}
+#[path = "fields_tests.rs"]
+mod tests;

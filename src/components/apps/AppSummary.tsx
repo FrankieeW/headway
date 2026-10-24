@@ -14,6 +14,7 @@ import {
 import type { AppView } from "@/lib/api";
 import { firstLine, shortSha, timeAgo } from "@/lib/format";
 import type { UpdateRun } from "@/lib/updateRuns";
+import { supportsRefs } from "@/lib/sources";
 import { cn } from "@/lib/utils";
 
 export interface AppSummaryProps {
@@ -106,11 +107,15 @@ export function AppSummary({
   const latestValue = latest ? shortSha(latest.id) : "—";
 
   const nextLabel =
-    app.app.track.mode === "commit"
+    app.app.source === "github" && app.app.track.mode === "commit"
       ? t("appPage.nextCommit")
-      : app.app.track.mode === "release"
+      : app.app.source === "github" && app.app.track.mode === "release"
         ? t("appPage.nextRelease")
-        : t("appPage.nextTag");
+        : t(
+            app.app.source === "npm"
+              ? "appPage.nextVersion"
+              : "appPage.nextTag",
+          );
 
   return (
     <div className="flex flex-col gap-4 rounded-panel border border-border bg-surface p-4 md:flex-row">
@@ -121,9 +126,14 @@ export function AppSummary({
             value={installedValue}
             time={
               installed
-                ? t("appPage.installedAt", {
-                    when: timeAgo(installed.installed_at, lang),
-                  })
+                ? t(
+                    app.app.source === "github"
+                      ? "appPage.installedAt"
+                      : "appPage.detectedAt",
+                    {
+                      when: timeAgo(installed.installed_at, lang),
+                    },
+                  )
                 : t("appPage.notInstalledYet")
             }
           />
@@ -142,7 +152,11 @@ export function AppSummary({
                       when: timeAgo(latest.date, lang),
                     })
                   : undefined
-                : t("appPage.notCheckedYet")
+                : t(
+                    app.status === "unknown"
+                      ? "status.unknown"
+                      : "appPage.notCheckedYet",
+                  )
             }
           />
         </div>
@@ -188,7 +202,7 @@ export function AppSummary({
               {t("appPage.updateToLatest")}
             </Button>
 
-            {app.pending_count > 1 ? (
+            {supportsRefs(app.app) && app.pending_count > 1 ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -234,11 +248,13 @@ function describeStatus(
 ): { text: string; tone: Tone } {
   const branch =
     app.last_check?.branch ??
-    (app.app.track.mode === "commit" ? app.app.track.branch : null);
+    (app.app.source === "github" && app.app.track.mode === "commit"
+      ? app.app.track.branch
+      : null);
 
   switch (app.status) {
     case "update_available": {
-      if (app.app.track.mode === "commit") {
+      if (app.app.source === "github" && app.app.track.mode === "commit") {
         return {
           text: branch
             ? t("appPage.status.newCommits", {
@@ -259,6 +275,8 @@ function describeStatus(
         tone: "normal",
       };
     }
+    case "unknown":
+      return { text: t("appPage.status.unknown"), tone: "normal" };
     case "up_to_date":
       return { text: t("appPage.status.upToDate"), tone: "success" };
     case "not_installed":

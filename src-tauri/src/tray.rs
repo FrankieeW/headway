@@ -62,10 +62,15 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         None::<&str>,
     )?)?;
     for view in behind.iter().take(MAX_APP_ITEMS) {
-        let unit = match view.app.track.mode() {
-            "commit" => "new commits",
-            "release" => "new releases",
-            _ => "new tags",
+        let unit = match &view.app.source {
+            headway_core::Source::Github(github) => match github.track {
+                headway_core::Track::Commit { .. } => "new commits",
+                headway_core::Track::Release { .. } => "new releases",
+                headway_core::Track::Tag { .. } => "new tags",
+            },
+            headway_core::Source::Npm(_)
+            | headway_core::Source::Brew(_)
+            | headway_core::Source::Script(_) => "new versions",
         };
         let label = if view.busy {
             format!("{} — updating…", view.app.name)
