@@ -27,6 +27,7 @@ pnpm)
   [ "$1 $2 $3 $4 $5 $6 $7 $8 $9" = "exec tauri build --target $HEADWAY_BUILD_TARGET --bundles app --ci --config" ] || exit 96
   [ "${11} ${12}" = '-- --locked' ] || exit 97
   cli="$(node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync(process.argv[1]));if(c.build.beforeBuildCommand!=="pnpm build:renderer"||c.bundle.macOS.signingIdentity!=="-")process.exit(98);process.stdout.write(c.bundle.macOS.files["MacOS/headway"]);' "${10}")"
+  [ "$(tail -n 1 "$cli")" = '# fixture-adhoc-signature' ] || exit 105
   bundle="$CARGO_TARGET_DIR/$HEADWAY_BUILD_TARGET/release/bundle/macos/Headway.app/Contents/MacOS"
   mkdir -p "$bundle"
   cp "$cli" "$bundle/headway"
@@ -40,11 +41,20 @@ pnpm)
   ;;
 codesign)
   [ "$#" = 4 ] || exit 100
-  [ "$1 $2 $3" = '--verify --deep --strict' ] || exit 101
-  case "$4" in "$PWD"/.headway-out/.build-*/Headway.app) ;; *) exit 102 ;; esac
-  [ -x "$4/Contents/MacOS/headway" ] || exit 103
-  [ -x "$4/Contents/MacOS/headway-desktop" ] || exit 104
-  [ "${FAIL_SIGNATURE:-0}" = 0 ] || exit 43
+  case "$1 $2 $3" in
+    '--force --sign -')
+      [ "$4" = "$CARGO_TARGET_DIR/$HEADWAY_BUILD_TARGET/release/headway" ] || exit 106
+      [ -x "$4" ] || exit 107
+      printf '\n# fixture-adhoc-signature\n' >> "$4"
+      ;;
+    '--verify --deep --strict')
+      case "$4" in "$PWD"/.headway-out/.build-*/Headway.app) ;; *) exit 102 ;; esac
+      [ -x "$4/Contents/MacOS/headway" ] || exit 103
+      [ -x "$4/Contents/MacOS/headway-desktop" ] || exit 104
+      [ "${FAIL_SIGNATURE:-0}" = 0 ] || exit 43
+      ;;
+    *) exit 101 ;;
+  esac
   ;;
 *) exit 99 ;;
 esac

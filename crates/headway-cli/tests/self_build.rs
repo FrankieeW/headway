@@ -135,7 +135,7 @@ fn app_bundles_selected_cli_without_dmg_and_accepts_changed_bytes() {
     assert_eq!(
         repo.tools()
             .lines()
-            .filter(|line| line.starts_with("codesign "))
+            .filter(|line| line.starts_with("codesign --verify "))
             .count(),
         2
     );
@@ -186,7 +186,7 @@ fn failed_signature_preserves_published_bundle() {
     assert_eq!(
         repo.tools()
             .lines()
-            .filter(|line| line.starts_with("codesign "))
+            .filter(|line| line.starts_with("codesign --verify "))
             .count(),
         2
     );

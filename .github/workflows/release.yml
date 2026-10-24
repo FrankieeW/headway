@@ -82,6 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/release
+          codesign --force --sign - "target/${{ matrix.target }}/release/headway"
           cp "target/${{ matrix.target }}/release/headway" "target/release/headway"
           chmod +x "target/release/headway"
 
@@ -106,9 +107,9 @@ jobs:
             x86_64-apple-darwin) macho_arch=x86_64 ;;
             *) exit 1 ;;
           esac
-          lipo -verify_arch "$macho_arch" "$cli"
-          lipo -verify_arch "$macho_arch" "$app/Contents/MacOS/headway"
-          lipo -verify_arch "$macho_arch" "$app/Contents/MacOS/headway-desktop"
+          lipo "$cli" -verify_arch "$macho_arch"
+          lipo "$app/Contents/MacOS/headway" -verify_arch "$macho_arch"
+          lipo "$app/Contents/MacOS/headway-desktop" -verify_arch "$macho_arch"
           codesign --verify --deep --strict "$app"
           host_target="$(rustc -vV | awk '/^host: / { print $2 }')"
           if [ "$TARGET" = "$host_target" ]; then

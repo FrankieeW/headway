@@ -84,6 +84,7 @@ if [ "$mode" = cli ]; then
 fi
 
 [ "$(uname -s)" = Darwin ] || die 'building the app requires macOS'
+codesign --force --sign - "$release_dir/headway"
 need node
 need pnpm
 pnpm install --frozen-lockfile
