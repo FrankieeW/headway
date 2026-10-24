@@ -140,6 +140,8 @@ export interface UpdatePlan {
   to: Candidate;
   /** the target is already installed (nothing would change) */
   up_to_date: boolean;
+  /** `--to` the installed version: a real run installs it again */
+  reinstall: boolean;
   method: Install["method"];
   steps: string[];
   asset?: AssetChoice | null;
@@ -178,6 +180,8 @@ export interface CommandError {
   code: string;
   message: string;
   hint?: string | null;
+  /** last output lines of a failed build or install */
+  details?: string[] | null;
 }
 
 export interface UpdateFinished {

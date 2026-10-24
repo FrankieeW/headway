@@ -166,7 +166,22 @@ describe("applyPreset", () => {
       name: "My Tool",
     });
 
-    expect(form.build).toBe("make install My Tool");
+    expect(form.build).toBe("make install 'My Tool'");
+  });
+
+  it("quotes repository-controlled names in the build command only", () => {
+    const xcode: Preset = {
+      ...preset,
+      build: "xcodebuild -scheme {name} build",
+      artifact: "build/{name}.app",
+    };
+    const form = applyPreset(emptyForm(), xcode, {
+      bin: "b",
+      name: "$(touch pwned)",
+    });
+
+    expect(form.build).toBe("xcodebuild -scheme '$(touch pwned)' build");
+    expect(form.artifact).toBe("build/$(touch pwned).app");
   });
 
   it("keeps the other fields", () => {

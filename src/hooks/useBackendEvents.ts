@@ -66,7 +66,10 @@ export function useBackendEvents({
       return;
     }
 
+    // The last lines of a failed build say more than the exit code.
+    const details = payload.error?.details?.slice(-3).join("\n");
     toast.error(errorMessage(payload.error), {
+      description: details || undefined,
       action: {
         label: t("toast.showLog"),
         onClick: () => onShowLog(payload.app_id),

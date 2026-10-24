@@ -141,27 +141,40 @@ export function appFromForm(form: AppFormState): TrackedApp {
 }
 
 /**
+ * Quote a value for a POSIX shell unless it only has safe characters
+ * (same rule as `shell_quote` in headway-core).
+ */
+export function shellQuote(value: string): string {
+  if (value !== "" && /^[A-Za-z0-9\-_./:=@+,%^]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Fill the build command and the artifact from a preset.
  *
  * `{bin}` becomes the binary the repository builds (or the repository
- * name), `{name}` becomes the display name of the app.
+ * name), `{name}` becomes the display name of the app. In the build command
+ * the values are shell-quoted: they come from repository file names.
  */
 export function applyPreset(
   form: AppFormState,
   preset: Preset,
   context: { bin: string; name: string },
 ): AppFormState {
-  const fill = (value: string | null | undefined): string =>
+  const fill = (
+    value: string | null | undefined,
+    quote: (part: string) => string,
+  ): string =>
     (value ?? "")
-      .replace(/\{bin\}/g, context.bin)
-      .replace(/\{name\}/g, context.name);
+      .replace(/\{bin\}/g, quote(context.bin))
+      .replace(/\{name\}/g, quote(context.name));
 
   return {
     ...form,
     presetId: preset.id,
     kind: preset.kind,
-    build: fill(preset.build),
-    artifact: fill(preset.artifact),
+    build: fill(preset.build, shellQuote),
+    artifact: fill(preset.artifact, (part) => part),
   };
 }
 
