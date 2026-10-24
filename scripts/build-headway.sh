@@ -39,6 +39,13 @@ project_root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
 # Direct invocations get the same token boundary as Headway's process::Cmd.
 unset HEADWAY_GITHUB_TOKEN
+# App artifacts must resolve SDK libraries, not a developer's Homebrew search path.
+# Keep the Rust-only CLI recipe's environment contract unchanged.
+if [ "$mode" = app ]; then
+  need node
+  need xcrun
+  . "$project_root/scripts/macos-build-env.sh"
+fi
 need git
 need cargo
 need rustc
@@ -84,23 +91,20 @@ if [ "$mode" = cli ]; then
 fi
 
 [ "$(uname -s)" = Darwin ] || die 'building the app requires macOS'
-codesign --force --sign - "$release_dir/headway"
+signing_identity="${APPLE_SIGNING_IDENTITY:--}"
+signing_options=runtime
+[ "$signing_identity" != - ] || signing_options=0
+codesign --force --sign "$signing_identity" --options "$signing_options" "$release_dir/headway"
 need node
 need pnpm
 pnpm install --frozen-lockfile
 # Resolve the CLI path from the chosen target/cache. Never bundle a stale host CLI.
-node --input-type=module - "$release_dir/headway" "$scratch/tauri.json" <<'JS'
-import { writeFileSync } from 'node:fs';
-const [, , cli, output] = process.argv;
-writeFileSync(output, JSON.stringify({
-  build: { beforeBuildCommand: 'pnpm build:renderer' },
-  bundle: { macOS: { signingIdentity: '-', files: { 'MacOS/headway': cli } } },
-}));
-JS
+"$project_root/scripts/macos-bundle-config.sh" "$release_dir/headway" > "$scratch/tauri.json"
 pnpm exec tauri build --target "$build_target" --bundles app --ci --config "$scratch/tauri.json" -- --locked
 bundle="$release_dir/bundle/macos/Headway.app"
 [ -x "$bundle/Contents/MacOS/headway-desktop" ] || die "app artifact is missing: $bundle"
 [ -x "$bundle/Contents/MacOS/headway" ] || die 'the app has no bundled CLI'
+"$project_root/scripts/verify-macos-artifacts.sh" "$bundle/Contents/MacOS/headway-desktop" "$bundle/Contents/MacOS/headway"
 if [ "$build_target" = "$host_target" ]; then
   # Signing may change Mach-O bytes; compare the compiled revision instead.
   HEADWAY_HOME="$scratch/home" "$release_dir/headway" --json version > "$scratch/cli-version.json"

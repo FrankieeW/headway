@@ -41,12 +41,25 @@ impl Repo {
             root.join("scripts/build-headway.sh"),
         )
         .unwrap();
+        for script in [
+            "macos-build-env.sh",
+            "macos-bundle-config.sh",
+            "verify-macos-artifacts.sh",
+        ] {
+            fs::copy(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../scripts")
+                    .join(script),
+                root.join("scripts").join(script),
+            )
+            .unwrap();
+        }
         fs::write(
             root.join(".gitignore"),
             "/target/\n/.headway-out/\n/cache with spaces/\n",
         )
         .unwrap();
-        for tool in ["cargo", "rustc", "pnpm", "codesign"] {
+        for tool in ["cargo", "rustc", "pnpm", "codesign", "otool", "xcrun"] {
             let path = bin.join(tool);
             fs::write(&path, include_str!("tools.sh")).unwrap();
             fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();

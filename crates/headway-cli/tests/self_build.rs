@@ -192,3 +192,43 @@ fn failed_signature_preserves_published_bundle() {
     );
     println!("signature failure: exit=43; previous CLI, desktop, resource preserved");
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn app_linker_environment_is_scoped_before_the_bundled_cli_build() {
+    // Given an inherited Homebrew-style library search path.
+    let repo = Repo::new();
+    // When the app recipe builds its CLI, it has already selected the tracked SDK path.
+    success(repo.build(
+        &["app"],
+        &[
+            ("LIBRARY_PATH", "/fixture/inherited"),
+            ("CHECK_APP_ENV", "1"),
+        ],
+    ));
+    // Then the separate CLI-only recipe still honors the original environment contract.
+    success(repo.build(
+        &["cli"],
+        &[
+            ("LIBRARY_PATH", "/fixture/inherited"),
+            ("CHECK_CLI_ENV", "1"),
+        ],
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn nonportable_or_hardened_adhoc_artifacts_never_replace_the_published_bundle() {
+    // Given an existing successful app build.
+    let repo = Repo::new();
+    success(repo.build(&["app"], &[]));
+    let path = ".headway-out/Headway.app/Contents/MacOS/headway";
+    let old = fs::read(repo.root.join(path)).unwrap();
+    // When either release boundary rejects a subsequent build.
+    for flag in ["FOREIGN_DEPENDENCY", "WRONG_RUNTIME"] {
+        let result = repo.build(&["app"], &[(flag, "1")]);
+        // Then publication stops and the previous app survives unchanged.
+        assert!(!result.status.success());
+        assert_eq!(fs::read(repo.root.join(path)).unwrap(), old);
+    }
+}
