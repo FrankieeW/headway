@@ -95,3 +95,6 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Test Homebrew release planner
+        run: node --test scripts/update-homebrew-tap.test.mjs
