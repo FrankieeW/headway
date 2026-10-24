@@ -15,6 +15,17 @@ agents: structured XML/JSON output, stable error codes, self-description, and an
 
 ![Headway](docs/screenshot.png)
 
+## Install
+
+```sh
+brew install frankieew/tap/headway          # the `headway` CLI
+brew install --cask frankieew/tap/headway   # the menu-bar app
+```
+
+Or download `Headway-<version>-<arch>.dmg` and `headway-<target>.tar.gz` from
+[Releases](https://github.com/FrankieeW/headway/releases). The app is not notarized: when it is not
+installed through the cask, open it the first time with right-click → Open.
+
 ## Quick start (CLI)
 
 ```sh
