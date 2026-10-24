@@ -17,6 +17,9 @@ use crate::shell::ShellEnv;
 
 /// Output lines kept for [`Error::CommandFailed::tail`].
 const TAIL_LINES: usize = 30;
+/// How long output is still collected once the command itself has exited. Background
+/// children (`daemon &`) may hold the pipes open indefinitely; they are not waited for.
+const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
 
 /// A command with an explicit, complete environment.
 #[derive(Debug, Clone)]
@@ -28,12 +31,16 @@ pub struct Cmd {
 }
 
 impl Cmd {
+    /// A command running in `env`, minus Headway's own token variable: no subprocess
+    /// needs it (git authenticates through `GIT_CONFIG_*`), and builds must not see it.
     pub fn new(program: impl Into<String>, env: &ShellEnv) -> Self {
+        let mut vars = env.vars().clone();
+        vars.remove(crate::token::TOKEN_ENV);
         Self {
             program: program.into(),
             args: Vec::new(),
             cwd: None,
-            env: env.vars().clone(),
+            env: vars,
         }
     }
 
@@ -169,31 +176,40 @@ pub async fn run(
     drop(tx);
 
     let mut tail: VecDeque<String> = VecDeque::with_capacity(TAIL_LINES);
-    loop {
+    let wait_error = |err| Error::io(format!("wait for `{}`", cmd.display()), err);
+    // Until the command exits, forwarding its output as it comes.
+    let status = loop {
         tokio::select! {
-            message = rx.recv() => {
-                let Some((stream, line)) = message else { break };
-                if tail.len() == TAIL_LINES {
-                    tail.pop_front();
-                }
-                tail.push_back(line.clone());
-                on_line(stream, &line);
-            }
+            message = rx.recv() => match message {
+                Some((stream, line)) => record(&mut tail, on_line, stream, &line),
+                // Output closed first: just wait for the exit.
+                None => break tokio::select! {
+                    status = child.wait() => status.map_err(wait_error)?,
+                    () = cancel.cancelled() => {
+                        terminate(&mut child).await;
+                        return Err(Error::Cancelled);
+                    }
+                },
+            },
+            status = child.wait() => break status.map_err(wait_error)?,
             () = cancel.cancelled() => {
                 terminate(&mut child).await;
                 return Err(Error::Cancelled);
             }
         }
-    }
-
-    let status = tokio::select! {
-        status = child.wait() => status
-            .map_err(|err| Error::io(format!("wait for `{}`", cmd.display()), err))?,
-        () = cancel.cancelled() => {
-            terminate(&mut child).await;
-            return Err(Error::Cancelled);
-        }
     };
+    // Collect what is still in flight, without waiting for background children.
+    let drain = tokio::time::sleep(DRAIN_AFTER_EXIT);
+    tokio::pin!(drain);
+    loop {
+        tokio::select! {
+            message = rx.recv() => match message {
+                Some((stream, line)) => record(&mut tail, on_line, stream, &line),
+                None => break,
+            },
+            () = &mut drain => break,
+        }
+    }
     if status.success() {
         Ok(())
     } else {
@@ -203,6 +219,19 @@ pub async fn run(
             tail: tail.into(),
         })
     }
+}
+
+fn record(
+    tail: &mut VecDeque<String>,
+    on_line: &mut (dyn FnMut(LogStream, &str) + Send),
+    stream: LogStream,
+    line: &str,
+) {
+    if tail.len() == TAIL_LINES {
+        tail.pop_front();
+    }
+    tail.push_back(line.to_owned());
+    on_line(stream, line);
 }
 
 async fn forward_lines(
@@ -363,6 +392,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn background_children_holding_the_output_are_not_waited_for() {
+        let started = std::time::Instant::now();
+        let mut lines = Vec::new();
+        run(
+            &sh("echo before; sleep 20 & echo after"),
+            &CancellationToken::new(),
+            &mut |_, line| lines.push(line.to_owned()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(lines, ["before", "after"]);
+    }
+
+    #[tokio::test]
     async fn missing_program_is_an_io_error() {
         let err = capture(&Cmd::new("/nonexistent/tool", &ShellEnv::current()))
             .await
@@ -378,6 +426,20 @@ mod tests {
             .unwrap();
         assert!(out.success());
         assert_eq!(out.stdout, "hi");
+    }
+
+    #[tokio::test]
+    async fn headway_token_is_not_passed_to_subprocesses() {
+        let env = ShellEnv::from_vars([
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            (crate::token::TOKEN_ENV.to_owned(), "ghp_secret".to_owned()),
+            ("OTHER".to_owned(), "kept".to_owned()),
+        ]);
+        let script = "printf '%s|%s' \"${HEADWAY_GITHUB_TOKEN:-unset}\" \"$OTHER\"";
+        let out = capture(&Cmd::new("/bin/sh", &env).args(["-c", script]))
+            .await
+            .unwrap();
+        assert_eq!(out.stdout, "unset|kept");
     }
 
     #[test]

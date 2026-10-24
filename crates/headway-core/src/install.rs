@@ -42,6 +42,20 @@ pub fn install(src: &Path, dest: &Path) -> Result<()> {
         .into_owned();
     fs::create_dir_all(parent).map_err(|err| Error::io_at("create", parent, err))?;
 
+    // Only a bundle replaces a bundle. A plain directory at `dest` is almost certainly a
+    // mistyped destination (`--dest ~/.local/bin`) and must never be swapped out.
+    let existing_dir = dest.is_dir() && !dest.is_symlink();
+    if existing_dir && !(src.is_dir() && is_bundle(dest)) {
+        let example = dest.join(src.file_name().unwrap_or_default());
+        return Err(Error::InvalidInput(format!(
+            "{} is an existing directory and is never replaced; set `dest` to the full path of the \
+             installed {}, e.g. {}",
+            dest.display(),
+            if src.is_dir() { "bundle" } else { "file" },
+            example.display()
+        )));
+    }
+
     let staged = parent.join(format!(".{name}.headway-new"));
     remove_any(&staged)?;
     if src.is_dir() {
@@ -51,8 +65,11 @@ pub fn install(src: &Path, dest: &Path) -> Result<()> {
         crate::archive::set_executable(&staged)?;
     }
 
-    let replacing_dir = dest.is_dir() && !dest.is_symlink();
-    if !replacing_dir {
+    if !existing_dir {
+        if src.is_dir() && dest.is_symlink() {
+            // rename(2) can't put a directory over a symlink: drop the link first.
+            fs::remove_file(dest).map_err(|err| Error::io_at("replace", dest, err))?;
+        }
         // rename(2) atomically replaces files and symlinks.
         return fs::rename(&staged, dest).map_err(|err| Error::io_at("install", dest, err));
     }
@@ -64,6 +81,12 @@ pub fn install(src: &Path, dest: &Path) -> Result<()> {
         return Err(Error::io_at("install", dest, err));
     }
     remove_any(&old)
+}
+
+/// `.app` and `.framework` directories: the only directories Headway installs or replaces.
+pub fn is_bundle(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("app") || ext.eq_ignore_ascii_case("framework"))
 }
 
 fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
@@ -153,6 +176,42 @@ mod tests {
         assert_eq!(fs::read_to_string(&dest).unwrap(), "v2");
         let leftovers: Vec<_> = fs::read_dir(dir.path().join("bin")).unwrap().collect();
         assert_eq!(leftovers.len(), 1, "no staging files left behind");
+    }
+
+    #[test]
+    fn never_replaces_plain_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("rg");
+        fs::write(&src, "binary").unwrap();
+        let bin = dir.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("fd"), "keep me").unwrap();
+
+        let err = install(&src, &bin).unwrap_err();
+        assert!(matches!(&err, Error::InvalidInput(msg) if msg.contains("never replaced")));
+        assert_eq!(fs::read_to_string(bin.join("fd")).unwrap(), "keep me");
+
+        // A bundle payload may not replace a plain directory either.
+        let bundle = dir.path().join("build/Demo.app");
+        fs::create_dir_all(&bundle).unwrap();
+        assert!(install(&bundle, &bin).is_err());
+        assert!(bin.join("fd").exists());
+    }
+
+    #[test]
+    fn replaces_a_symlink_with_a_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("build/Demo.app");
+        fs::create_dir_all(src.join("Contents")).unwrap();
+        let elsewhere = dir.path().join("old/Demo.app");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let dest = dir.path().join("Applications/Demo.app");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &dest).unwrap();
+
+        install(&src, &dest).unwrap();
+        assert!(dest.is_dir() && !dest.is_symlink());
+        assert!(elsewhere.exists(), "the link target is left alone");
     }
 
     #[test]

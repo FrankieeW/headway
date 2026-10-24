@@ -6,6 +6,9 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 
+const ACQUIRE_ATTEMPTS: u32 = 10;
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(20);
+
 #[derive(Debug)]
 pub struct AppLock {
     _file: File,
@@ -13,13 +16,19 @@ pub struct AppLock {
 
 impl AppLock {
     /// Takes the lock or fails with [`Error::Busy`] if another update holds it.
+    ///
+    /// [`is_locked`] probes hold the lock for an instant, so a would-block is retried
+    /// briefly before it is reported as busy.
     pub fn acquire(path: &Path, app_id: &str) -> Result<Self> {
         let file = open(path)?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { _file: file }),
-            Err(TryLockError::WouldBlock) => Err(Error::Busy(app_id.to_owned())),
-            Err(TryLockError::Error(err)) => Err(Error::io_at("lock", path, err)),
+        for _ in 0..ACQUIRE_ATTEMPTS {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(TryLockError::WouldBlock) => std::thread::sleep(RETRY_DELAY),
+                Err(TryLockError::Error(err)) => return Err(Error::io_at("lock", path, err)),
+            }
         }
+        Err(Error::Busy(app_id.to_owned()))
     }
 }
 

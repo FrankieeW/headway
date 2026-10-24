@@ -97,7 +97,16 @@ impl Checkout<'_> {
             .args(["checkout", "--force", "--detach", reference]);
         process::run(&checkout, self.cancel, on_line).await?;
         // Remove stray untracked files but keep ignored ones: those are the build caches.
-        process::run(&self.git().args(["clean", "-ffd"]), self.cancel, on_line).await?;
+        // Headway's own output dirs (Xcode derived data, Go output) are build caches too.
+        let clean = self.git().args([
+            "clean",
+            "-ffd",
+            "-e",
+            "/.headway-build",
+            "-e",
+            "/.headway-out",
+        ]);
+        process::run(&clean, self.cancel, on_line).await?;
         if self.dir.join(".gitmodules").exists() {
             let submodules =
                 self.git()

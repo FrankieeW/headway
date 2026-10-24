@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::github::{CommitInfo, GitHub, Release, Tag};
 use crate::repo::RepoId;
 use crate::state::{Candidate, CheckResult, InstalledRef, UpdateStatus, ids_match};
-use crate::version::{Version, compare_tags};
+use crate::version::Version;
 
 /// Recent candidates listed when nothing is installed yet.
 const RECENT: usize = 20;
@@ -197,10 +197,16 @@ fn tag_candidates(
 }
 
 /// Newest first: by version, then by date for tags that don't parse as versions.
+///
+/// A total order (required by `sort_by`): every version-like tag comes before every other
+/// tag; versions compare by version, then date, then id; the rest by date, then id.
 fn newest_first(a: &Candidate, b: &Candidate) -> Ordering {
+    let by_date_then_id = || b.date.cmp(&a.date).then_with(|| a.id.cmp(&b.id));
     match (Version::parse(&a.id), Version::parse(&b.id)) {
-        (Some(x), Some(y)) => y.cmp(&x),
-        _ => b.date.cmp(&a.date).then_with(|| compare_tags(&b.id, &a.id)),
+        (Some(x), Some(y)) => y.cmp(&x).then_with(by_date_then_id),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => by_date_then_id(),
     }
 }
 
@@ -535,6 +541,27 @@ mod tests {
                     .unwrap()
                     .to_utc()
             )
+        );
+    }
+
+    #[test]
+    fn mixed_tags_sort_without_panicking() {
+        // v2.0.0 (day 1) > v1.9.5 (day 3) by version; v1.9.5 > `stable` (day 2) and
+        // `stable` > v2.0.0 by date used to form a cycle, and `sort_by` panics on those.
+        let mut releases = vec![
+            release("v2.0.0", false, 1),
+            release("v1.9.5", false, 3),
+            release("stable", false, 2),
+        ];
+        releases.extend((4..28).map(|day| release(&format!("v0.{day}.0"), false, day)));
+        let mut candidates = release_candidates(&releases, false, None);
+        candidates.sort_by(newest_first);
+        assert_eq!(candidates[0].id, "v2.0.0");
+        assert_eq!(candidates[1].id, "v1.9.5");
+        assert_eq!(
+            candidates.last().unwrap().id,
+            "stable",
+            "non-version tags sort last"
         );
     }
 

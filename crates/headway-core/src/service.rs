@@ -285,6 +285,14 @@ impl Headway {
     pub fn replace(&self, app: TrackedApp) -> Result<AppView> {
         let app = normalized(app)?;
         let id = app.id.clone();
+        // Repointing an app while it updates would record the old repo's version as installed.
+        let current = self.store.config()?.app(&id)?.clone();
+        let repointed = current.repo != app.repo || current.track.mode() != app.track.mode();
+        let _lock = if repointed {
+            Some(AppLock::acquire(&self.paths().app_lock(&id), &id)?)
+        } else {
+            None
+        };
         let previous = self.store.update_config(|Config { settings, apps }| {
             let index = apps
                 .iter()
@@ -318,9 +326,8 @@ impl Headway {
     }
 
     pub fn remove(&self, id: &str, purge: bool) -> Result<RemovedApp> {
-        if lock::is_locked(&self.paths().app_lock(id)) {
-            return Err(Error::Busy(id.to_owned()));
-        }
+        // Held until the end: no update may start while the checkout is being deleted.
+        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
         self.store.update_config(|Config { settings, apps }| {
             if !apps.iter().any(|app| app.id == id) {
                 return Err(Error::AppNotFound(id.to_owned()));
@@ -501,11 +508,18 @@ impl Headway {
     async fn check_with(&self, gh: &GitHub, id: &str) -> Result<AppView> {
         let app = self.store.config()?.app(id)?.clone();
         let installed = self.store.state()?.app(id).installed;
+        let checked_against = installed.as_ref().map(|installed| installed.id.clone());
         let outcome = check::check(gh, &app, installed.as_ref()).await;
         self.store.update_state(|state| {
             let next = state.with_app(id, |app_state| match &outcome {
                 Ok(result) => AppState {
-                    last_check: Some(result.clone()),
+                    // An update may have finished while GitHub was asked: re-center on it.
+                    last_check: Some(match app_state.installed.as_ref() {
+                        Some(now) if Some(&now.id) != checked_against.as_ref() => {
+                            result.clone().rebased_on(&now.id)
+                        }
+                        _ => result.clone(),
+                    }),
                     // A good check clears check errors, but not a failed update.
                     last_error: app_state.last_error.filter(|err| err.during != "check"),
                     ..app_state
@@ -528,6 +542,10 @@ impl Headway {
         let gh = self.github().await?;
         let installed = self.store.state()?.app(id).installed;
         let (candidate, _) = self.resolve(&gh, &app, installed.as_ref(), target).await?;
+        let already = installed
+            .as_ref()
+            .is_some_and(|installed| ids_match(&installed.id, &candidate.id));
+        let explicit = matches!(target, Target::Ref(_));
         let asset = match &app.install {
             crate::config::Install::Asset(spec) => {
                 let release = gh.release_by_tag(&app.repo_id()?, &candidate.id).await?;
@@ -551,9 +569,9 @@ impl Headway {
         );
         Ok(UpdatePlan {
             app_id: app.id.clone(),
-            up_to_date: installed
-                .as_ref()
-                .is_some_and(|installed| ids_match(&installed.id, &candidate.id)),
+            // A real run skips an installed target, except an explicit `--to`, which reinstalls.
+            up_to_date: already && !explicit,
+            reinstall: already && explicit,
             from: installed,
             to: candidate,
             method: app.install.method(),
@@ -586,9 +604,16 @@ impl Headway {
             format!("Resolving {} of {}", target.label(), app.name),
         );
 
-        let result = self
-            .run_update(&app, &settings, installed.as_ref(), target, &log, cancel)
-            .await;
+        let attempt = Attempt {
+            app: &app,
+            settings: &settings,
+            installed: installed.as_ref(),
+            target,
+            log: &log,
+            cancel,
+        };
+        let mut resolved = None;
+        let result = self.run_update(&attempt, &mut resolved).await;
         let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let log_path = Some(log.path().display().to_string());
         match result {
@@ -611,6 +636,11 @@ impl Headway {
                     Ok((next, ()))
                 })?;
                 log.stage(Stage::Done, format!("Installed {}", ref_label(&to)));
+                if matches!(target, Target::Ref(_)) {
+                    // A rollback or a pick from history lands outside the cached window:
+                    // recompute what is newer than it. Failures show up as a check error.
+                    let _ = self.check(id).await;
+                }
                 Ok(UpdateOutcome {
                     app_id: id.to_owned(),
                     changed: true,
@@ -647,10 +677,12 @@ impl Headway {
                     at: Utc::now(),
                     action: HistoryAction::Update,
                     from: installed.as_ref().map(|from| from.id.clone()),
-                    to: match target {
+                    // The commit/tag that was being installed, when it got that far.
+                    to: resolved.unwrap_or_else(|| match target {
                         Target::Ref(reference) => reference.clone(),
-                        Target::Latest | Target::Next => target.label(),
-                    },
+                        Target::Latest => "latest".to_owned(),
+                        Target::Next => "next".to_owned(),
+                    }),
                     version: None,
                     ok: false,
                     message: Some(err.to_string()),
@@ -677,19 +709,25 @@ impl Headway {
         }
     }
 
-    /// `Ok(None)` when the target is already installed.
+    /// `Ok(None)` when the target is already installed. `resolved` receives the id of the
+    /// commit or tag being installed as soon as it is known.
     async fn run_update(
         &self,
-        app: &TrackedApp,
-        settings: &Settings,
-        installed: Option<&InstalledRef>,
-        target: &Target,
-        log: &RunLog<'_>,
-        cancel: &CancellationToken,
+        attempt: &Attempt<'_>,
+        resolved: &mut Option<String>,
     ) -> Result<Option<InstalledRef>> {
+        let Attempt {
+            app,
+            settings,
+            installed,
+            target,
+            log,
+            cancel,
+        } = *attempt;
         let token = self.resolve_token().await?;
         let gh = GitHub::new(&self.api, token.token.clone())?;
         let (candidate, check) = self.resolve(&gh, app, installed, target).await?;
+        *resolved = Some(candidate.id.clone());
         if let Some(check) = check {
             self.store.update_state(|state| {
                 let next = state.with_app(&app.id, |app_state| AppState {
@@ -739,6 +777,7 @@ impl Headway {
         let (candidate, check) = self
             .resolve(&gh, &app, installed.as_ref(), &Target::parse(reference))
             .await?;
+        let explicit = check.is_none();
         let version = (!matches!(app.track, Track::Commit { .. })).then(|| candidate.id.clone());
         let to = InstalledRef {
             id: candidate.id.clone(),
@@ -771,6 +810,10 @@ impl Headway {
             });
             Ok((next, ()))
         })?;
+        if explicit {
+            // The cache knows nothing about an arbitrary ref: recompute what is newer.
+            let _ = self.check(id).await;
+        }
         self.get(id)
     }
 
@@ -852,8 +895,32 @@ impl Headway {
 /// Validates `app` and stores the repository as `owner/name`, whatever URL form it came in.
 fn normalized(app: TrackedApp) -> Result<TrackedApp> {
     app.validate()?;
+    let dest = match &app.install {
+        crate::config::Install::Source(source) => source.dest.as_deref(),
+        crate::config::Install::Asset(asset) => asset.dest.as_deref(),
+    };
+    if let Some(dest) = dest {
+        let path = crate::paths::expand_tilde(dest);
+        if path.is_dir() && !path.is_symlink() && !crate::install::is_bundle(&path) {
+            return Err(Error::InvalidInput(format!(
+                "dest `{dest}` is an existing directory; give the full path of the installed \
+                 file, e.g. {dest}/<name>"
+            )));
+        }
+    }
     let repo = app.repo_id()?.full_name();
     Ok(TrackedApp { repo, ..app })
+}
+
+/// One update run's inputs.
+#[derive(Clone, Copy)]
+struct Attempt<'a> {
+    app: &'a TrackedApp,
+    settings: &'a Settings,
+    installed: Option<&'a InstalledRef>,
+    target: &'a Target,
+    log: &'a RunLog<'a>,
+    cancel: &'a CancellationToken,
 }
 
 fn noun(track: &Track) -> &'static str {
@@ -997,6 +1064,22 @@ mod tests {
         );
         assert!(!hw.set_setting("notify", "false").unwrap().notify);
         assert!(!hw.settings().unwrap().notify);
+    }
+
+    #[test]
+    fn directory_destinations_are_rejected() {
+        let (dir, hw) = headway();
+        let app = TrackedApp {
+            install: crate::config::Install::Source(crate::config::SourceInstall {
+                build: "make".into(),
+                artifact: Some("tool".into()),
+                dest: Some(dir.path().display().to_string()),
+                ..crate::config::SourceInstall::default()
+            }),
+            ..cli_app("rg")
+        };
+        let err = hw.add(app).unwrap_err();
+        assert!(matches!(&err, Error::InvalidInput(msg) if msg.contains("existing directory")));
     }
 
     #[test]

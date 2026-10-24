@@ -159,27 +159,25 @@ impl CheckResult {
             .iter()
             .position(|candidate| ids_match(&candidate.id, installed_id));
 
-        let (pending, status) = match (is_latest, position) {
-            (true, _) => (Vec::new(), UpdateStatus::UpToDate),
+        let count = |items: &[Candidate]| u32::try_from(items.len()).unwrap_or(u32::MAX);
+        let (pending, status, pending_total) = match (is_latest, position) {
+            (true, _) | (false, Some(0)) => (Vec::new(), UpdateStatus::UpToDate, 0),
             (false, Some(index)) => {
+                // The installed candidate and everything older drop out of the list.
                 let newer = self.pending[..index].to_vec();
-                let status = if newer.is_empty() {
-                    UpdateStatus::UpToDate
-                } else {
-                    UpdateStatus::UpdateAvailable
-                };
-                (newer, status)
+                let dropped = count(&self.pending[index..]);
+                let total = self
+                    .pending_total
+                    .saturating_sub(dropped)
+                    .max(count(&newer));
+                (newer, UpdateStatus::UpdateAvailable, total)
             }
-            // Installed something outside the cached window: the cache can't tell, keep it.
-            (false, None) => (self.pending.clone(), self.status),
-        };
-        let removed = u32::try_from(self.pending.len() - pending.len()).unwrap_or(u32::MAX);
-        let pending_total = if status == UpdateStatus::UpToDate {
-            0
-        } else {
-            self.pending_total
-                .saturating_sub(removed)
-                .max(u32::try_from(pending.len()).unwrap_or(u32::MAX))
+            // Outside the cached window (a rollback, an arbitrary ref): at least the latest is
+            // newer. The exact list comes with the next check.
+            (false, None) => match &self.latest {
+                Some(latest) => (vec![latest.clone()], UpdateStatus::UpdateAvailable, 1),
+                None => (self.pending.clone(), self.status, self.pending_total),
+            },
         };
         Self {
             status,
@@ -292,10 +290,11 @@ mod tests {
     }
 
     #[test]
-    fn rebasing_outside_the_window_keeps_the_cache() {
-        let original = check(&["ccc", "bbb"], "ccc");
-        let rebased = original.clone().rebased_on("zzz");
-        assert_eq!(rebased, original);
+    fn rebasing_outside_the_window_reports_the_latest() {
+        let rebased = check(&[], "ccc").rebased_on("zzz");
+        assert_eq!(rebased.status, UpdateStatus::UpdateAvailable);
+        assert_eq!(rebased.pending, vec![candidate("ccc")]);
+        assert_eq!(rebased.pending_total, 1);
     }
 
     #[test]

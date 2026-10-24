@@ -97,8 +97,17 @@ pub fn find(id: &str) -> Option<&'static Preset> {
 }
 
 /// Fills `{bin}` and `{name}`.
+/// Fills `{bin}` and `{name}` in a path template (artifacts).
 pub fn render(template: &str, bin: &str, name: &str) -> String {
     template.replace("{bin}", bin).replace("{name}", name)
+}
+
+/// Fills `{bin}` and `{name}` in a build command, shell-quoting the values: they come from
+/// repository file names (`Hidden Bar.xcodeproj`, or worse, `$(…)`).
+pub fn render_command(template: &str, bin: &str, name: &str) -> String {
+    template
+        .replace("{bin}", &crate::process::shell_quote(bin))
+        .replace("{name}", &crate::process::shell_quote(name))
 }
 
 /// Picks the preset matching the files at the repository root.
@@ -195,6 +204,16 @@ mod tests {
                 .iter()
                 .all(|preset| preset.id == "custom" || !preset.build.is_empty())
         );
+    }
+
+    #[test]
+    fn build_commands_quote_substituted_names() {
+        let xcode = find("xcode").unwrap();
+        let command = render_command(xcode.build, "x", "Hidden Bar");
+        assert!(command.contains("-scheme 'Hidden Bar' "));
+        let hostile = render_command(xcode.build, "x", "$(touch pwned)");
+        assert!(hostile.contains("-scheme '$(touch pwned)' "));
+        assert_eq!(render_command("make {bin}", "rg", "x"), "make rg");
     }
 
     #[test]

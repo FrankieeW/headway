@@ -196,7 +196,7 @@ fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                 preset.kind,
                 Track::Commit { branch: None },
                 Install::Source(SourceInstall {
-                    build: presets::render(preset.build, &bin, name),
+                    build: presets::render_command(preset.build, &bin, name),
                     workdir: None,
                     artifact: preset
                         .artifact

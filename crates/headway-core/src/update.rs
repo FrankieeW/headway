@@ -75,6 +75,8 @@ pub struct UpdatePlan {
     pub to: Candidate,
     /// The target is what is installed already; a real run would do nothing.
     pub up_to_date: bool,
+    /// `--to` the installed version: a real run builds/downloads it again.
+    pub reinstall: bool,
     pub method: &'static str,
     pub steps: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
