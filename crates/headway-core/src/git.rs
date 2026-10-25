@@ -79,10 +79,10 @@ impl Checkout<'_> {
         let fetch = self.git().args([
             "fetch",
             "--force",
-            "--tags",
             "--prune",
             "origin",
             "+refs/heads/*:refs/remotes/origin/*",
+            "+refs/tags/*:refs/tags/*",
         ]);
         retry::run(&fetch, self.cancel, on_line).await
     }
@@ -163,6 +163,41 @@ impl Checkout<'_> {
 mod tests {
     use super::*;
     use crate::testing::GitFixture;
+
+    #[tokio::test]
+    async fn changing_origins_drops_foreign_tags_without_discarding_build_cache() {
+        // Given an owned checkout whose previous origin published a tag.
+        let first = GitFixture::new();
+        first.commit("payload", "first", "first origin");
+        first.tag("v9.0.0");
+        let second = GitFixture::new();
+        second.commit("payload", "second", "second origin");
+        second.tag("v1.0.0");
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("checkout");
+        let env = ShellEnv::current();
+        let cancel = CancellationToken::new();
+        let checkout = Checkout {
+            dir: &dir,
+            env: &env,
+            cancel: &cancel,
+        };
+        checkout.sync(&first.url(), &mut |_, _| {}).await.unwrap();
+        std::fs::create_dir_all(dir.join("target")).unwrap();
+        std::fs::write(dir.join("target/cache"), "cached build").unwrap();
+        // When switching the same checkout to another origin.
+        checkout.sync(&second.url(), &mut |_, _| {}).await.unwrap();
+        // Then describe cannot use the old origin's tag, and ignored build caches survive.
+        let tags = process::capture(&checkout.git().args(["tag", "--list"]))
+            .await
+            .unwrap();
+        assert!(tags.success());
+        assert_eq!(tags.stdout.trim(), "v1.0.0");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("target/cache")).unwrap(),
+            "cached build"
+        );
+    }
 
     #[test]
     fn token_only_goes_to_github_https() {
