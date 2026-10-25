@@ -11,6 +11,12 @@ use crate::events::LogStream;
 use crate::process::{self, Cmd};
 use crate::shell::ShellEnv;
 
+mod retry;
+
+#[cfg(test)]
+#[path = "git/retry_tests.rs"]
+mod retry_tests;
+
 /// Environment for git: never prompt, and authenticate to github.com with the token
 /// through an `http.extraheader` passed in env vars (not in URLs or argv).
 pub fn git_env(env: &ShellEnv, url: &str, token: Option<&str>) -> ShellEnv {
@@ -78,7 +84,7 @@ impl Checkout<'_> {
             "origin",
             "+refs/heads/*:refs/remotes/origin/*",
         ]);
-        process::run(&fetch, self.cancel, on_line).await
+        retry::run(&fetch, self.cancel, on_line).await
     }
 
     /// Checks out `reference` (SHA or `refs/tags/…`) detached and returns the commit SHA.
@@ -90,12 +96,13 @@ impl Checkout<'_> {
         if !self.has_commit(reference).await {
             // Commits only reachable by SHA (e.g. from a pull request) need an explicit fetch.
             let fetch = self.git().args(["fetch", "origin", reference]);
-            process::run(&fetch, self.cancel, on_line).await?;
+            retry::run(&fetch, self.cancel, on_line).await?;
         }
         let checkout = self
             .git()
             .args(["checkout", "--force", "--detach", reference]);
-        process::run(&checkout, self.cancel, on_line).await?;
+        // A blobless clone downloads missing objects during checkout as well as fetch.
+        retry::run(&checkout, self.cancel, on_line).await?;
         // Remove stray untracked files but keep ignored ones: those are the build caches.
         // Headway's own output dirs (Xcode derived data, Go output) are build caches too.
         let clean = self.git().args([
@@ -111,7 +118,7 @@ impl Checkout<'_> {
             let submodules =
                 self.git()
                     .args(["submodule", "update", "--init", "--recursive", "--force"]);
-            process::run(&submodules, self.cancel, on_line).await?;
+            retry::run(&submodules, self.cancel, on_line).await?;
         }
         self.rev_parse("HEAD").await
     }
