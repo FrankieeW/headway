@@ -6,6 +6,7 @@
 pub mod archive;
 pub mod asset;
 pub mod brew;
+pub mod brew_match;
 pub mod build_detection;
 pub mod build_info;
 pub mod check;
@@ -50,6 +51,10 @@ pub mod version;
 #[cfg(test)]
 mod testing;
 
+pub use brew_match::{
+    MatchConfidence, MatchError, MatchEvidence, MatchEvidenceKind, MatchSide, PackageMatch,
+    RepositoryMatch, SourceMatches,
+};
 pub use build_detection::{BuildCandidate, BuildCandidateSource};
 pub use build_info::BuildInfo;
 pub use commit_metadata::{CommitCiState, CommitMetadata, CommitVersionSource};

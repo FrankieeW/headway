@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { RepoInspection } from "@/lib/api";
+import type { MatchSelection } from "./matchSelection";
+import { SourceMatchesSection } from "./SourceMatchesSection";
 
 export interface AppFormRepoSectionProps {
   repo: string;
@@ -13,6 +15,7 @@ export interface AppFormRepoSectionProps {
   inspectionError: string | null;
   onRepoChange: (value: string) => void;
   onInspect: () => void;
+  onSelectSource?: (source: MatchSelection) => void;
 }
 
 /**
@@ -27,6 +30,7 @@ export function AppFormRepoSection({
   inspectionError,
   onRepoChange,
   onInspect,
+  onSelectSource,
 }: AppFormRepoSectionProps) {
   const { t } = useTranslation();
 
@@ -109,6 +113,13 @@ export function AppFormRepoSection({
             </ul>
           ) : null}
         </div>
+      ) : null}
+      {mode === "add" && inspection && onSelectSource ? (
+        <SourceMatchesSection
+          input={inspection.repo}
+          from="github"
+          onSelect={onSelectSource}
+        />
       ) : null}
     </div>
   );

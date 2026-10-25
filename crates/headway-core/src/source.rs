@@ -225,7 +225,7 @@ fn is_npm_package(name: &str) -> bool {
 }
 
 /// `name` or `user/tap/name`.
-fn is_brew_name(name: &str) -> bool {
+pub(crate) fn is_brew_name(name: &str) -> bool {
     let segments: Vec<&str> = name.split('/').collect();
     matches!(segments.len(), 1 | 3)
         && segments.iter().all(|segment| {

@@ -534,5 +534,33 @@
     "draft": "草稿",
     "installHint": "构建此 PR 的固定提交。默认另装测试版本，应用数据仍共享；自动更新关闭。",
     "installed": "已安装 PR #{{number}} · {{sha}}"
+  },
+  "matches": {
+    "alsoHomebrew": "Homebrew 中也有",
+    "githubRepository": "GitHub 仓库",
+    "useHomebrew": "改用 Homebrew",
+    "trackGithub": "改为跟踪 GitHub",
+    "useGithub": "使用 GitHub",
+    "repository": "GitHub：{{repo}}",
+    "searching": "正在查找匹配项…",
+    "none": "未找到匹配项。",
+    "installed": "已安装：{{version}}",
+    "trackedBy": "已由以下订阅跟踪：{{ids}}",
+    "cask": "Cask",
+    "formula": "Formula",
+    "confidence": {
+      "high": "已验证",
+      "medium": "较可能",
+      "low": "待确认"
+    },
+    "evidence": {
+      "source_url": "源码地址",
+      "head_url": "HEAD 仓库地址",
+      "download_url": "下载地址",
+      "homepage": "项目主页",
+      "homepage_match": "主页一致",
+      "name": "名称一致",
+      "search": "搜索结果"
+    }
   }
 }

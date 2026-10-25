@@ -13,6 +13,10 @@ mod http;
 mod models;
 mod pagination;
 mod redact;
+mod search;
+pub use search::SearchRepository;
+#[cfg(test)]
+mod search_tests;
 
 pub use bounded::BoundedFileText;
 pub use commit_metadata::{CheckRun, CheckRuns, CombinedStatus, CommitStatus};

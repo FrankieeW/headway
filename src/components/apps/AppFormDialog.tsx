@@ -22,6 +22,7 @@ import {
 import { useAddApp, usePresets, useSaveApp } from "@/hooks/useApps";
 import { useSettings } from "@/hooks/useSettings";
 import { errorMessage, type TrackedApp } from "@/lib/api";
+import type { MatchSelection } from "./matchSelection";
 
 export interface AppFormDialogProps {
   open: boolean;
@@ -141,6 +142,11 @@ export function AppFormDialog({
   };
 
   const busy = saving || addApp.isPending || saveApp.isPending;
+  const handleSelectSource = (source: MatchSelection) => {
+    setDiscoveryOpen(false);
+    setError(null);
+    void form.inspectSource(source);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -165,6 +171,9 @@ export function AppFormDialog({
               key={String(open)}
               onPanelChange={setDiscoveryOpen}
               onRecipe={form.reset}
+              onUseRepository={(repo) =>
+                handleSelectSource({ source: "github", repo })
+              }
               onImported={(id) => {
                 onOpenChange(false);
                 if (id) onSaved?.(id);
@@ -192,6 +201,7 @@ export function AppFormDialog({
               onSetName={form.setName}
               onSetId={form.setId}
               onApplyPreset={handleApplyPreset}
+              onSelectSource={handleSelectSource}
             />
           ) : null}
         </div>

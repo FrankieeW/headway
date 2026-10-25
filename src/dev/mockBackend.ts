@@ -1,4 +1,5 @@
 import { handleRevisions, seedRevisionMock } from "./mockRevisions";
+import { handleMatches } from "./mockMatches";
 import { startMockUpdate, type MockUpdateHandle } from "./mockUpdateRun";
 import { handleInstallationOrigins } from "./mockPulls";
 import { mockCommitMetadata } from "./mockCommitMetadata";
@@ -66,9 +67,9 @@ function planFor(view: AppView, target: Target): UpdatePlan {
     typeof target === "object"
       ? { id: target.ref, title: target.ref, prerelease: false }
       : target === "next"
-        ? (view.last_check?.pending.length
-            ? view.last_check.pending[view.last_check.pending.length - 1]
-            : (view.last_check?.latest ?? null))
+        ? view.last_check?.pending.length
+          ? view.last_check.pending[view.last_check.pending.length - 1]
+          : (view.last_check?.latest ?? null)
         : (view.last_check?.latest ?? null);
   const from = view.installed ?? null;
   const source = view.app.source;
@@ -88,9 +89,7 @@ function planFor(view: AppView, target: Target): UpdatePlan {
       title: "Preview build",
       prerelease: false,
     },
-    up_to_date: Boolean(
-      candidate && from && candidate.id === from.id,
-    ),
+    up_to_date: Boolean(candidate && from && candidate.id === from.id),
     reinstall: false,
     method,
     steps: ["Resolve the target", "Build or download", "Install"],
@@ -103,6 +102,8 @@ export function handleMockCommand(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
+  const matches = handleMatches(cmd, args);
+  if (matches !== undefined) return matches;
   const installation = handleInstallationOrigins(cmd, args, apps);
   if (installation !== undefined) return installation;
   const revision = handleRevisions(cmd, args, apps);
@@ -367,7 +368,12 @@ export function installMockBackend(): void {
         return new Promise((resolve) =>
           setTimeout(
             () =>
-              resolve(handleMockCommand(cmd, args as Record<string, unknown> | undefined)),
+              resolve(
+                handleMockCommand(
+                  cmd,
+                  args as Record<string, unknown> | undefined,
+                ),
+              ),
             1500,
           ),
         );
@@ -375,11 +381,19 @@ export function installMockBackend(): void {
         return new Promise((resolve) =>
           setTimeout(
             () =>
-              resolve(handleMockCommand(cmd, args as Record<string, unknown> | undefined)),
+              resolve(
+                handleMockCommand(
+                  cmd,
+                  args as Record<string, unknown> | undefined,
+                ),
+              ),
             600,
           ),
         );
-      return handleMockCommand(cmd, args as Record<string, unknown> | undefined);
+      return handleMockCommand(
+        cmd,
+        args as Record<string, unknown> | undefined,
+      );
     },
     {
       shouldMockEvents: true,

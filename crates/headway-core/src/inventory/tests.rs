@@ -220,3 +220,22 @@ async fn cask_import_preserves_reported_location_and_does_not_invent_installed_s
     assert!(!imported[0].app.auto_update);
     assert!(imported[0].installed.is_none());
 }
+
+#[test]
+fn inventory_repositories_are_local_evidence_and_legacy_json_defaults_empty() {
+    let text = r#"{"formulae":[{"name":"gh","installed":[{"version":"1"}],"homepage":"https://cli.github.com","urls":{"stable":{"url":"https://github.com/cli/cli/archive/v1.tar.gz?secret=yes"}}}],"casks":[{"token":"copilot-cli","installed":"1","homepage":"https://docs.github.com/en/copilot","url":"https://github.com/github/copilot-cli/releases/v1"}]}"#;
+    let items = parse::brew(text).unwrap();
+    assert_eq!(items[0].repositories[0].repo, "cli/cli");
+    assert_eq!(items[1].repositories[0].repo, "github/copilot-cli");
+    assert!(
+        !items[0].repositories[0].evidence[0]
+            .value
+            .contains("secret")
+    );
+    let npm = parse::npm(r#"{"dependencies":{"tool":{"version":"1"}}}"#).unwrap();
+    assert!(npm[0].repositories.is_empty());
+    let mut legacy = serde_json::to_value(&npm[0]).unwrap();
+    legacy.as_object_mut().unwrap().remove("repositories");
+    let decoded: InventoryCandidate = serde_json::from_value(legacy).unwrap();
+    assert!(decoded.repositories.is_empty());
+}

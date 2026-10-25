@@ -17,6 +17,18 @@ impl Headway {
             .map(|item| item.app.clone())
             .collect();
         for (index, candidate) in report.candidates.iter_mut().enumerate() {
+            crate::brew_match::evidence::tracked_repositories(
+                &mut candidate.repositories,
+                &config.apps,
+            );
+            for repository in &candidate.repositories {
+                for id in &repository.tracked_by {
+                    candidate.conflicts.push(format!(
+                        "GitHub repository `{}` is already tracked by `{id}`",
+                        repository.repo
+                    ));
+                }
+            }
             for existing in &config.apps {
                 if existing.source.same_identity(&candidate.app.source) {
                     candidate.already_tracked = true;

@@ -168,6 +168,14 @@ pub enum Command {
         /// owner/name, npm:package, brew:formula, cask:cask, script:name, or a source URL
         repo: String,
     },
+    /// Match a Homebrew formula/cask to its GitHub repository, or a repository to Homebrew packages
+    Match {
+        /// owner/name, GitHub URL, brew:formula, cask:cask, formulae.brew.sh URL, or an app id
+        source: String,
+        /// Only use local Homebrew metadata; skip GitHub requests (repository details and search)
+        #[arg(long)]
+        offline: bool,
+    },
     /// List build presets for source installs
     Presets,
     /// Discover installed brew/npm packages without updating them
@@ -262,6 +270,7 @@ impl Command {
             Self::Edit(_) => "edit",
             Self::Remove { .. } => "remove",
             Self::Inspect { .. } => "inspect",
+            Self::Match { .. } => "match",
             Self::Presets => "presets",
             Self::Discover { .. } => "discover",
             Self::Import { .. } => "import",

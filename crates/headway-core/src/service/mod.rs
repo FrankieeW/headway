@@ -126,6 +126,9 @@ mod engine_regressions;
 mod github;
 mod installation;
 mod inventory;
+mod matching;
+#[cfg(test)]
+mod matching_tests;
 #[path = "update.rs"]
 mod operations;
 mod policy;

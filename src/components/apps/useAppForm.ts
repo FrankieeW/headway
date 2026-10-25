@@ -9,6 +9,7 @@ import {
   type TrackedApp,
 } from "@/lib/api";
 import { slugify } from "@/lib/format";
+import type { MatchSelection } from "./matchSelection";
 
 import {
   emptyForm,
@@ -48,6 +49,8 @@ export interface UseAppFormResult {
   inspectionError: string | null;
   /** ask the backend about a repository */
   inspect: (repo: string) => Promise<void>;
+  /** Switch to an explicitly selected source and inspect it immediately. */
+  inspectSource: (source: MatchSelection) => Promise<void>;
   /** start over (new app) or load an existing one (edit) */
   reset: (app?: TrackedApp) => void;
 }
@@ -169,8 +172,8 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
     setForm((current) => ({ ...current, id: value }));
   }, []);
 
-  const inspect = useCallback(
-    async (repo: string) => {
+  const inspectInput = useCallback(
+    async (repo: string, source: AppFormState["source"], cask: boolean) => {
       const trimmed = repo.trim();
       if (!trimmed) {
         setInspectionError(t("form.repoRequired"));
@@ -181,16 +184,16 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
       const request = ++requestId.current;
       setInspecting(true);
       setInspectionError(null);
+      setInspection(null);
+      setLookup(null);
       try {
         const result =
-          form.source === "github"
+          source === "github"
             ? await appsApi.inspect(trimmed)
             : await appsApi.lookup(
                 /^(npm:|brew:|cask:|https?:)/.test(trimmed)
                   ? trimmed
-                  : (form.source === "brew" && form.cask
-                      ? "cask"
-                      : form.source) +
+                  : (source === "brew" && cask ? "cask" : source) +
                       ":" +
                       trimmed,
               );
@@ -217,7 +220,45 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         if (request === requestId.current) setInspecting(false);
       }
     },
-    [t, idEdited, form.source, form.cask],
+    [t, setForm],
+  );
+
+  const inspect = useCallback(
+    (input: string) => {
+      const current = currentForm.current;
+      return inspectInput(input, current.source, current.cask);
+    },
+    [inspectInput],
+  );
+
+  const inspectSource = useCallback(
+    (source: MatchSelection) => {
+      const current = currentForm.current;
+      const policy =
+        source.source === "brew" && current.updatePolicy.mode === "next"
+          ? { ...current.updatePolicy, mode: "latest" as const }
+          : current.updatePolicy;
+      const { name, id, kind } = edits.current;
+      // Keep deliberate identity edits, but never reuse the previous source's recipe.
+      edits.current = {
+        ...(name !== undefined ? { name } : {}),
+        ...(id !== undefined ? { id } : {}),
+        ...(kind !== undefined ? { kind } : {}),
+      };
+      setForm({
+        ...emptyForm(),
+        ...edits.current,
+        ...source,
+        autoUpdate: current.autoUpdate,
+        updatePolicy: policy,
+      });
+      return inspectInput(
+        source.source === "github" ? source.repo : source.package,
+        source.source,
+        source.source === "brew" && source.cask,
+      );
+    },
+    [inspectInput, setForm],
   );
 
   const reset = useCallback((next?: TrackedApp) => {
@@ -245,6 +286,7 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
     inspecting,
     inspectionError,
     inspect,
+    inspectSource,
     reset,
   };
 }

@@ -152,6 +152,14 @@ Homebrew cask locations come only from unambiguous absolute artifact targets rep
 unknown locations stay unset and do not prevent import. Editing a package name or switching between
 Cask and Formula clears the old location. Recipes remain editable.
 
+Find the other source with `headway match brew:ripgrep`, `headway match cask:zed`, or
+`headway match BurntSushi/ripgrep`. Matching shows evidence, confidence, installed versions and
+existing subscriptions; it never installs or switches anything. `--offline` skips GitHub requests.
+Homebrew metadata URLs give high confidence, equal project homepages give medium confidence, and
+name/search-only suggestions need confirmation. Discovery also shows locally evidenced GitHub
+repositories and warns when they are already tracked. Partial provider failures keep results and
+exit 1 (`ok: false` in JSON/XML).
+
 Automatic modes are `notify`, `next` and `latest`; `next` supports
 1–20 steps per cycle, and failures can pause later cycles until resumed. Mode, source and step
 budget changes take effect before another step. Manual `update --all` keeps its explicit behavior.

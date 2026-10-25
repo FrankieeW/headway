@@ -4,6 +4,7 @@
 mod admin;
 mod apps;
 mod management;
+mod matching;
 mod ops;
 mod register;
 mod revisions;
@@ -67,6 +68,7 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
         Command::Edit(args) => apps::edit(&hw, &args, p),
         Command::Remove { id, purge, dry_run } => apps::remove(&hw, &id, purge, dry_run, p),
         Command::Inspect { repo } => apps::inspect(&hw, &repo, p).await,
+        Command::Match { source, offline } => matching::matching(&hw, &source, offline).await,
         Command::Presets => Ok(apps::presets(p)),
         Command::Discover { sources } => management::discover(&hw, &sources).await,
         Command::Import { keys, dry_run } => management::import(&hw, &keys, dry_run).await,
