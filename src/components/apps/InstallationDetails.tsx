@@ -13,6 +13,7 @@ export function InstallationDetails({ view }: { readonly view: AppView }) {
       view.app.source === "github" ? view.app.repo : "",
       view.installed?.installed_at,
       view.status,
+      view.installation,
     ],
     queryFn: () => appsApi.detectInstallation(view.app.id),
     enabled: view.app.source === "github",
