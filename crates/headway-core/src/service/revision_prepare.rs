@@ -24,6 +24,12 @@ impl Headway {
         app: &TrackedApp,
         reference: &str,
     ) -> Result<(RevisionOptions, Option<String>)> {
+        if reference.starts_with("pr:") {
+            return self
+                .pull_request_options(app, reference)
+                .await
+                .map(|options| (options, None));
+        }
         if reference.trim().is_empty()
             || reference.len() > 256
             || reference.contains(char::is_control)
@@ -91,6 +97,7 @@ impl Headway {
         });
         Ok((
             RevisionOptions {
+                pull_request: None,
                 reference: reference.into(),
                 commit: commit.sha.clone(),
                 candidate: crate::check::commit_candidate(&commit),
@@ -118,12 +125,21 @@ impl Headway {
         }
         .or_else(|| installed.and_then(|i| i.path));
         let method = match request.method {
+            RevisionMethod::Configured if options.pull_request.is_some() => RevisionMethod::Source,
             RevisionMethod::Configured => match github.install {
                 Install::Source(_) => RevisionMethod::Source,
                 Install::Asset(_) => RevisionMethod::Asset,
             },
             method => method,
         };
+        if options.pull_request.is_some()
+            && (method == RevisionMethod::Asset || request.release_tag.is_some())
+        {
+            return Err(Error::InvalidInput(
+                "PR versions require a source build; release assets do not identify a PR head"
+                    .into(),
+            ));
+        }
         if let Some(tag) = &request.release_tag {
             if tag.is_empty() || tag.len() > 256 || tag.contains(char::is_control) {
                 return Err(Error::InvalidInput("invalid release tag".into()));

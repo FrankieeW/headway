@@ -70,6 +70,18 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Inspect local installation evidence without running the installed program
+    Installation { id: String },
+    /// Browse open pull requests (install with install-pr)
+    Prs {
+        id: String,
+        #[arg(long, default_value_t = 1)]
+        page: u32,
+        #[arg(long, default_value_t = 20)]
+        per_page: u32,
+    },
+    /// Build a PR head: install-pr <id> <number> [--as <id>] [--dry-run]
+    InstallPr(crate::revision_args::RevisionArgs),
     /// Browse a stable page of repository commits
     Commits {
         id: String,
@@ -210,6 +222,9 @@ pub enum Command {
 impl Command {
     pub const fn name(&self) -> &'static str {
         match self {
+            Self::Installation { .. } => "installation",
+            Self::Prs { .. } => "prs",
+            Self::InstallPr(_) => "install-pr",
             Self::Commits { .. } => "commits",
             Self::SourceStorage { .. } => "source-storage",
             Self::CommitOptions { .. } => "commit-options",

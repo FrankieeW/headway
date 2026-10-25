@@ -81,6 +81,20 @@ export function AppFormRepoSection({
           {inspection.description ? (
             <p className="text-caption text-fg-2">{inspection.description}</p>
           ) : null}
+          {inspection.fork ? (
+            <p className="break-words text-caption text-fg-2">
+              {t("versions.forkOf", {
+                repo:
+                  inspection.parent?.full_name ??
+                  inspection.source?.full_name ??
+                  t("status.unknown"),
+              })}
+              {inspection.source &&
+              inspection.source.full_name !== inspection.parent?.full_name
+                ? ` · ${t("versions.rootRepository", { repo: inspection.source.full_name })}`
+                : ""}
+            </p>
+          ) : null}
           <p className="text-caption text-fg-3">
             {t("form.inspectionInfo", {
               branch: inspection.default_branch,

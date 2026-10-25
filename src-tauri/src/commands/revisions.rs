@@ -7,6 +7,35 @@ use headway_core::{
 use tauri::{AppHandle, Runtime, State};
 
 #[tauri::command]
+pub async fn detect_installation(
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<headway_core::InstallationDetection> {
+    state.hw.detect_installation(&id).cmd()
+}
+
+#[tauri::command]
+pub async fn list_pull_requests(
+    state: State<'_, AppState>,
+    id: String,
+    page: u32,
+    per_page: u32,
+) -> CmdResult<headway_core::PullRequestPage> {
+    state.hw.list_pull_requests(&id, page, per_page).await.cmd()
+}
+
+#[tauri::command]
+pub async fn refresh_repositories<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<AppView> {
+    let view = state.hw.refresh_repositories(&id).await.cmd()?;
+    apps_changed(&app);
+    Ok(view)
+}
+
+#[tauri::command]
 pub async fn source_storage_status(
     state: State<'_, AppState>,
     id: String,

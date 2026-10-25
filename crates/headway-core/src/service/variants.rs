@@ -54,7 +54,11 @@ impl Headway {
         self.add(prepared.app)?;
         drop(lock);
         let exact = crate::RevisionRequest {
-            reference: prepared.options.commit,
+            reference: if prepared.options.pull_request.is_some() {
+                prepared.options.reference
+            } else {
+                prepared.options.commit
+            },
             ..request.revision.clone()
         };
         self.install_revision(&request.id, &exact, sink, cancel)

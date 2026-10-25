@@ -4,7 +4,9 @@ async fn tauri_repo(server: &MockServer, repo: &str, manifest: Option<&str>) {
     Mock::given(path(format!("/repos/{repo}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "full_name": repo, "default_branch": "main",
-            "html_url": format!("https://github.com/{repo}")
+            "html_url": format!("https://github.com/{repo}"),
+            "fork": repo == "verified-fork/headway",
+            "parent": if repo == "verified-fork/headway" { json!({"full_name":"FrankieeW/headway","default_branch":"main"}) } else { serde_json::Value::Null }
         })))
         .expect(1)
         .mount(server)
@@ -48,7 +50,11 @@ const WORKSPACE: &str = "[workspace]\nmembers = ['crates/core', 'src-tauri']";
 
 #[tokio::test]
 async fn official_headway_with_script_prefers_app_and_default_branch_commits() {
-    for repo in ["FrankieeW/headway", "frankieew/HEADWAY"] {
+    for repo in [
+        "FrankieeW/headway",
+        "frankieew/HEADWAY",
+        "verified-fork/headway",
+    ] {
         let server = MockServer::start().await;
         tauri_repo(&server, repo, Some(WORKSPACE)).await;
         Mock::given(path(format!(
@@ -77,6 +83,7 @@ async fn official_headway_with_script_prefers_app_and_default_branch_commits() {
         assert!(found.build_candidates[0].recommended);
         assert_eq!(found.build_candidates[0].file, "scripts/build-headway.sh");
         assert_eq!(found.suggestion.id, "headway");
+        assert_eq!(found.suggestion.repo_id().unwrap().full_name(), repo);
         assert_eq!(found.suggestion.name, "Headway");
         assert_eq!(found.suggestion.kind, AppKind::App);
         assert_eq!(found.default_branch, "main");

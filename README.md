@@ -231,6 +231,7 @@ application's normal behavior; this release does not add profile/data isolation.
 
 ```sh
 headway --json repo list headway
+headway --json repo refresh headway
 headway --json repo add headway my-account/headway --label 'My fork' --branch work
 headway --json repo use headway my-account/headway
 headway --json repo use headway FrankieeW/headway
@@ -242,6 +243,16 @@ origin. The active repository drives checks, commit browsing and installation. S
 explicit action in the app; it retains installed bytes and clears the old repository's revision
 baseline. Restore checks still enforce the backup's repository identity. Repository metadata and
 commit badge caches are separated by origin.
+Importing through repository inspection automatically suggests the fork's parent and root
+repository. `repo refresh` discovers those choices for an existing app without activating them.
+Each origin retains its own branch/tracking mode and build/download recipes when switching back;
+the installed destination stays fixed and automatic updates are turned off for review.
+
+`headway --json installation headway` reports local payload presence, its path and whether
+the recorded revision still applies. Missing files, invalid payload types, missing executable
+permissions and changed destinations cannot reuse a stale baseline. After switching origins,
+the old payload's last recorded repository/version remains visible separately. Detection does
+not execute the installed program, validate its checksum, or guess its revision from GitHub.
 An existing Headway fork at its managed location keeps its subscription and installer-recorded
 baseline. Automatic self-baseline adoption requires the bundle's stamped repository to match
 the configured source; switching a fork back to official cannot relabel the fork's clean SHA.
@@ -249,6 +260,23 @@ Older builds without an origin stamp can preserve a matching recorded baseline, 
 create a new one. Independent Headway instances keep the primary subscription and CLI link in place.
 
 ## The desktop app
+
+### Install a pull request version
+
+```sh
+headway --json prs headway --page 1
+headway --json commit-options headway pr:123
+# Use the head SHA returned above to retain exactly the reviewed PR version.
+headway --json install-pr headway 123@<head-sha> --as headway-pr123 --dry-run
+headway --json install-pr headway 123@<head-sha> --as headway-pr123
+```
+
+In the desktop app, open **All commits → Pull requests**, choose a PR or enter its number,
+then review the source recipe and destination. A separate test install is selected by default.
+PR builds pin the head commit (not GitHub's temporary merge commit), support closed PRs and
+deleted forks, and reject a head change between review and installation. They require a source
+build; release assets are not PR artifacts. Omit `--as` to replace the current payload.
+Automatic updates are disabled and application data remains shared.
 
 - Select GitHub, npm, Homebrew (formula/cask), or a custom official updater in the add/edit dialog.
 - Menu-bar icon with the number of apps that are behind, and a menu to check, update all, or jump to an app.

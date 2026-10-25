@@ -436,7 +436,7 @@
     "activeRepository": "Active update repository",
     "repositoryChoice": "Repository choice",
     "activateRepository": "Activate repository",
-    "activationHint": "Selection only previews a choice. Activation changes the update source and clears the unconfirmed revision baseline; installed files remain in place.",
+    "activationHint": "Switching preserves the installed payload and its recorded origin, saves each repository’s branch and recipe, and turns off automatic updates. Review a target version before installing.",
     "activateConfirm": "Activate {{repo}} as the update repository? The installed payload stays in place; its revision baseline will need confirmation.",
     "variant": "Independent installation",
     "sharedData": "Independent installations share the same application data with other versions.",
@@ -477,6 +477,28 @@
     "startInstall": "Start installation",
     "currentRepository": "Current repository",
     "waitingRegistration": "Installation job started for {{id}}; waiting for its subscription to be registered.",
-    "cliCommand": "CLI command"
+    "cliCommand": "CLI command",
+    "discoverForks": "Discover fork origins",
+    "forkOf": "Fork of {{repo}}",
+    "rootRepository": "Root repository {{repo}}"
+  },
+  "installation": {
+    "present": "Installed payload found",
+    "missing": "Installed payload is missing",
+    "invalid": "Unexpected payload type or executable permissions",
+    "unknown": "Installation path is not confirmed",
+    "refresh": "Detect again",
+    "recorded": "Last recorded: {{repo}} · {{version}} (not a baseline for the selected origin)"
+  },
+  "pulls": {
+    "title": "Pull requests",
+    "back": "Back to commits",
+    "number": "PR number",
+    "hint": "Closed PR numbers also work. Selecting a PR pins its head commit.",
+    "empty": "No open pull requests. Enter a PR number above.",
+    "deletedFork": "Deleted fork",
+    "draft": "Draft",
+    "installHint": "Build this pinned PR commit. A separate test installation is selected by default; app data remains shared and automatic updates are off.",
+    "installed": "Installed PR #{{number}} · {{sha}}"
   }
 }

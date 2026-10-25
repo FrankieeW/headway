@@ -117,6 +117,7 @@ mod apps;
 mod checks;
 mod commits;
 mod github;
+mod installation;
 mod inventory;
 #[path = "update.rs"]
 mod operations;
@@ -124,8 +125,13 @@ mod policy;
 mod presence;
 #[cfg(test)]
 mod presence_tests;
+#[cfg(test)]
+mod pull_request_tests;
+mod pull_requests;
 mod recovery;
 mod repositories;
+#[cfg(test)]
+mod repository_switch_tests;
 mod resolve;
 mod revision_install;
 mod revision_prepare;
@@ -138,6 +144,9 @@ mod variant_prepare;
 mod variants;
 mod views;
 
+pub use installation::InstallationDetection;
+pub use presence::Presence;
+pub use pull_requests::PullRequestPage;
 pub use views::{AppStatus, AppView, LogFile, RemovedApp, TokenStatus};
 
 impl Headway {

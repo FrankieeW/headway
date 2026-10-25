@@ -49,6 +49,10 @@ pub struct RevisionArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum RepositoryCommand {
+    /// Discover and save parent/root fork choices without activating them
+    Refresh {
+        id: String,
+    },
     List {
         id: String,
     },

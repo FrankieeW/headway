@@ -29,7 +29,7 @@ export function revisionDraft(
       storage: source.storage ?? { keep: true, root: null },
     },
     asset: options.release_asset ?? { method: "asset" },
-    separate: false,
+    separate: Boolean(options.pull_request),
     id: `${app.id.slice(0, 56)}-${options.commit.slice(0, 7)}`,
     name: `${app.name} ${options.commit.slice(0, 7)}`,
   };

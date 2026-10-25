@@ -94,17 +94,22 @@ impl Headway {
             installed_at: chrono::Utc::now(),
             path: done.path.as_deref().map(crate::paths::display_path),
         });
-        let entry = HistoryEntry {
-            at: chrono::Utc::now(),
-            action: HistoryAction::Update,
-            from: from.as_ref().map(|i| i.id.clone()),
-            to: prepared.installed_id,
-            version: installed.as_ref().and_then(|i| i.version.clone()),
-            ok: result.is_ok(),
-            message: result.as_ref().err().map(ToString::to_string),
-            log_path: log_path.clone(),
-            duration_ms: Some(duration_ms),
-        };
+        let entry =
+            HistoryEntry {
+                at: chrono::Utc::now(),
+                action: HistoryAction::Update,
+                from: from.as_ref().map(|i| i.id.clone()),
+                to: prepared.installed_id,
+                version: installed.as_ref().and_then(|i| i.version.clone()),
+                ok: result.is_ok(),
+                message: result.as_ref().err().map(ToString::to_string).or_else(|| {
+                    prepared.options.pull_request.as_ref().map(|pull| {
+                        format!("PR #{}: {} ({})", pull.number, pull.title, pull.head.sha)
+                    })
+                }),
+                log_path: log_path.clone(),
+                duration_ms: Some(duration_ms),
+            };
         self.store().update_state(|state| {
             Ok((
                 state.with_app(id, |state| {
@@ -112,6 +117,8 @@ impl Headway {
                     match (&result, &installed) {
                         (Ok(_), Some(installed)) => AppState {
                             installed: Some(installed.clone()),
+                            retained_installation: None,
+                            pull_request: prepared.options.pull_request.clone(),
                             last_check: None,
                             last_error: None,
                             ..state
@@ -153,6 +160,7 @@ impl Headway {
             .options
             .variant
             .is_none()
+            && prepared.options.pull_request.is_none()
         {
             return Ok(());
         }
@@ -162,7 +170,12 @@ impl Headway {
                 .iter_mut()
                 .find(|app| app.id == id)
                 .ok_or_else(|| Error::AppNotFound(id.into()))?;
-            if let crate::Source::Github(github) = &mut app.source {
+            if prepared.options.pull_request.is_some() {
+                app.auto_update = false;
+            }
+            if let crate::Source::Github(github) = &mut app.source
+                && let Some(variant) = &mut github.options.variant
+            {
                 github.track = crate::Track::Commit {
                     branch: Some(prepared.options.commit.clone()),
                 };
@@ -171,12 +184,10 @@ impl Headway {
                     .require_github("commit installation")?
                     .install
                     .clone();
-                if let Some(variant) = &mut github.options.variant {
-                    variant.reference.clone_from(&prepared.options.commit);
-                    variant
-                        .release_tag
-                        .clone_from(&prepared.options.release_tag);
-                }
+                variant.reference.clone_from(&prepared.options.commit);
+                variant
+                    .release_tag
+                    .clone_from(&prepared.options.release_tag);
             }
             Ok((config, ()))
         })

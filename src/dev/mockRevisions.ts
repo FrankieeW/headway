@@ -1,4 +1,6 @@
+import { run } from "./mockRevisionRun";
 import { emit } from "@tauri-apps/api/event";
+import { pullOptions } from "./mockPulls";
 import {
   EVENTS,
   type AppView,
@@ -39,74 +41,6 @@ function validateReleaseTag(request: RevisionRequest): void {
       code: "invalid_input",
       message: "Release tag no longer matches the selected commit.",
     };
-}
-function run(view: AppView, revision: RevisionRequest): void {
-  view.busy = true;
-  view.status = "busy";
-  const from = view.installed;
-  const method =
-    revision.method === "configured" && view.app.source === "github"
-      ? view.app.install.method
-      : revision.method;
-  setTimeout(() => {
-    void emit(EVENTS.updateEvent, {
-      type: "stage",
-      app_id: view.app.id,
-      stage: method === "asset" ? "download" : "build",
-      message: "Mock managed revision run",
-    });
-  }, 50);
-  setTimeout(() => {
-    const failed = scenario() === "install-error";
-    view.busy = false;
-    view.status = failed ? "error" : "unchecked";
-    view.last_error = failed
-      ? {
-          code: "build_failed",
-          message: "Mock build failed; the prior installation was preserved.",
-          at: new Date().toISOString(),
-          during: "update",
-        }
-      : null;
-    const configuredPath =
-      view.app.source === "github" ? view.app.install.dest : null;
-    const to = {
-      id: revision.reference,
-      sha: revision.reference,
-      version: `preview-${revision.reference.slice(0, 7)}`,
-      installed_at: new Date().toISOString(),
-      path:
-        view.installed?.path ??
-        configuredPath ??
-        (view.app.kind === "app"
-          ? `/Applications/${view.app.name}.app`
-          : `/Users/preview/.local/bin/${view.app.id}`),
-    };
-    if (!failed) view.installed = to;
-    void emit(EVENTS.appsChanged);
-    void emit(EVENTS.updateFinished, {
-      app_id: view.app.id,
-      ok: !failed,
-      ...(failed
-        ? {
-            error: {
-              code: "build_failed",
-              message:
-                "Mock build failed; the prior installation was preserved.",
-            },
-          }
-        : {
-            outcome: {
-              app_id: view.app.id,
-              changed: true,
-              from,
-              to,
-              installed_path: to.path,
-              duration_ms: 1200,
-            },
-          }),
-    });
-  }, 1200);
 }
 export function handleRevisions(
   cmd: string,
@@ -177,6 +111,8 @@ export function handleRevisions(
     case "revision_options": {
       const reference =
         typeof args?.reference === "string" ? args.reference : "";
+      const pull = view ? pullOptions(view, reference) : null;
+      if (pull) return pull;
       if (scenario() === "revision-error" || reference === "bad-ref")
         throw {
           code: "not_found",
@@ -317,11 +253,18 @@ export function handleRevisions(
             max_steps: 1,
             pause_on_failure: true,
           },
-          track: { mode: "commit", branch: request.revision.reference },
+          track: {
+            mode: "commit",
+            branch:
+              request.revision.reference.split("@").at(-1) ??
+              request.revision.reference,
+          },
           install,
           variant: {
             parent_id: parentId,
-            reference: request.revision.reference,
+            reference:
+              request.revision.reference.split("@").at(-1) ??
+              request.revision.reference,
             release_tag: request.revision.release_tag ?? null,
             branch:
               parent.app.track.mode === "commit"
@@ -374,6 +317,7 @@ export function handleRevisions(
         };
       view.app = {
         ...view.app,
+        auto_update: false,
         repo,
         git_url: selected.git_url,
         repositories: rows.filter(
@@ -385,6 +329,16 @@ export function handleRevisions(
             ? { mode: "commit", branch: selected.branch }
             : view.app.track,
       };
+      Object.assign(view, {
+        installation: {
+          presence: view.installed ? "present" : "unknown",
+          path: view.installed?.path,
+          baseline_matches: false,
+          recorded: view.installed
+            ? { repo: current.repo, installed: view.installed }
+            : view.installation?.recorded,
+        },
+      });
       view.installed = null;
       view.last_check = null;
       view.pending_count = 0;

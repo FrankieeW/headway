@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::repo::{RepoId, validate_app_id};
 use crate::{AssetInstall, Install, Result, SourceInstall, Track};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositoryOption {
     pub repo: String,
     #[serde(default)]
@@ -13,6 +13,19 @@ pub struct RepositoryOption {
     pub git_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// Saved when leaving this origin; restored when explicitly selecting it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<RepositorySettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositorySettings {
+    pub track: Track,
+    pub install: Install,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_build: Option<SourceInstall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_asset: Option<AssetInstall>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +73,18 @@ impl GithubOptions {
                 repository.git_url.as_deref(),
             )
             .map_err(crate::Error::InvalidInput)?;
+            if let Some(settings) = &repository.settings {
+                settings.track.tag_regex()?;
+                crate::config::validate_remote(&settings.track, repository.git_url.as_deref())
+                    .map_err(crate::Error::InvalidInput)?;
+                for install in std::iter::once(settings.install.clone())
+                    .chain(settings.source_build.clone().map(Install::Source))
+                    .chain(settings.release_asset.clone().map(Install::Asset))
+                {
+                    crate::config::validate_install(&install)
+                        .map_err(crate::Error::InvalidInput)?;
+                }
+            }
         }
         for install in self
             .source_build

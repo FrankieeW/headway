@@ -5,6 +5,10 @@ use super::*;
 pub struct AppView {
     pub app: TrackedApp,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub installation: Option<super::InstallationDetection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<crate::github::PullRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub installed: Option<InstalledRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_check: Option<CheckResult>,
@@ -35,19 +39,27 @@ pub enum AppStatus {
 impl AppView {
     pub(super) fn new(app: TrackedApp, mut state: AppState, busy: bool) -> Self {
         use super::presence::{self, Presence};
-        let observed_status = match presence::observe(&app, state.installed.as_ref()) {
-            Ok(Presence::Missing) => {
-                state.installed = None;
-                Some((AppStatus::NotInstalled, UpdateStatus::NotInstalled))
-            }
-            Ok(Presence::Present) if !presence::has_baseline(&app, state.installed.as_ref()) => {
-                Some((AppStatus::Unknown, UpdateStatus::Unknown))
-            }
-            Ok(Presence::Present | Presence::Unknown) => None,
+        let installation = match super::installation::detect(&app, &state) {
+            Ok(detection) => Some(detection),
             Err(error) => {
                 state.last_error = Some(LastError::from_error(&error, "check"));
                 None
             }
+        };
+        let observed_status = match installation.as_ref().map(|detection| detection.presence) {
+            Some(Presence::Missing) => {
+                state.installed = None;
+                Some((AppStatus::NotInstalled, UpdateStatus::NotInstalled))
+            }
+            Some(Presence::Present) if !presence::has_baseline(&app, state.installed.as_ref()) => {
+                state.installed = None;
+                Some((AppStatus::Unknown, UpdateStatus::Unknown))
+            }
+            Some(Presence::Invalid) => {
+                state.installed = None;
+                Some((AppStatus::Unknown, UpdateStatus::Unknown))
+            }
+            Some(Presence::Present | Presence::Unknown) | None => None,
         };
         if let (Some((_, status)), Some(check)) = (observed_status, state.last_check.as_mut()) {
             check.status = status;
@@ -81,6 +93,8 @@ impl AppView {
             .map_or(0, |check| check.pending_total);
         Self {
             app,
+            installation,
+            pull_request: state.pull_request.filter(|_| state.installed.is_some()),
             installed: state.installed,
             last_check: state.last_check,
             last_error: state.last_error,

@@ -1,4 +1,6 @@
-use crate::{AppView, Error, Headway, RepositoryOption, Result, Source, Track};
+use crate::{
+    AppView, Error, Headway, Install, RepositoryOption, RepositorySettings, Result, Source, Track,
+};
 
 impl Headway {
     /// The current repository plus saved alternatives; no network request or state change.
@@ -13,24 +15,72 @@ impl Headway {
                 entry.label.clone_from(&entry.repo);
             }
         }
-        if !entries
+        let index = entries
             .iter()
-            .any(|entry| entry.repo.eq_ignore_ascii_case(&current))
-        {
-            entries.insert(
-                0,
-                RepositoryOption {
-                    repo: current.clone(),
-                    label: current,
-                    git_url: source.git_url.clone(),
-                    branch: match &source.track {
-                        Track::Commit { branch } => branch.clone(),
-                        _ => None,
-                    },
-                },
-            );
+            .position(|entry| entry.repo.eq_ignore_ascii_case(&current));
+        let snapshot = RepositoryOption {
+            repo: current.clone(),
+            label: index.map_or(current, |i| entries[i].label.clone()),
+            git_url: source.git_url.clone(),
+            branch: source
+                .options
+                .variant
+                .as_ref()
+                .and_then(|variant| variant.branch.clone())
+                .or_else(|| match &source.track {
+                    Track::Commit { branch } => branch.clone(),
+                    _ => None,
+                }),
+            settings: Some(RepositorySettings {
+                track: source.track.clone(),
+                install: source.install.clone(),
+                source_build: source.options.source_build.clone(),
+                release_asset: source.options.release_asset.clone(),
+            }),
+        };
+        if let Some(index) = index {
+            entries[index] = snapshot;
+        } else {
+            entries.insert(0, snapshot);
         }
         Ok(entries)
+    }
+
+    /// Adds GitHub's parent/root origins without activating them or replacing saved recipes.
+    pub async fn refresh_repositories(&self, id: &str) -> Result<AppView> {
+        let original = self.store().config()?.app(id)?.clone();
+        let info = self.github().await?.repo(&original.repo_id()?).await?;
+        let found = crate::repository_family::choices(&info)?;
+        let lock = crate::lock::AppLock::acquire(&self.paths().app_lock(id), id)?;
+        self.store().update_config(|mut config| {
+            let app = config
+                .apps
+                .iter_mut()
+                .find(|app| app.id == id)
+                .ok_or_else(|| Error::AppNotFound(id.into()))?;
+            if app.source != original.source {
+                return Err(Error::Busy(id.into()));
+            }
+            let Source::Github(github) = &mut app.source else {
+                return Err(Error::InvalidInput(
+                    "repository discovery requires GitHub".into(),
+                ));
+            };
+            for entry in found {
+                if !github
+                    .options
+                    .repositories
+                    .iter()
+                    .any(|saved| saved.repo.eq_ignore_ascii_case(&entry.repo))
+                {
+                    github.options.repositories.push(entry);
+                }
+            }
+            app.validate()?;
+            Ok((config, ()))
+        })?;
+        drop(lock);
+        self.get(id)
     }
 
     /// Explicitly changes the update origin. The installed payload remains in place;
@@ -38,6 +88,7 @@ impl Headway {
     pub fn select_repository(&self, id: &str, repository: &str) -> Result<AppView> {
         let requested = crate::repo::RepoId::parse(repository)?.full_name();
         let mut app = self.store().config()?.app(id)?.clone();
+        let installed = self.store().state()?.app(id).installed;
         let entries = self.repositories(id)?;
         let choice = entries
             .iter()
@@ -62,6 +113,28 @@ impl Headway {
         }
         github.repo = requested;
         github.git_url.clone_from(&choice.git_url);
+        let destination = match &github.install {
+            Install::Source(install) => install.dest.clone(),
+            Install::Asset(install) => install.dest.clone(),
+        }
+        .or_else(|| installed.and_then(|value| value.path));
+        if let Some(settings) = &choice.settings {
+            github.track.clone_from(&settings.track);
+            github.install.clone_from(&settings.install);
+            github
+                .options
+                .source_build
+                .clone_from(&settings.source_build);
+            github
+                .options
+                .release_asset
+                .clone_from(&settings.release_asset);
+        }
+        // Origins share one installation. A saved recipe must never move that payload.
+        match &mut github.install {
+            Install::Source(install) => install.dest = destination,
+            Install::Asset(install) => install.dest = destination,
+        }
         if let Some(variant) = &mut github.options.variant {
             variant.branch.clone_from(&choice.branch);
             github.track = Track::Commit {
@@ -71,6 +144,7 @@ impl Headway {
             branch.clone_from(&choice.branch);
         }
         github.options.repositories = entries;
+        app.auto_update = false;
         self.replace(app)
     }
 }
@@ -93,6 +167,7 @@ mod tests {
             unreachable!()
         };
         github.options.repositories.push(RepositoryOption {
+            settings: None,
             repo: "fork/tool".into(),
             label: "My fork".into(),
             branch: Some("develop".into()),
@@ -150,6 +225,7 @@ mod tests {
             branch: Some("main".into()),
         });
         github.options.repositories.push(RepositoryOption {
+            settings: None,
             repo: "fork/tool".into(),
             label: "Fork".into(),
             git_url: None,
@@ -178,6 +254,7 @@ mod tests {
             unreachable!()
         };
         github.options.repositories = vec![RepositoryOption {
+            settings: None,
             repo: "fork/tool".into(),
             label: "Fork".into(),
             git_url: None,
@@ -192,6 +269,7 @@ mod tests {
             unreachable!()
         };
         github.options.repositories.push(RepositoryOption {
+            settings: None,
             repo: "FORK/tool".into(),
             label: "duplicate".into(),
             git_url: None,

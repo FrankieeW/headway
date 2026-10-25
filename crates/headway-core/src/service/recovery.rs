@@ -94,6 +94,8 @@ impl Headway {
                 let state = state.record(entry);
                 match &result {
                     Ok(()) => AppState {
+                        retained_installation: None,
+                        pull_request: None,
                         installed: installed.clone(),
                         last_check: None,
                         last_error: None,

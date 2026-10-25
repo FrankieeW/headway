@@ -65,6 +65,26 @@ impl Headway {
         if check_stale {
             self.store.update_state(|state| {
                 let next = state.with_app(&id, |app_state| AppState {
+                    pull_request: if identity_changed {
+                        None
+                    } else {
+                        app_state.pull_request
+                    },
+                    retained_installation: if identity_changed {
+                        previous
+                            .github()
+                            .and_then(|github| {
+                                app_state.installed.clone().map(|installed| {
+                                    crate::state::RetainedInstallation {
+                                        repo: github.repo.clone(),
+                                        installed,
+                                    }
+                                })
+                            })
+                            .or(app_state.retained_installation)
+                    } else {
+                        app_state.retained_installation
+                    },
                     installed: if identity_changed {
                         None
                     } else {

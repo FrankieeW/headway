@@ -47,6 +47,11 @@ pub struct AppState {
     pub auto_update_paused: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub installed: Option<InstalledRef>,
+    /// Last recorded payload after changing origins; never used as an update baseline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retained_installation: Option<RetainedInstallation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<crate::github::PullRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_check: Option<CheckResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,11 +77,19 @@ impl AppState {
         let last_check = self.last_check.map(|check| check.rebased_on(&installed.id));
         Self {
             installed: Some(installed),
+            retained_installation: None,
+            pull_request: None,
             last_check,
             last_error: None,
             ..self
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetainedInstallation {
+    pub repo: String,
+    pub installed: InstalledRef,
 }
 
 /// The commit or release Headway installed last.

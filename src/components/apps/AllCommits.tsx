@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PullRequests } from "./PullRequests";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { CommitBadges } from "./CommitBadges";
@@ -20,6 +21,7 @@ export function AllCommits({
   });
   const [generation, setGeneration] = useState(0);
   const [reference, setReference] = useState("");
+  const [pullsOpen, setPullsOpen] = useState(false);
   const repo = view.app.source === "github" ? view.app.repo : "";
   const branch =
     view.app.source === "github" && view.app.track.mode === "commit"
@@ -37,19 +39,30 @@ export function AllCommits({
     ],
     queryFn: () =>
       appsApi.listCommits(view.app.id, cursor.page, 20, cursor.anchor),
-    enabled: view.app.source === "github",
+    enabled: view.app.source === "github" && !pullsOpen,
     staleTime: 5 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
   if (view.app.source !== "github") return null;
+  if (pullsOpen)
+    return (
+      <PullRequests
+        view={view}
+        onChoose={onChoose}
+        onBack={() => setPullsOpen(false)}
+      />
+    );
   const result = commits.data;
   const budget = view.installed && view.app.track.mode === "commit" ? 4 : 5;
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-section">{t("versions.allCommits")}</h2>
+        <Button variant="neutral" onClick={() => setPullsOpen(true)}>
+          {t("pulls.title")}
+        </Button>
         <Button
           variant="neutral"
           disabled={commits.isFetching}

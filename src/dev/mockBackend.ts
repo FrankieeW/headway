@@ -1,4 +1,5 @@
 import { handleRevisions, seedRevisionMock } from "./mockRevisions";
+import { handleInstallationOrigins } from "./mockPulls";
 import { mockCommitMetadata } from "./mockCommitMetadata";
 import { buildCandidates, handleRoadmap } from "./mockRoadmap";
 // Browser preview of the UI without the Rust backend: `pnpm dev:renderer`, then open
@@ -29,6 +30,8 @@ function handle(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
+  const installation = handleInstallationOrigins(cmd, args, apps);
+  if (installation !== undefined) return installation;
   const revision = handleRevisions(cmd, args, apps);
   if (revision !== undefined) return revision;
   const roadmap = handleRoadmap(cmd, args, apps);
@@ -105,6 +108,9 @@ function handle(
       const repo = typeof args?.repo === "string" ? args.repo : "example/tool";
       return {
         repo,
+        fork: true,
+        parent: { full_name: "upstream/headway", default_branch: "main" },
+        source: { full_name: "upstream/headway", default_branch: "main" },
         default_branch: "main",
         private: false,
         archived: false,
@@ -117,6 +123,14 @@ function handle(
           id: "preview-repo",
           name: repo,
           repo,
+          repositories: [
+            { repo, label: repo, branch: "main" },
+            {
+              repo: "upstream/headway",
+              label: "upstream/headway",
+              branch: "main",
+            },
+          ],
           kind: "cli",
           auto_update: false,
           track: { mode: "commit" },
@@ -223,7 +237,18 @@ export function installMockBackend(): void {
   }
   mockIPC(
     (cmd, args) => {
-      if (cmd === "list_commits" && new URLSearchParams(location.search).get("scenario") === "commits-loading") return new Promise(resolve => setTimeout(() => resolve(handle(cmd, args as Record<string, unknown> | undefined)), 1500));
+      if (
+        cmd === "list_commits" &&
+        new URLSearchParams(location.search).get("scenario") ===
+          "commits-loading"
+      )
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(handle(cmd, args as Record<string, unknown> | undefined)),
+            1500,
+          ),
+        );
       if (cmd === "inspect_repo")
         return new Promise((resolve) =>
           setTimeout(

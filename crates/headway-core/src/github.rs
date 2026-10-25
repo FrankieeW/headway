@@ -23,6 +23,9 @@ use crate::error::{Error, Result};
 use crate::repo::RepoId;
 
 pub const DEFAULT_API: &str = "https://api.github.com";
+#[path = "github_pulls.rs"]
+mod pulls;
+pub use pulls::{PullHead, PullRepository, PullRequest};
 const API_VERSION: &str = "2022-11-28";
 const JSON: &str = "application/vnd.github+json";
 
@@ -335,6 +338,19 @@ pub struct RepoInfo {
     #[serde(default)]
     pub archived: bool,
     pub html_url: String,
+    #[serde(default)]
+    pub fork: bool,
+    #[serde(default)]
+    pub parent: Option<RelatedRepo>,
+    #[serde(default)]
+    pub source: Option<RelatedRepo>,
+}
+
+/// The identity and default branch supplied by GitHub for a fork's ancestry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelatedRepo {
+    pub full_name: String,
+    pub default_branch: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

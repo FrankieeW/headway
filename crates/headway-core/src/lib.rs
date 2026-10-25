@@ -30,6 +30,7 @@ pub mod process;
 pub mod recipes;
 pub mod recovery;
 pub mod repo;
+mod repository_family;
 pub mod revision_history;
 pub mod revision_install;
 pub mod script;
@@ -57,14 +58,17 @@ pub use config::{
 };
 pub use error::{Error, ErrorInfo, Result};
 pub use events::{EventSink, LogStream, NullSink, Stage, UpdateEvent};
+pub use github::PullRequest;
 pub use policy::{AutoUpdateMode, UpdatePolicy};
 pub use revision_history::CommitPage;
 pub use revision_install::{
     LaunchOutcome, RevisionMethod, RevisionOptions, RevisionRequest, VariantRequest,
 };
+pub use service::PullRequestPage;
 pub use service::{AppStatus, AppView, EnvMode, Headway, LogFile, RemovedApp, TokenStatus};
+pub use service::{InstallationDetection, Presence};
 pub use source::{BrewSource, GithubSource, NpmSource, ScriptSource, Source, SourceSpec};
-pub use source_options::{GithubOptions, RepositoryOption, VariantInfo};
+pub use source_options::{GithubOptions, RepositoryOption, RepositorySettings, VariantInfo};
 pub use state::{Candidate, CheckResult, HistoryEntry, InstalledRef, UpdateStatus};
 pub use tokio_util::sync::CancellationToken;
 pub use update::{Target, UpdateOutcome, UpdatePlan};
