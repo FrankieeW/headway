@@ -4,6 +4,18 @@ import { Button } from "@/components/ui/button";
 import { errorMessage, type SourceMatches } from "@/lib/api";
 import type { MatchSelection } from "./matchSelection";
 
+const confidenceBadges = {
+  high: {
+    variant: "outline",
+    className: "border-transparent bg-success-soft text-success-text",
+  },
+  medium: { variant: "secondary" },
+  low: {
+    variant: "outline",
+    className: "border-transparent bg-warning-soft text-warning-text",
+  },
+} as const;
+
 export function SourceMatchList({
   matches,
   onSelect,
@@ -50,7 +62,7 @@ export function SourceMatchList({
                 <span className="min-w-0 break-all font-medium">
                   {row.label}
                 </span>
-                <Badge variant="secondary">
+                <Badge {...confidenceBadges[row.confidence]}>
                   {t(`matches.confidence.${row.confidence}`)}
                 </Badge>
               </div>

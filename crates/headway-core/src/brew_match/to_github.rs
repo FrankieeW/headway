@@ -1,6 +1,6 @@
 use super::{
-    MatchEvidence, MatchEvidenceKind as Kind, MatchSide, RepositoryMatch, SourceMatches, evidence,
-    metadata::PackageMeta, probe, search::short_name,
+    MatchConfidence, MatchEvidence, MatchEvidenceKind as Kind, MatchSide, RepositoryMatch,
+    SourceMatches, evidence, metadata::PackageMeta, probe, search::short_name,
 };
 use crate::{
     BrewSource, CancellationToken, Result, Source, github::GitHub, repo::RepoId, shell::ShellEnv,
@@ -51,51 +51,66 @@ async fn search(gh: &GitHub, package: &PackageMeta, report: &mut SourceMatches) 
     {
         terms.push(package.name.clone());
     }
+    let mut results = Vec::new();
     for term in terms {
         match gh.search_repositories(&term, 5).await {
-            Ok(items) => {
-                for item in items.into_iter().take(5) {
-                    let Ok(repo) = RepoId::parse(&item.full_name) else {
-                        continue;
-                    };
-                    let mut proof = vec![MatchEvidence {
-                        kind: Kind::Search,
-                        value: term.clone(),
-                    }];
-                    if repo.name.eq_ignore_ascii_case(short) {
-                        proof.push(MatchEvidence {
-                            kind: Kind::Name,
-                            value: short.into(),
-                        });
-                    }
-                    proof.extend(evidence::homepage_match(
-                        package.homepage.as_deref(),
-                        item.homepage.as_deref(),
-                    ));
-                    if let Some(found) = report
-                        .repositories
-                        .iter_mut()
-                        .find(|m| m.repo.eq_ignore_ascii_case(&repo.full_name()))
-                    {
-                        found.evidence.extend(proof);
-                        found.evidence = evidence::ordered(std::mem::take(&mut found.evidence));
-                        found.confidence = evidence::confidence(&found.evidence);
-                    } else {
-                        report.repositories.push(RepositoryMatch {
-                            repo: repo.full_name(),
-                            html_url: repo.html_url(),
-                            confidence: evidence::confidence(&proof),
-                            evidence: evidence::ordered(proof),
-                            description: item.description,
-                            stars: Some(item.stargazers_count),
-                            tracked_by: Vec::new(),
-                        });
-                    }
-                }
-            }
+            Ok(items) => results.push((term, items.into_iter())),
             Err(error) => report.error("github", &error),
         }
     }
+    for _ in 0..5 {
+        for (term, items) in &mut results {
+            if let Some(item) = items.next() {
+                let Ok(repo) = RepoId::parse(&item.full_name) else {
+                    continue;
+                };
+                let mut proof = vec![MatchEvidence {
+                    kind: Kind::Search,
+                    value: term.clone(),
+                }];
+                if repo.name.eq_ignore_ascii_case(short) {
+                    proof.push(MatchEvidence {
+                        kind: Kind::Name,
+                        value: short.into(),
+                    });
+                }
+                proof.extend(evidence::homepage_match(
+                    package.homepage.as_deref(),
+                    item.homepage.as_deref(),
+                ));
+                if let Some(found) = report
+                    .repositories
+                    .iter_mut()
+                    .find(|m| m.repo.eq_ignore_ascii_case(&repo.full_name()))
+                {
+                    found.evidence.extend(proof);
+                    found.evidence = evidence::ordered(std::mem::take(&mut found.evidence));
+                    found.confidence = evidence::confidence(&found.evidence);
+                } else {
+                    report.repositories.push(RepositoryMatch {
+                        repo: repo.full_name(),
+                        html_url: repo.html_url(),
+                        confidence: evidence::confidence(&proof),
+                        evidence: evidence::ordered(proof),
+                        description: item.description,
+                        stars: Some(item.stargazers_count),
+                        tracked_by: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
     report.repositories.sort_by_key(|found| found.confidence);
-    report.repositories.truncate(5);
+    if report
+        .repositories
+        .iter()
+        .any(|found| found.confidence != MatchConfidence::Low)
+    {
+        report
+            .repositories
+            .retain(|found| found.confidence != MatchConfidence::Low);
+        report.repositories.truncate(5);
+    } else {
+        report.repositories.truncate(3);
+    }
 }

@@ -4,7 +4,13 @@ mod algorithm_tests;
 #[cfg(test)]
 mod bounds_tests;
 #[cfg(test)]
+mod concurrency_tests;
+#[cfg(test)]
 mod metadata_tests;
+#[cfg(test)]
+mod review_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;
 
@@ -107,9 +113,16 @@ impl SourceMatches {
     }
 
     pub(crate) fn error(&mut self, source: &str, error: &Error) {
-        self.errors.push(MatchError {
+        let error = MatchError {
             source: source.into(),
             error: error.into(),
-        });
+        };
+        if !self.errors.iter().any(|existing| {
+            existing.source == error.source
+                && existing.error.code == error.error.code
+                && existing.error.message == error.error.message
+        }) {
+            self.errors.push(error);
+        }
     }
 }

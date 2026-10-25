@@ -112,3 +112,50 @@ fn commands_catalog_lists_match_and_offline() {
     assert!(text.contains("\"match\""));
     assert!(text.contains("--offline"));
 }
+
+#[test]
+fn local_url_evidence_succeeds_when_github_client_cannot_be_created() {
+    // Given a package with local URL evidence and an invalid API URL.
+    let s = sandbox();
+    // When matching online, then an unused client failure does not affect exit/JSON status.
+    let output = s
+        .command()
+        .env("HEADWAY_API_URL", "file:///unusable")
+        .args(["--json", "match", "cask:tool"])
+        .output()
+        .unwrap();
+    let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(output.status.success(), "{reply}");
+    assert_eq!(reply["ok"], true);
+    assert_eq!(reply["data"]["errors"], serde_json::json!([]));
+    assert_eq!(reply["data"]["repositories"][0]["repo"], "acme/tool");
+    s.unchanged();
+}
+
+#[test]
+fn broken_loose_candidates_are_notes_and_substring_noise_is_never_read() {
+    // Given a valid fd package, a broken prefix candidate and an unrelated substring hit.
+    let s = sandbox();
+    s.tool("brew", r#"
+case "$*" in
+'info --installed --json=v2') echo '{}' ;;
+'search --formula fd') printf 'fd\nfd-helper\nfrankieew/tap/lmfdb-cli\n' ;;
+'search --cask fd') exit 0 ;;
+'info --json=v2 --formula fd') echo '{"formulae":[{"name":"fd","homepage":"https://github.com/sharkdp/fd"}]}' ;;
+*lmfdb*) echo "$*" >> "$HEADWAY_HOME/noise-read"; exit 1 ;;
+*) exit 1 ;;
+esac
+"#);
+    // When matching, then skipped loose candidates leave the machine result successful.
+    let reply = s.ok(&["match", "sharkdp/fd", "--offline"]);
+    assert_eq!(reply["data"]["errors"], serde_json::json!([]));
+    assert_eq!(
+        reply["data"]["notes"],
+        serde_json::json!([
+            "Skipped Homebrew formula `fd-helper`: its metadata could not be read."
+        ])
+    );
+    assert_eq!(reply["data"]["packages"][0]["package"], "fd");
+    assert!(!s.dir.path().join("noise-read").exists());
+    s.unchanged();
+}

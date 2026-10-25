@@ -164,9 +164,11 @@ esac
     );
     assert_eq!(result.packages[0].installed.as_deref(), Some("2.0"));
     assert_eq!(result.packages[1].confidence, MatchConfidence::Low);
-    assert_eq!(result.errors.len(), 1);
-    assert_eq!(result.errors[0].source, "brew");
-    assert!(result.errors[0].error.message.contains("cli-broken"));
+    assert!(result.errors.is_empty());
+    assert_eq!(
+        result.notes,
+        ["Skipped Homebrew formula `cli-broken`: its metadata could not be read."]
+    );
 }
 
 #[tokio::test]

@@ -65,8 +65,6 @@ fn rank(name: &str, terms: &[String]) -> Option<u8> {
                 Some(1)
             } else if name.starts_with(&format!("{term}-")) || name.ends_with(&format!("-{term}")) {
                 Some(2)
-            } else if name.contains(term) {
-                Some(3)
             } else {
                 None
             }

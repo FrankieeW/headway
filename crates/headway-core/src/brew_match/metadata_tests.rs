@@ -82,14 +82,7 @@ fn search_ranking_prefers_exact_versions_then_affixes_and_filters_noise() {
     let output = "==> Formulae\nother\nmytool\ntool-extra\nacme/tap/tool\nold-tool\ntool@2\ntool\n--bad\n/regex/\ntool\n";
     assert_eq!(
         super::search::rank_names(output, &["tool".into()]),
-        [
-            "acme/tap/tool",
-            "tool",
-            "tool@2",
-            "old-tool",
-            "tool-extra",
-            "mytool"
-        ]
+        ["acme/tap/tool", "tool", "tool@2", "old-tool", "tool-extra"]
     );
     assert_eq!(
         super::search::terms("Obsidian-releases"),

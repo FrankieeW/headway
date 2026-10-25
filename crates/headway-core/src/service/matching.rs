@@ -1,7 +1,8 @@
 //! Read-only matching shared by CLI and desktop.
 use super::Headway;
 use crate::{
-    BrewSource, CancellationToken, Error, Result, Source, SourceMatches, SourceSpec, TrackedApp,
+    BrewSource, CancellationToken, Error, MatchSide, Result, Source, SourceMatches, SourceSpec,
+    TrackedApp,
     brew_match::{evidence, to_brew::github_to_brew, to_github::brew_to_github},
 };
 
@@ -44,7 +45,9 @@ impl Headway {
             }
             SourceSpec::Npm(_) | SourceSpec::Script(_) => return Err(unsupported()),
         };
-        if let Some(error) = error {
+        if let Some(error) = error
+            && (result.from == MatchSide::Github || result.repositories.is_empty())
+        {
             result.error("github", &error);
         }
         evidence::tracked_repositories(&mut result.repositories, &config.apps);

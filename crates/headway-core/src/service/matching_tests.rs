@@ -128,7 +128,7 @@ esac
 }
 
 #[tokio::test]
-async fn github_client_initialization_failure_is_partial_and_keeps_local_evidence() {
+async fn github_client_initialization_failure_is_ignored_with_local_url_evidence() {
     let tools = FakeTools::new().tool(
         "brew",
         r#"echo '{"formulae":[{"name":"tool","homepage":"https://github.com/acme/tool"}]}'"#,
@@ -143,7 +143,35 @@ async fn github_client_initialization_failure_is_partial_and_keeps_local_evidenc
         .unwrap();
     let result = hw.match_source("brew:tool", false).await.unwrap();
     assert_eq!(result.repositories[0].repo, "acme/tool");
-    assert_eq!(result.errors[0].source, "github");
-    assert_eq!(result.errors[0].error.code, "invalid_input");
+    assert!(result.errors.is_empty());
     assert!(!hw.paths().config_file().exists());
+}
+
+#[tokio::test]
+async fn github_client_failure_is_reported_when_github_would_be_used() {
+    // Given valid Homebrew metadata without repository URLs and an unusable GitHub API.
+    let tools = FakeTools::new().tool(
+        "brew",
+        r#"
+case "$1" in
+info) echo '{"formulae":[{"name":"tool","homepage":"https://tool.dev"}]}' ;;
+search) exit 0 ;;
+esac
+"#,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hw = Headway::builder()
+        .paths(Paths::under(dir.path()))
+        .env(tools.env().with_var("HEADWAY_GITHUB_TOKEN", "test-token"))
+        .api("file:///unusable")
+        .secrets(Arc::new(ForbiddenSecrets))
+        .build()
+        .unwrap();
+    // When matching a repository or a package requiring search, then the client failure is partial.
+    for input in ["acme/tool", "brew:tool"] {
+        let report = hw.match_source(input, false).await.unwrap();
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].source, "github");
+        assert_eq!(report.errors[0].error.code, "invalid_input");
+    }
 }

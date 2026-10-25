@@ -94,7 +94,13 @@ fn details(confidence: MatchConfidence, evidence: &[MatchEvidence], tracked: &[S
     };
     let kinds = evidence
         .iter()
-        .map(|item| match item.kind {
+        .enumerate()
+        .filter(|(index, item)| {
+            !evidence[..*index]
+                .iter()
+                .any(|earlier| earlier.kind == item.kind)
+        })
+        .map(|(_, item)| match item.kind {
             MatchEvidenceKind::SourceUrl => "source_url",
             MatchEvidenceKind::HeadUrl => "head_url",
             MatchEvidenceKind::DownloadUrl => "download_url",
@@ -122,6 +128,25 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn human_details_list_each_evidence_kind_once() {
+        // Given repeated evidence kinds with distinct values, including nonadjacent duplicates.
+        let evidence = [
+            (MatchEvidenceKind::Search, "tool"),
+            (MatchEvidenceKind::HomepageMatch, "https://tool.dev"),
+            (MatchEvidenceKind::Search, "Tool Editor"),
+            (MatchEvidenceKind::HomepageMatch, "http://tool.dev/"),
+        ]
+        .map(|(kind, value)| MatchEvidence {
+            kind,
+            value: value.into(),
+        });
+        // When rendered, then human output names each kind once in first-seen order.
+        assert_eq!(
+            details(MatchConfidence::Medium, &evidence, &[]),
+            "medium  [search, homepage_match]"
+        );
+    }
     #[test]
     fn hints_inspect_low_confidence_quote_targets_and_show_tracked() {
         assert_eq!(

@@ -6,6 +6,34 @@ import { SourceMatchList } from "./SourceMatchList";
 
 beforeEach(setupI18n);
 
+it.each([
+  ["high", "Verified"],
+  ["medium", "Likely"],
+  ["low", "Unconfirmed"],
+] as const)(
+  "exposes %s package confidence as visible text",
+  (confidence, label) => {
+    // Given a package suggestion at this confidence level.
+    renderWithProviders(
+      <SourceMatchList
+        matches={{
+          ...packageMatches,
+          packages: packageMatches.packages.map((match) => ({
+            ...match,
+            confidence,
+          })),
+        }}
+        onSelect={vi.fn()}
+      />,
+    );
+    // When its accessible row is read, then confidence is available without color.
+    const row = screen.getByRole("listitem", {
+      name: "Cask · vendor/apps/editor",
+    });
+    expect(within(row).getByText(label)).toBeVisible();
+  },
+);
+
 it("selects a formula without changing it into a cask", () => {
   // Given a matching formula, when the user chooses Homebrew.
   const onSelect = vi.fn();

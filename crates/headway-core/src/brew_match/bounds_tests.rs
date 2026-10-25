@@ -40,7 +40,7 @@ async fn missing_brew_is_fatal_for_brew_but_partial_for_github() {
             .iter()
             .all(|e| e.source == "brew" && e.error.code == "io_error")
     );
-    assert!(!report.errors.is_empty());
+    assert_eq!(report.errors.len(), 1);
 }
 
 #[tokio::test]
@@ -127,7 +127,7 @@ esac
 }
 
 #[tokio::test]
-async fn github_search_caps_five_and_keeps_success_after_another_query_fails() {
+async fn github_search_caps_three_low_results_and_keeps_success_after_another_query_fails() {
     let tools = FakeTools::new().tool(
         "brew",
         r#"echo '{"casks":[{"token":"tool@preview","name":["Tool Editor"]}]}'"#,
@@ -161,7 +161,7 @@ async fn github_search_caps_five_and_keeps_success_after_another_query_fails() {
     )
     .await
     .unwrap();
-    assert_eq!(report.repositories.len(), 5);
+    assert_eq!(report.repositories.len(), 3);
     assert_eq!(report.errors.len(), 1);
     assert_eq!(report.errors[0].source, "github");
     assert!(

@@ -76,7 +76,7 @@ impl Targets {
                 .iter()
                 .any(|(repo, _)| repo.full_name().eq_ignore_ascii_case(&target.full_name()))
         });
-        if installed_index && target.is_none() {
+        if target.is_none() && (installed_index || !repositories.is_empty()) {
             return None;
         }
         let repo = target.unwrap_or(&self.repo).full_name();

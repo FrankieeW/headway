@@ -1,5 +1,6 @@
 use super::{MatchSide, SourceMatches, metadata::PackageMeta, probe, search, targets::Targets};
 use crate::{CancellationToken, Error, Result, github::GitHub, repo::RepoId, shell::ShellEnv};
+use futures_util::future::join_all;
 
 pub(crate) async fn github_to_brew(
     cancel: &CancellationToken,
@@ -10,7 +11,16 @@ pub(crate) async fn github_to_brew(
 ) -> Result<SourceMatches> {
     let mut report = SourceMatches::new(repo.full_name(), MatchSide::Github);
     let targets = Targets::resolve(repo, if offline { None } else { gh }, &mut report).await;
-    match probe::installed(cancel, env).await {
+    let searches = [false, true].map(|cask| {
+        join_all(
+            targets
+                .terms
+                .iter()
+                .map(move |term| search::names(cancel, env, term, cask)),
+        )
+    });
+    let (installed, searches) = tokio::join!(probe::installed(cancel, env), join_all(searches));
+    match installed {
         Ok(packages) => report.packages.extend(
             packages
                 .into_iter()
@@ -19,10 +29,10 @@ pub(crate) async fn github_to_brew(
         Err(Error::Cancelled) => return Err(Error::Cancelled),
         Err(error) => report.error("brew", &error),
     }
-    for cask in [false, true] {
+    for (cask, results) in [false, true].into_iter().zip(searches) {
         let mut output = String::new();
-        for term in &targets.terms {
-            match search::names(cancel, env, term, cask).await {
+        for result in results {
+            match result {
                 Ok(names) => {
                     output.push_str(&names);
                     output.push('\n');
@@ -44,7 +54,7 @@ pub(crate) async fn github_to_brew(
         if names.is_empty() {
             continue;
         }
-        let verified = verify(cancel, env, &names, cask, &mut report).await?;
+        let verified = verify(cancel, env, &names, cask, &targets, &mut report).await?;
         for package in verified {
             if report
                 .packages
@@ -79,6 +89,7 @@ async fn verify(
     env: &ShellEnv,
     names: &[String],
     cask: bool,
+    targets: &Targets,
     report: &mut SourceMatches,
 ) -> Result<Vec<PackageMeta>> {
     match probe::info(cancel, env, names, cask).await {
@@ -88,11 +99,19 @@ async fn verify(
     }
     let mut packages = Vec::new();
     for name in names {
-        match probe::info(cancel, env, std::slice::from_ref(name), cask).await {
-            Ok(found) if found.is_empty() => report.error("brew", &probe::missing(name, cask)),
+        let result = probe::info(cancel, env, std::slice::from_ref(name), cask)
+            .await
+            .and_then(|found| {
+                if found.is_empty() {
+                    Err(probe::missing(name, cask))
+                } else {
+                    Ok(found)
+                }
+            });
+        match result {
             Ok(found) => packages.extend(found),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
-            Err(error) => {
+            Err(error) if targets.exact_name(name) => {
                 let mut info = crate::ErrorInfo::from(&error);
                 info.message = format!(
                     "Homebrew {} `{name}`: {}",
@@ -104,6 +123,10 @@ async fn verify(
                     error: info,
                 });
             }
+            Err(_) => report.notes.push(format!(
+                "Skipped Homebrew {} `{name}`: its metadata could not be read.",
+                if cask { "cask" } else { "formula" },
+            )),
         }
     }
     Ok(packages)
