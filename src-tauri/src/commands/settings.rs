@@ -5,7 +5,6 @@ use headway_core::config::Settings;
 use headway_core::doctor::DoctorReport;
 use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
-use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::cli_link::{self, CliStatus};
 use crate::state::{AppState, CmdResult, IntoCmd as _, apps_changed, invalid};
@@ -79,22 +78,11 @@ pub async fn install_cli(state: State<'_, AppState>) -> CmdResult<CliStatus> {
 }
 
 #[tauri::command]
-pub async fn get_autostart<R: Runtime>(app: AppHandle<R>) -> CmdResult<bool> {
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|err| invalid(format!("read launch-at-login: {err}")))
+pub async fn get_autostart(state: State<'_, AppState>) -> CmdResult<bool> {
+    state.host()?.autostart_enabled().map_err(invalid)
 }
 
 #[tauri::command]
-pub async fn set_autostart<R: Runtime>(app: AppHandle<R>, enabled: bool) -> CmdResult<bool> {
-    let launcher = app.autolaunch();
-    let result = if enabled {
-        launcher.enable()
-    } else {
-        launcher.disable()
-    };
-    result.map_err(|err| invalid(format!("change launch-at-login: {err}")))?;
-    launcher
-        .is_enabled()
-        .map_err(|err| invalid(format!("read launch-at-login: {err}")))
+pub async fn set_autostart(state: State<'_, AppState>, enabled: bool) -> CmdResult<bool> {
+    state.host()?.set_autostart(enabled).map_err(invalid)
 }

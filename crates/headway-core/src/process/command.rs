@@ -13,6 +13,7 @@ pub struct Cmd {
     args: Vec<String>,
     cwd: Option<PathBuf>,
     env: BTreeMap<String, String>,
+    pub(super) timeout: std::time::Duration,
 }
 
 impl Cmd {
@@ -32,16 +33,77 @@ impl Cmd {
         })
     }
 
-    /// A command running in `env`, minus Headway's own token variable: no subprocess
-    /// needs it (git authenticates through `GIT_CONFIG_*`), and builds must not see it.
+    /// No subprocess inherits any token source accepted by Headway. Git receives
+    /// explicitly scoped `GIT_CONFIG_*` credentials instead.
     pub fn new(program: impl Into<String>, env: &ShellEnv) -> Self {
         let mut vars = env.vars().clone();
-        vars.remove(crate::token::TOKEN_ENV);
+        for key in [crate::token::TOKEN_ENV, "GITHUB_TOKEN", "GH_TOKEN"] {
+            vars.remove(key);
+        }
         Self {
             program: program.into(),
             args: Vec::new(),
             cwd: None,
             env: vars,
+            timeout: std::time::Duration::from_secs(10 * 60),
+        }
+    }
+
+    #[must_use]
+    pub fn timeout(self, timeout: std::time::Duration) -> Self {
+        Self { timeout, ..self }
+    }
+
+    #[must_use]
+    pub(crate) fn with_timeout_cap(self, limit: std::time::Duration) -> Self {
+        let timeout = self.timeout.min(limit);
+        Self { timeout, ..self }
+    }
+
+    /// For filesystem workers and Drop safety nets, never on an async worker.
+    /// Uses the same sanitized environment, deadline and process-group isolation.
+    pub(crate) fn run_blocking(&self) -> Result<()> {
+        use std::os::unix::process::CommandExt as _;
+        let mut command = std::process::Command::new(&self.program);
+        command
+            .args(&self.args)
+            .env_clear()
+            .envs(&self.env)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        if let Some(cwd) = &self.cwd {
+            command.current_dir(cwd);
+        }
+        let mut child = command.spawn().map_err(|error| self.spawn_error(error))?;
+        let start = std::time::Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().map_err(|error| self.spawn_error(error))? {
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(Error::CommandFailed {
+                        command: self.display(),
+                        status: status.code(),
+                        tail: vec![],
+                    })
+                };
+            }
+            if start.elapsed() >= self.timeout {
+                super::signal_group(child.id(), "KILL");
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::CommandFailed {
+                    command: self.display(),
+                    status: None,
+                    tail: vec![format!(
+                        "command timed out after {} seconds",
+                        self.timeout.as_secs()
+                    )],
+                });
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 

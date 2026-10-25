@@ -44,6 +44,12 @@ impl TerminalSink {
     }
 }
 
+impl Drop for TerminalSink {
+    fn drop(&mut self) {
+        self.close_progress();
+    }
+}
+
 impl EventSink for TerminalSink {
     fn emit(&self, event: UpdateEvent) {
         let p = self.palette;

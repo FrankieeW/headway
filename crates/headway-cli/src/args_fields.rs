@@ -3,10 +3,10 @@ use clap::{Args, ValueEnum};
 /// Config fields settable from `add` and `edit`. An empty string clears an optional field.
 #[derive(Args, Debug, Default, Clone)]
 pub struct AppFields {
-    /// Keep the source checkout and build cache after each source build
+    /// Keep the source checkout/build cache after each build (GitHub source builds only)
     #[arg(long, value_name="BOOL", action=clap::ArgAction::Set)]
     pub keep_source: Option<bool>,
-    /// Base folder for per-app source checkouts (empty resets to Headway's cache)
+    /// Base folder for source checkouts (GitHub source builds only; empty resets to cache)
     #[arg(long)]
     pub source_root: Option<String>,
     /// Automatic update behavior
@@ -46,46 +46,46 @@ pub struct AppFields {
     /// What the repository produces
     #[arg(long, value_enum)]
     pub kind: Option<KindArg>,
-    /// Follow every commit, GitHub releases, or version tags
+    /// Follow commits, releases, or version tags (GitHub only)
     #[arg(long, value_enum)]
     pub track: Option<TrackArg>,
-    /// Branch to follow (commit mode; empty = the default branch)
+    /// Branch to follow (GitHub commit mode only; empty = default branch)
     #[arg(long)]
     pub branch: Option<String>,
-    /// Include pre-releases (release/tag mode)
+    /// Include pre-releases (GitHub release/tag mode only)
     #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
     pub prerelease: Option<bool>,
-    /// Only consider tags matching this regex (release/tag mode)
+    /// Only consider matching tags (GitHub release/tag mode only)
     #[arg(long, value_name = "REGEX")]
     pub tag_filter: Option<String>,
-    /// Build from source, or download a release asset
+    /// Build from source, or download a release asset (GitHub only)
     #[arg(long, value_enum)]
     pub method: Option<MethodArg>,
-    /// Fill the build command and artifact from a preset (see `headway presets`)
+    /// Fill a GitHub source-build recipe from a preset (see `headway presets`)
     #[arg(long)]
     pub preset: Option<String>,
-    /// Build command, run with `/bin/sh -c` in the checkout
+    /// GitHub source-build command, run with `/bin/sh -c` in the checkout
     #[arg(long, value_name = "COMMAND")]
     pub build: Option<String>,
-    /// Subdirectory of the repository to build in
+    /// Subdirectory to build in (GitHub source builds only)
     #[arg(long, value_name = "DIR")]
     pub workdir: Option<String>,
-    /// Build output to install, relative to the workdir (`*` allowed; empty = the build installs itself)
+    /// GitHub build output relative to workdir (`*` allowed; empty = build installs itself)
     #[arg(long, value_name = "PATH")]
     pub artifact: Option<String>,
-    /// Install destination (default: `bin_dir` or `apps_dir` + file name)
+    /// GitHub install destination (default: `bin_dir` or `apps_dir` + file name)
     #[arg(long, value_name = "PATH")]
     pub dest: Option<String>,
-    /// Release asset glob, e.g. '*aarch64-apple-darwin.tar.gz' (asset method; empty = automatic)
+    /// GitHub asset glob, e.g. '*aarch64-apple-darwin.tar.gz' (empty = automatic)
     #[arg(long, value_name = "GLOB")]
     pub pattern: Option<String>,
-    /// Binary or .app name inside the release asset (asset method)
+    /// Binary or .app name inside the release asset (GitHub asset method only)
     #[arg(long, value_name = "NAME")]
     pub binary: Option<String>,
     /// Let the desktop app install updates as soon as it finds them
     #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
     pub auto_update: Option<bool>,
-    /// Clone URL override, e.g. git@github.com:owner/repo.git (empty clears)
+    /// GitHub clone URL override, e.g. git@github.com:owner/repo.git (empty clears)
     #[arg(long, value_name = "URL")]
     pub git_url: Option<String>,
 }

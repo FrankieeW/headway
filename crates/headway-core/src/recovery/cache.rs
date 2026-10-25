@@ -38,14 +38,14 @@ impl Cache {
 
     pub fn list(&self) -> Result<Vec<BackupEntry>> {
         Ok(self
-            .entries()?
+            .entries(true)?
             .into_iter()
             .filter(|manifest| manifest.source_identity == self.source_identity)
             .map(|manifest| manifest.entry)
             .collect())
     }
 
-    fn entries(&self) -> Result<Vec<Manifest>> {
+    fn entries(&self, verify_digest: bool) -> Result<Vec<Manifest>> {
         if !self.root.exists() {
             return Ok(Vec::new());
         }
@@ -56,7 +56,7 @@ impl Cache {
             if id.starts_with('.') {
                 continue;
             }
-            entries.push(self.read_manifest(&id)?);
+            entries.push(self.read_manifest(&id, verify_digest)?);
         }
         entries.sort_by(|a, b| {
             b.entry
@@ -68,7 +68,7 @@ impl Cache {
     }
 
     pub fn load(&self, id: &str) -> Result<(BackupEntry, PathBuf)> {
-        let manifest = self.read_manifest(id)?;
+        let manifest = self.read_manifest(id, true)?;
         if manifest.source_identity != self.source_identity {
             return Err(Error::InvalidInput(
                 "backup belongs to a different GitHub repository or track mode".into(),
@@ -77,7 +77,7 @@ impl Cache {
         Ok((manifest.entry, manifest.destination))
     }
 
-    fn read_manifest(&self, id: &str) -> Result<Manifest> {
+    fn read_manifest(&self, id: &str, verify_digest: bool) -> Result<Manifest> {
         component(id)?;
         let dir = self.root.join(id);
         let metadata = dir.join("metadata.json");
@@ -114,7 +114,7 @@ impl Cache {
                 "invalid backup metadata or payload path".into(),
             ));
         }
-        if digest(&payload)? != manifest.digest {
+        if verify_digest && digest(&payload)? != manifest.digest {
             return Err(Error::InvalidInput("backup payload is corrupt".into()));
         }
         Ok(manifest)
@@ -174,9 +174,11 @@ impl Cache {
         let bytes = serde_json::to_vec_pretty(&manifest)
             .map_err(|e| Error::parse("backup metadata", &e))?;
         fs::write(&metadata, bytes).map_err(|e| Error::io_at("write", &metadata, e))?;
+        install::sync_tree(pending.temp.path())?;
         fs::rename(pending.temp.path(), &final_dir)
             .map_err(|e| Error::io_at("retain", &final_dir, e))?;
-        for old in self.entries()?.into_iter().skip(2) {
+        install::sync_dir(&self.root)?;
+        for old in self.entries(false)?.into_iter().skip(2) {
             let path = self.root.join(old.entry.id);
             fs::remove_dir_all(&path).map_err(|e| Error::io_at("prune", &path, e))?;
         }
@@ -197,7 +199,7 @@ impl Pending {
     }
 }
 
-fn cache_root(paths: &Paths, id: &str) -> Result<PathBuf> {
+pub(super) fn cache_root(paths: &Paths, id: &str) -> Result<PathBuf> {
     component(id)?;
     let root = paths.cache_dir.join("backups").join(id);
     for path in [
@@ -214,8 +216,33 @@ fn cache_root(paths: &Paths, id: &str) -> Result<PathBuf> {
     Ok(root)
 }
 
+/// Under the app lock, after a transaction is reconciled. Pending snapshots
+/// have no published backup identity; rescue snapshots stay until recovery works.
+pub(super) fn cleanup_pending(paths: &Paths, id: &str) -> Result<()> {
+    let root = cache_root(paths, id)?;
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&root).map_err(|error| Error::io_at("read", &root, error))? {
+        let entry = entry.map_err(|error| Error::io("read pending snapshot", error))?;
+        if entry.file_name().to_string_lossy().starts_with(".pending-") {
+            install::remove_any(&entry.path())?;
+        }
+    }
+    install::sync_dir(&root)
+}
+
 pub(crate) fn purge(paths: &Paths, id: &str) -> Result<()> {
     let root = cache_root(paths, id)?;
+    let journal = paths
+        .config_dir
+        .join("transactions")
+        .join(format!("{id}.json"));
+    if journal.exists() || journal.is_symlink() {
+        return Err(Error::InvalidInput(
+            "reconcile the interrupted installation before purging its backups".into(),
+        ));
+    }
     match fs::remove_dir_all(&root) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

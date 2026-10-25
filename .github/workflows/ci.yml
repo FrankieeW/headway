@@ -17,28 +17,35 @@ jobs:
   rust:
     name: rust (macos)
     runs-on: macos-latest
+    # fmt/clippy/test + the self-hosted Tauri release build; 60 min was tight on a cold cache.
+    timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-25
+        with:
+          toolchain: stable
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check committed release version sources agree
+        run: node scripts/check-release-version.mjs
 
       # The desktop crate embeds the built frontend, so `dist/` has to exist
       # before cargo compiles or tests the workspace.
@@ -49,10 +56,10 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
       - name: Build the self-hosted app for this commit
         run: ./scripts/build-headway.sh app
@@ -76,14 +83,16 @@ jobs:
   frontend:
     name: frontend (ubuntu)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          version: 12
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -97,5 +106,59 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Test Homebrew release planner
-        run: node --test scripts/update-homebrew-tap.test.mjs
+      # TypeScript AST against the Rust `generate_handler![]` list and command signatures:
+      # catches a renamed/removed invoke, handler or argument on either side of the IPC bridge.
+      - name: IPC contract (frontend bindings vs Rust commands)
+        run: pnpm run check:ipc
+
+      - name: Test Apple signing environment normalization
+        run: bash scripts/apple-signing-env.test.sh
+
+      - name: Test token environment stripping
+        run: bash scripts/token-env.test.sh
+
+      - name: Test release guard and Homebrew planner
+        run: node --test scripts/*.test.mjs
+
+  packaging:
+    name: packaging (macos signing policy)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-25
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ". -> target"
+
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Regression for the native packaging recipe: generated signing policy (ad-hoc today,
+      # hardened runtime for a Developer ID identity), strict signature verification and the
+      # system-only Mach-O dependency allowlist.
+      - name: Native packaging and signing-policy regression
+        run: ./scripts/test-macos-packaging.sh "$RUNNER_TEMP/packaging-evidence"
+
+      - name: Upload packaging evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: packaging-evidence
+          path: ${{ runner.temp }}/packaging-evidence
+          if-no-files-found: ignore
+          retention-days: 7

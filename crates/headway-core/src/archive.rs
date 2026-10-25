@@ -10,6 +10,9 @@ use crate::events::LogStream;
 use crate::process::{self, Cmd};
 use crate::shell::ShellEnv;
 
+mod budget;
+pub(crate) use budget::validate_tree;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveKind {
     /// Any tarball `tar` can read (gz, xz, bz2, zst or plain).
@@ -44,13 +47,39 @@ pub struct Unpacked {
     mount: Option<PathBuf>,
 }
 
+impl Unpacked {
+    pub async fn detach(&mut self, env: &ShellEnv) -> Result<()> {
+        let Some(mount) = &self.mount else {
+            return Ok(());
+        };
+        process::run(
+            &detach_command(mount, env),
+            &CancellationToken::new(),
+            &mut |_, _| {},
+        )
+        .await?;
+        self.mount = None;
+        Ok(())
+    }
+}
+
+fn detach_command(mount: &Path, env: &ShellEnv) -> Cmd {
+    Cmd::new("/usr/bin/hdiutil", env)
+        .args(["detach", "-quiet", "-force"])
+        .arg(mount.display().to_string())
+        .timeout(std::time::Duration::from_secs(30))
+}
+
 impl Drop for Unpacked {
     fn drop(&mut self) {
-        if let Some(mount) = &self.mount {
-            let _ = std::process::Command::new("/usr/bin/hdiutil")
-                .args(["detach", "-quiet", "-force"])
-                .arg(mount)
-                .status();
+        if let Some(mount) = self.mount.take() {
+            // Drop cannot await, and must not block a Tokio worker. Explicit
+            // detach is the normal path; this bounded worker is a safety net.
+            std::thread::spawn(move || {
+                if let Err(error) = detach_command(&mount, &ShellEnv::current()).run_blocking() {
+                    eprintln!("Headway could not detach {}: {error}", mount.display());
+                }
+            });
         }
     }
 }
@@ -70,11 +99,13 @@ pub async fn unpack(
     let unpacked = |root: PathBuf| Unpacked { root, mount: None };
     match kind {
         ArchiveKind::Tar => {
-            let cmd = Cmd::new("tar", env).args(["-xf", &file_arg, "-C", &dest_arg]);
+            budget::preflight(file, kind, env, cancel).await?;
+            let cmd = Cmd::new("/usr/bin/tar", env).args(["-xf", &file_arg, "-C", &dest_arg]);
             process::run(&cmd, cancel, on_line).await?;
             Ok(unpacked(dest.to_path_buf()))
         }
         ArchiveKind::Zip => {
+            budget::preflight(file, kind, env, cancel).await?;
             // `ditto` keeps symlinks, extended attributes and code signatures inside app bundles.
             let cmd = if cfg!(target_os = "macos") {
                 Cmd::new("/usr/bin/ditto", env).args(["-x", "-k", &file_arg, &dest_arg])
@@ -97,19 +128,37 @@ pub async fn unpack(
                 &mount_arg,
                 &file_arg,
             ]);
-            process::run(&cmd, cancel, on_line).await?;
-            Ok(Unpacked {
+            let mut unpacked = Unpacked {
                 root: mount.clone(),
                 mount: Some(mount),
-            })
+            };
+            if let Err(error) = process::run(&cmd, cancel, on_line).await {
+                if let Err(detach_error) = unpacked.detach(env).await {
+                    on_line(
+                        LogStream::Info,
+                        &format!("Could not detach partially attached disk image: {detach_error}"),
+                    );
+                }
+                return Err(error);
+            }
+            Ok(unpacked)
         }
         ArchiveKind::Raw => {
             let name = file.file_name().ok_or_else(|| {
                 Error::InvalidInput(format!("{} has no file name", file.display()))
             })?;
+            if !name.to_str().is_some_and(crate::asset::safe_file_name) {
+                return Err(Error::NoAsset("raw asset has an unsafe filename".into()));
+            }
             let target = dest.join(name);
-            fs::copy(file, &target).map_err(|err| Error::io_at("copy", &target, err))?;
-            set_executable(&target)?;
+            let source = file.to_owned();
+            tokio::task::spawn_blocking(move || {
+                validate_tree(&source)?;
+                fs::copy(&source, &target).map_err(|err| Error::io_at("copy", &target, err))?;
+                set_executable(&target)
+            })
+            .await
+            .map_err(|error| Error::io("raw copy worker", std::io::Error::other(error)))??;
             Ok(unpacked(dest.to_path_buf()))
         }
     }
@@ -196,11 +245,7 @@ pub fn find_binary(root: &Path, name: &str) -> Result<PathBuf> {
         .iter()
         .filter(|path| path.file_name().is_some_and(|file| file == name))
         .collect();
-    if let Some(found) = named
-        .iter()
-        .find(|path| is_executable(path))
-        .or_else(|| named.first())
-    {
+    if let Some(found) = named.iter().find(|path| is_executable(path)) {
         return Ok((*found).clone());
     }
     let libraries = [".dylib", ".so", ".a", ".sh", ".py", ".rb", ".js"];
@@ -257,156 +302,4 @@ pub fn find_app_bundle(root: &Path, name: Option<&str>) -> Result<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn write_exec(path: &Path) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, "#!/bin/sh\necho hi\n").unwrap();
-        set_executable(path).unwrap();
-    }
-
-    #[test]
-    fn detects_archive_kinds() {
-        assert_eq!(detect("rg-aarch64-apple-darwin.tar.gz"), ArchiveKind::Tar);
-        assert_eq!(detect("x.TGZ"), ArchiveKind::Tar);
-        assert_eq!(detect("x.tar.zst"), ArchiveKind::Tar);
-        assert_eq!(detect("App.app.zip"), ArchiveKind::Zip);
-        assert_eq!(detect("App.dmg"), ArchiveKind::Dmg);
-        assert_eq!(detect("jq-macos-arm64"), ArchiveKind::Raw);
-    }
-
-    #[test]
-    fn finds_named_or_single_binary() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        write_exec(&root.join("ripgrep-14/rg"));
-        fs::write(root.join("ripgrep-14/README.md"), "docs").unwrap();
-        assert_eq!(find_binary(root, "rg").unwrap(), root.join("ripgrep-14/rg"));
-        // Repo name differs from the binary name: the only executable wins.
-        assert_eq!(
-            find_binary(root, "ripgrep").unwrap(),
-            root.join("ripgrep-14/rg")
-        );
-
-        write_exec(&root.join("ripgrep-14/rga"));
-        let err = find_binary(root, "ripgrep").unwrap_err();
-        assert!(
-            matches!(&err, Error::NoAsset(msg) if msg.contains("rg") && msg.contains("set `binary`"))
-        );
-    }
-
-    #[test]
-    fn ignores_files_inside_bundles_and_libraries() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        write_exec(&root.join("Tool.app/Contents/MacOS/Tool"));
-        write_exec(&root.join("lib/libtool.dylib"));
-        write_exec(&root.join("bin/tool"));
-        assert_eq!(find_binary(root, "missing").unwrap(), root.join("bin/tool"));
-    }
-
-    #[test]
-    fn finds_app_bundles() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        write_exec(&root.join("Zed.app/Contents/MacOS/zed"));
-        assert_eq!(find_app_bundle(root, None).unwrap(), root.join("Zed.app"));
-        assert_eq!(
-            find_app_bundle(root, Some("zed")).unwrap(),
-            root.join("Zed.app")
-        );
-        write_exec(&root.join("nested/Other.app/Contents/MacOS/other"));
-        assert!(find_app_bundle(root, None).is_err());
-        assert_eq!(
-            find_app_bundle(root, Some("Other.app")).unwrap(),
-            root.join("nested/Other.app")
-        );
-        assert!(find_app_bundle(root, Some("Nope")).is_err());
-    }
-
-    #[tokio::test]
-    async fn unpacks_tarballs_and_raw_binaries() {
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("src");
-        write_exec(&src.join("tool-1.0/tool"));
-        let tarball = dir.path().join("tool.tar.gz");
-        let status = std::process::Command::new("tar")
-            .args([
-                "-czf",
-                &tarball.display().to_string(),
-                "-C",
-                &src.display().to_string(),
-                "tool-1.0",
-            ])
-            .status()
-            .unwrap();
-        assert!(status.success());
-
-        let env = ShellEnv::current();
-        let cancel = CancellationToken::new();
-        let out = dir.path().join("out");
-        let unpacked = unpack(
-            &tarball,
-            ArchiveKind::Tar,
-            &out,
-            &env,
-            &cancel,
-            &mut |_, _| {},
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            find_binary(&unpacked.root, "tool").unwrap(),
-            out.join("tool-1.0/tool")
-        );
-
-        let raw_out = dir.path().join("raw");
-        let raw = unpack(
-            &src.join("tool-1.0/tool"),
-            ArchiveKind::Raw,
-            &raw_out,
-            &env,
-            &cancel,
-            &mut |_, _| {},
-        )
-        .await
-        .unwrap();
-        assert!(is_executable(&raw.root.join("tool")));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[tokio::test]
-    async fn unpacks_zips_with_ditto() {
-        let dir = tempfile::tempdir().unwrap();
-        let app = dir.path().join("Demo.app");
-        write_exec(&app.join("Contents/MacOS/Demo"));
-        let zip = dir.path().join("Demo.app.zip");
-        let status = std::process::Command::new("/usr/bin/ditto")
-            .args([
-                "-c",
-                "-k",
-                "--keepParent",
-                &app.display().to_string(),
-                &zip.display().to_string(),
-            ])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        let out = dir.path().join("out");
-        let unpacked = unpack(
-            &zip,
-            ArchiveKind::Zip,
-            &out,
-            &ShellEnv::current(),
-            &CancellationToken::new(),
-            &mut |_, _| {},
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            find_app_bundle(&unpacked.root, None).unwrap(),
-            out.join("Demo.app")
-        );
-    }
-}
+mod tests;

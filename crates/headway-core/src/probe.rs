@@ -7,6 +7,13 @@ use tokio_util::sync::CancellationToken;
 
 /// Output lines kept when a probe fails.
 const TAIL_LINES: usize = 15;
+/// Per-stream cap for probe output, matching the process layer's raw-capture budget: npm and
+/// Homebrew registry inventories travel through probes and can be large. Overflow is an
+/// explicit error, never truncated data.
+const PROBE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// Probe wall-clock cap; applied with `Cmd::with_timeout_cap`, so a shorter caller deadline
+/// (e.g. a 15 s bundle probe) is preserved instead of being replaced by this default.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `command` run with `/bin/sh -c` in the home directory.
 pub fn shell(env: &ShellEnv, command: &str) -> Cmd {
@@ -28,57 +35,22 @@ pub async fn output(cancel: &CancellationToken, cmd: &Cmd) -> Result<Captured> {
 }
 
 /// Bounds short version/metadata queries, which may invoke a network client.
+///
+/// Delegates to the process layer's bounded, cancellation-aware capture: each stream is capped
+/// at [`PROBE_MAX_BYTES`] (the same 16 MiB budget as raw process capture) with an explicit
+/// overflow error — never a silently truncated "valid" document — and the child's process group
+/// is killed on cancel/timeout/overflow.
+///
+/// The wall clock is `min(cmd.timeout, PROBE_TIMEOUT)` via [`Cmd::with_timeout_cap`]: a caller's
+/// shorter deadline (e.g. a 15 s bundle probe) is preserved, never replaced by the probe default.
 pub async fn capture(cancel: &CancellationToken, cmd: &Cmd) -> Result<Captured> {
-    capture_with_timeout(cancel, cmd, std::time::Duration::from_secs(60)).await
+    let bounded = cmd.clone().with_timeout_cap(PROBE_TIMEOUT);
+    capture_with_limit(cancel, &bounded, PROBE_MAX_BYTES).await
 }
 
-async fn capture_with_timeout(
-    cancel: &CancellationToken,
-    cmd: &Cmd,
-    timeout: std::time::Duration,
-) -> Result<Captured> {
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    let probe_cancel = cancel.child_token();
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    let mut on_line = |stream, line: &str| {
-        let output = match stream {
-            crate::events::LogStream::Stdout => &mut stdout,
-            crate::events::LogStream::Stderr | crate::events::LogStream::Info => &mut stderr,
-        };
-        output.push_str(line);
-        output.push('\n');
-    };
-    let result = {
-        let run = process::run(cmd, &probe_cancel, &mut on_line);
-        tokio::pin!(run);
-        tokio::select! {
-            result = &mut run => result,
-            () = tokio::time::sleep(timeout) => {
-                probe_cancel.cancel();
-                match run.await {
-                    Ok(()) | Err(Error::Cancelled) => {},
-                    Err(err) => return Err(err),
-                }
-                return Err(Error::CommandFailed { command: cmd.display(), status: None, tail: vec![format!("version query timed out after {} seconds", timeout.as_secs())] });
-            }
-        }
-    };
-    let status = match result {
-        Ok(()) => Some(0),
-        Err(Error::CommandFailed { status, .. }) => status,
-        Err(err) => return Err(err),
-    };
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    Ok(Captured {
-        status,
-        stdout,
-        stderr,
-    })
+/// Test seam: identical bounded capture with an explicit per-stream budget (e.g. 1 KiB).
+async fn capture_with_limit(cancel: &CancellationToken, cmd: &Cmd, limit: u64) -> Result<Captured> {
+    process::capture_with_cancel(cancel, cmd, limit).await
 }
 
 pub fn failed(cmd: &Cmd, out: &Captured) -> Error {
@@ -159,6 +131,89 @@ mod tests {
         .unwrap_err();
         assert!(
             matches!(&err, Error::CommandFailed { status: Some(4), tail, .. } if tail == &["nope"])
+        );
+    }
+    #[tokio::test]
+    async fn oversized_multiline_output_is_an_explicit_error_not_truncated_data() {
+        let env = ShellEnv::current();
+        // Endless multi-line output: the byte budget must fail, not accumulate forever.
+        let flood = shell(&env, "/usr/bin/yes x");
+        let err = capture_with_limit(&CancellationToken::new(), &flood, 1024)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("exceeded"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn oversized_single_line_is_an_explicit_error_not_truncated_data() {
+        let env = ShellEnv::current();
+        // One endless line with no newline: the byte budget must still fire.
+        let line = shell(&env, "/usr/bin/yes x | /usr/bin/tr -d '\\n'");
+        let err = capture_with_limit(&CancellationToken::new(), &line, 1024)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("exceeded"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn large_but_allowed_output_is_captured_completely() {
+        let env = ShellEnv::current();
+        // 2 MiB is above a 1 MiB guess but under the 16 MiB probe budget: complete success.
+        let out = capture(
+            &CancellationToken::new(),
+            &shell(&env, "/usr/bin/yes x | /usr/bin/head -c 2097152"),
+        )
+        .await
+        .unwrap();
+        assert!(out.success());
+        assert_eq!(out.stdout.len(), 2 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn cancellation_terminates_the_probe_group_quickly() {
+        let env = ShellEnv::current();
+        let cmd = shell(&env, "exec /bin/sleep 30");
+        let cancel = CancellationToken::new();
+        let token = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            token.cancel();
+        });
+        let started = std::time::Instant::now();
+        let err = capture(&cancel, &cmd).await.unwrap_err();
+        assert!(matches!(err, Error::Cancelled), "{err}");
+        // The group is killed on cancel; without that this would wait the full 30 s sleep.
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn probe_timeout_kills_the_group_and_does_not_wait_for_the_child() {
+        let env = ShellEnv::current();
+        let cmd = shell(&env, "exec /bin/sleep 30").timeout(std::time::Duration::from_millis(150));
+        let started = std::time::Instant::now();
+        let err = capture(&CancellationToken::new(), &cmd).await.unwrap_err();
+        assert!(
+            matches!(&err, Error::CommandFailed { tail, .. } if tail.iter().any(|line| line.contains("timed out"))),
+            "{err}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn caller_shorter_timeout_is_preserved_by_probe_capture() {
+        let env = ShellEnv::current();
+        // Regression: probe capture must not replace a caller's 50 ms deadline with its 60 s cap.
+        let cmd = shell(&env, "exec /bin/sleep 30").timeout(std::time::Duration::from_millis(50));
+        let started = std::time::Instant::now();
+        let err = capture(&CancellationToken::new(), &cmd).await.unwrap_err();
+        assert!(
+            matches!(&err, Error::CommandFailed { tail, .. } if tail.iter().any(|line| line.contains("timed out"))),
+            "{err}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "caller timeout was replaced by the probe cap: {:?}",
+            started.elapsed()
         );
     }
 }

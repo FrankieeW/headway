@@ -10,13 +10,27 @@ use serde_json::Value;
 
 const ATTRIBUTE_MAX: usize = 160;
 /// Attributes the root element always carries; data keys with these names become elements.
-const ROOT_ATTRIBUTES: [&str; 2] = ["command", "ok"];
+const ROOT_ATTRIBUTES: [&str; 3] = ["command", "ok", "subcommand"];
 
+#[cfg(test)]
 pub fn document(command: &str, ok: bool, data: &Value, next: &[String]) -> String {
+    document_with_subcommand(command, None, ok, data, next)
+}
+
+pub fn document_with_subcommand(
+    command: &str,
+    subcommand: Option<&str>,
+    ok: bool,
+    data: &Value,
+    next: &[String],
+) -> String {
     let mut attributes = vec![
         ("command".to_owned(), command.to_owned()),
         ("ok".to_owned(), ok.to_string()),
     ];
+    if let Some(path) = subcommand {
+        attributes.push(("subcommand".to_owned(), path.to_owned()));
+    }
     let mut children = String::new();
     match data {
         Value::Object(map) => {
@@ -29,6 +43,13 @@ pub fn document(command: &str, ok: bool, data: &Value, next: &[String]) -> Strin
             }
         }
         Value::Null => {}
+        Value::Array(items) if command == "repo" => {
+            let _ = writeln!(children, "  <data count=\"{}\">", items.len());
+            for item in items {
+                element("repository", item, 2, &mut children);
+            }
+            children.push_str("  </data>\n");
+        }
         other => element("data", other, 1, &mut children),
     }
     if !next.is_empty() {
@@ -117,8 +138,12 @@ fn attributes_text(attributes: &[(String, String)]) -> String {
 fn singular(name: &str) -> String {
     let known = match name {
         "pending" => Some("candidate"),
-        "history" => Some("entry"),
+        "history" | "entries" => Some("entry"),
         "binaries" => Some("binary"),
+        "repositories" => Some("repository"),
+        "statuses" => Some("status"),
+        "policies" => Some("policy"),
+        "warnings" => Some("warning"),
         "next" | "commands" | "subcommands" => Some("command"),
         "details" | "lines" => Some("line"),
         "possible_values" => Some("value"),
@@ -127,6 +152,9 @@ fn singular(name: &str) -> String {
     };
     match known {
         Some(word) => word.to_owned(),
+        None if name.len() > 3 && name.ends_with("ies") => {
+            format!("{}y", &name[..name.len() - 3])
+        }
         None if name.len() > 2 && name.ends_with('s') => name[..name.len() - 1].to_owned(),
         None => "item".to_owned(),
     }
@@ -231,5 +259,20 @@ mod tests {
         assert_eq!(singular("apps"), "app");
         assert_eq!(singular("pending"), "candidate");
         assert_eq!(singular("data"), "item");
+        for (plural, child) in [
+            ("repositories", "repository"),
+            ("statuses", "status"),
+            ("entries", "entry"),
+            ("policies", "policy"),
+            ("categories", "category"),
+        ] {
+            assert_eq!(singular(plural), child);
+            let rendered = document("test", true, &json!({plural: [{"name": "one"}]}), &[]);
+            let xml = roxmltree::Document::parse(&rendered).unwrap();
+            assert!(
+                xml.descendants().any(|node| node.has_tag_name(child)),
+                "{rendered}"
+            );
+        }
     }
 }

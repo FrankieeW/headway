@@ -76,6 +76,8 @@ impl Job<'_> {
             .workdir
             .as_deref()
             .map_or_else(|| dir.clone(), |sub| dir.join(sub));
+        let before =
+            super::artifact::before_build(&dir, &workdir, source.artifact.as_deref()).await?;
         self.log
             .stage(Stage::Build, format!("Running `{}`", source.build));
         let build_env = self
@@ -96,11 +98,27 @@ impl Job<'_> {
             );
         let build = Cmd::new("/bin/sh", &build_env)
             .args(["-c", &source.build])
-            .cwd(&workdir);
+            .cwd(&workdir)
+            .timeout(std::time::Duration::from_secs(30 * 60));
         process::run(&build, self.cancel, &mut self.output()).await?;
 
         let path = if let Some(artifact) = &source.artifact {
             let output = resolve_artifact(&workdir, artifact)?;
+            if let Some(before) = before
+                && before == super::artifact::fingerprint(output.clone()).await?
+            {
+                self.log.warn("Build succeeded with byte-identical cached output. This can be a legitimate incremental build; revision attribution relies on the trusted build recipe, not file timestamps.");
+            }
+            if source.build.contains("scripts/build-headway.sh") {
+                super::artifact::verify_self_build(
+                    &output,
+                    &sha,
+                    &self.app.require_github("self build provenance")?.repo,
+                    self.env,
+                    self.cancel,
+                )
+                .await?;
+            }
             let name = file_name(&output)?;
             let dest =
                 install::resolve_dest(source.dest.as_deref(), self.app.kind, &name, self.settings);
@@ -143,6 +161,11 @@ impl Job<'_> {
             .prefix(&format!("{}-", self.app.id))
             .tempdir_in(&downloads)
             .map_err(|err| Error::io_at("create a temp dir in", &downloads, err))?;
+        if !asset::safe_file_name(&chosen.name) {
+            return Err(Error::NoAsset(
+                "release asset name is not a safe filename".into(),
+            ));
+        }
         let file = scratch.path().join(&chosen.name);
 
         self.log.stage(
@@ -159,7 +182,7 @@ impl Job<'_> {
         self.log
             .stage(Stage::Unpack, format!("Unpacking {}", chosen.name));
         let kind = archive::detect(&chosen.name);
-        let unpacked = archive::unpack(
+        let mut unpacked = archive::unpack(
             &file,
             kind,
             &scratch.path().join("unpacked"),
@@ -168,39 +191,56 @@ impl Job<'_> {
             &mut self.output(),
         )
         .await?;
-        let (payload, dest_name) = match self.app.kind {
-            AppKind::Cli => {
-                let wanted = spec.binary.clone().unwrap_or_else(|| repo.name.clone());
-                let payload = archive::find_binary(&unpacked.root, &wanted)?;
-                // A bare asset is named like `jq-macos-arm64`: install it as the tool's name.
-                let name = if kind == ArchiveKind::Raw || spec.binary.is_some() {
-                    wanted
-                } else {
-                    file_name(&payload)?
-                };
-                (payload, name)
-            }
-            AppKind::App => {
-                let payload = archive::find_app_bundle(&unpacked.root, spec.binary.as_deref())?;
-                let name = file_name(&payload)?;
-                (payload, name)
-            }
-        };
-        let dest = install::resolve_dest(
-            spec.dest.as_deref(),
-            self.app.kind,
-            &dest_name,
-            self.settings,
-        );
-        let candidate = InstalledRef {
-            id: target.id.clone(),
-            sha: target.sha.clone(),
-            version: Some(target.id.clone()),
-            installed_at: chrono::Utc::now(),
-            path: None,
-        };
-        self.place(&payload, &candidate, &dest).await?;
-        drop(unpacked);
+        let placed = async {
+            let root = unpacked.root.clone();
+            tokio::task::spawn_blocking(move || archive::validate_tree(&root))
+                .await
+                .map_err(|error| {
+                    Error::io("unpacked budget worker", std::io::Error::other(error))
+                })??;
+            let (payload, dest_name) = match self.app.kind {
+                AppKind::Cli => {
+                    let wanted = spec.binary.clone().unwrap_or_else(|| repo.name.clone());
+                    if !asset::safe_file_name(&wanted) {
+                        return Err(Error::NoAsset("binary must be a safe filename".into()));
+                    }
+                    let payload = archive::find_binary(&unpacked.root, &wanted)?;
+                    // A bare asset is named like `jq-macos-arm64`: install it as the tool's name.
+                    let name = if kind == ArchiveKind::Raw || spec.binary.is_some() {
+                        wanted
+                    } else {
+                        file_name(&payload)?
+                    };
+                    (payload, name)
+                }
+                AppKind::App => {
+                    let payload = archive::find_app_bundle(&unpacked.root, spec.binary.as_deref())?;
+                    let name = file_name(&payload)?;
+                    (payload, name)
+                }
+            };
+            let dest = install::resolve_dest(
+                spec.dest.as_deref(),
+                self.app.kind,
+                &dest_name,
+                self.settings,
+            );
+            let candidate = InstalledRef {
+                id: target.id.clone(),
+                sha: target.sha.clone(),
+                version: Some(target.id.clone()),
+                installed_at: chrono::Utc::now(),
+                path: None,
+            };
+            self.place(&payload, &candidate, &dest).await?;
+            Ok::<_, Error>(dest)
+        }
+        .await;
+        if let Err(error) = unpacked.detach(self.env).await {
+            self.log
+                .warn(&format!("Could not detach disk image: {error}"));
+        }
+        let dest = placed?;
         Ok(Installed {
             sha: None,
             version: Some(target.id.clone()),
@@ -240,8 +280,8 @@ fn verify_digest(chosen: &Asset, actual: &str, log: &RunLog<'_>) -> Result<()> {
             actual: actual.to_owned(),
         }),
         None => {
-            log.info(&format!(
-                "GitHub published no digest for this asset (sha256 {actual})."
+            log.warn(&format!(
+                "GitHub published no supported SHA-256 digest for this asset; the downloaded SHA-256 is {actual}. No published checksum was verified; this is not publisher authentication."
             ));
             Ok(())
         }

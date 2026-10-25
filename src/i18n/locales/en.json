@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Headway",
-    "tagline": "Keep GitHub, npm, Homebrew and script-installed apps up to date",
     "addRepository": "Add app",
     "emptyTitle": "No apps yet",
     "emptyDescription": "Add a GitHub repository, npm package, Homebrew package or official update script."
@@ -48,9 +47,6 @@
   "token": {
     "source": {
       "keychain": "Keychain",
-      "headwayEnv": "HEADWAY_GITHUB_TOKEN",
-      "githubEnv": "GITHUB_TOKEN",
-      "ghEnv": "GH_TOKEN",
       "ghCli": "gh CLI",
       "none": "No token"
     }
@@ -286,12 +282,28 @@
       "system": "System"
     },
     "language": "Language",
+    "languageDescription": "The menu bar and notifications follow this language.",
     "diagnostics": "Diagnostics",
     "runChecks": "Run checks",
     "checks": "Checks",
     "checksDescription": "Press “Run checks” to look at the environment.",
     "paths": "Paths",
     "pathsDescription": "Where Headway keeps its files.",
+    "checksFailed": "Diagnostics failed",
+    "diagnosticsPaths": {
+      "config": "Config file",
+      "state": "State file",
+      "cache": "Cache",
+      "logs": "Logs"
+    },
+    "diagnosticsChecks": {
+      "config": "Config",
+      "git": "Git",
+      "github": "GitHub",
+      "binDir": "CLI location",
+      "appsDir": "App location",
+      "app": "App {{id}}"
+    },
     "version": "Version",
     "reinstallCli": "Reinstall"
   },
@@ -304,6 +316,11 @@
   "toast": {
     "updated": "Updated {{name}}",
     "updatedTo": "Updated {{name}} to {{version}}",
+    "updatedWithWarnings": "Updated {{name}} with warnings",
+    "updatedToWithWarnings": "Updated {{name}} to {{version}} with warnings",
+    "warningsMore": "+{{count}} more warning(s)",
+    "warningsLogHint": "Review the update log before relying on this build.",
+    "completedBeforeFailure": "Completed {{version}} before the failure.",
     "showLog": "Show log",
     "checkAllDone": "Checked {{checked}} apps · {{updates}} have updates",
     "checkAllFailed": "{{count}} apps could not be checked",
@@ -340,6 +357,7 @@
     "recovery": "Cached backups",
     "recoveryHint": "Restore one of the last two artifacts managed by Headway.",
     "retry": "Retry",
+    "refreshStatus": "Refresh status",
     "noBackups": "No cached backups yet.",
     "restore": "Restore backup",
     "restoreConfirm": "Replace {{name}} with backup {{version}}?",

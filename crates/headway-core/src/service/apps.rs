@@ -19,58 +19,142 @@ impl Headway {
     }
 
     fn view(&self, app: &TrackedApp, state: &State) -> AppView {
-        let busy = lock::is_locked(&self.paths().app_lock(&app.id));
-        AppView::new(app.clone(), state.app(&app.id), busy)
+        let busy = lock::app_is_locked(self.paths(), &app.id);
+        let mut app_state = state.app(&app.id);
+        if !busy && crate::recovery::pending(self.paths(), app) {
+            // Reading never rolls payloads back. Do not display an uncertain journal
+            // baseline as installed/up-to-date until a check reconciles under its lock.
+            app_state.installed = None;
+            app_state.last_check = None;
+            app_state.pull_request = None;
+            app_state.last_error = Some(LastError::from_error(
+                &Error::RecoveryPending(app.id.clone()),
+                "recovery",
+            ));
+        }
+        AppView::new(app.clone(), app_state, busy)
+    }
+
+    /// Exactly the add validation, without writing config or state.
+    pub fn validate_add(&self, app: TrackedApp) -> Result<TrackedApp> {
+        let app = normalized(app).map_err(candidate_error)?;
+        let mut config = self.store.config()?;
+        if config.apps.iter().any(|other| other.id == app.id) {
+            return Err(Error::AppExists(app.id));
+        }
+        if crate::recovery::pending(self.paths(), &app) {
+            return Err(Error::RecoveryPending(app.id));
+        }
+        config.apps.push(app.clone());
+        config.validate().map_err(candidate_error)?;
+        self.validate_app_destination(&config, &app)
+            .map_err(candidate_error)?;
+        Ok(app)
+    }
+
+    /// Exactly the replacement validation, without writing config or state.
+    pub fn validate_replace(&self, app: TrackedApp) -> Result<TrackedApp> {
+        let app = normalized(app).map_err(candidate_error)?;
+        let mut config = self.store.config()?;
+        let index = config
+            .apps
+            .iter()
+            .position(|other| other.id == app.id)
+            .ok_or_else(|| Error::AppNotFound(app.id.clone()))?;
+        config.apps[index] = app.clone();
+        config.validate().map_err(candidate_error)?;
+        self.validate_app_destination(&config, &app)
+            .map_err(candidate_error)?;
+        Ok(app)
+    }
+
+    pub(super) fn validate_app_destination(&self, config: &Config, app: &TrackedApp) -> Result<()> {
+        let Some(dest) = crate::config::destination(app, &config.settings) else {
+            return Ok(());
+        };
+        let state = self.store.state()?;
+        for other in config.apps.iter().filter(|other| other.id != app.id) {
+            let other_state = state.app(&other.id);
+            let destinations = [
+                crate::config::destination(other, &config.settings),
+                other_state
+                    .installed
+                    .and_then(|installed| installed.path)
+                    .map(|path| crate::paths::expand_tilde(&path)),
+                other_state
+                    .retained_installation
+                    .and_then(|retained| retained.installed.path)
+                    .map(|path| crate::paths::expand_tilde(&path)),
+            ];
+            if destinations
+                .into_iter()
+                .flatten()
+                .any(|other_dest| super::variants::same_destination(&dest, &other_dest))
+            {
+                return Err(Error::Config(format!(
+                    "destination `{}` belongs to app `{}`",
+                    dest.display(),
+                    other.id
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub fn add(&self, app: TrackedApp) -> Result<AppView> {
-        let app = normalized(app)?;
+        let app = self.validate_add(app)?;
         let id = app.id.clone();
-        self.store.update_config(|Config { settings, apps }| {
-            if apps.iter().any(|existing| existing.id == app.id) {
+        let lock = AppLock::acquire_app(self.paths(), &id)?;
+        if crate::recovery::pending(self.paths(), &app) {
+            return Err(Error::RecoveryPending(id));
+        }
+        self.store.register(|mut config, state| {
+            if config.apps.iter().any(|existing| existing.id == app.id) {
                 return Err(Error::AppExists(app.id));
             }
-            let apps = apps.into_iter().chain(std::iter::once(app)).collect();
-            Ok((Config { settings, apps }, ()))
+            config.apps.push(app);
+            config.validate().map_err(candidate_error)?;
+            Ok((config, state.without_app(&id), ()))
         })?;
+        drop(lock);
         self.get(&id)
     }
 
     /// Replaces an app's config. Changing what is tracked forgets the installed ref,
     /// since it no longer describes the same thing.
     pub fn replace(&self, app: TrackedApp) -> Result<AppView> {
-        let app = normalized(app)?;
+        let app = self.validate_replace(app)?;
         let id = app.id.clone();
         // Repointing an app while it updates would record the old repo's version as installed.
         let current = self.store.config()?.app(&id)?.clone();
         let repointed = current.source != app.source;
         let lock = if repointed {
-            Some(AppLock::acquire(&self.paths().app_lock(&id), &id)?)
+            Some(AppLock::acquire_app(self.paths(), &id)?)
         } else {
             None
         };
-        let previous = self.store.update_config(|Config { settings, apps }| {
-            let index = apps
+        if lock.is_some() {
+            let current = self.store.config()?.app(&id)?.clone();
+            crate::recovery::reconcile(self.paths(), &current)?;
+        }
+        self.store.register(|mut config, state| {
+            let index = config
+                .apps
                 .iter()
-                .position(|existing| existing.id == app.id)
-                .ok_or_else(|| Error::AppNotFound(app.id.clone()))?;
-            // `apps` is this closure's own copy of the config, swapped in one slot.
-            let mut apps = apps;
-            let previous = std::mem::replace(&mut apps[index], app);
-            Ok((Config { settings, apps }, previous))
-        })?;
-        let new = self.store.config()?.app(&id)?.clone();
-        let identity_changed = !previous.source.same_identity(&new.source);
-        let check_stale = previous.source != new.source;
-        if check_stale {
-            self.store.update_state(|state| {
-                let next = state.with_app(&id, |app_state| AppState {
-                    pull_request: if identity_changed {
-                        None
-                    } else {
-                        app_state.pull_request
-                    },
-                    retained_installation: if identity_changed {
+                .position(|existing| existing.id == id)
+                .ok_or_else(|| Error::AppNotFound(id.clone()))?;
+            let previous = &config.apps[index];
+            // A policy-only edit deliberately need not interrupt an ongoing update.
+            // If a source edit raced its initial read, retry with the app lock instead.
+            if lock.is_none() && previous.source != app.source {
+                return Err(Error::ConfigChanged(id.clone()));
+            }
+            let identity_changed = !previous.source.same_identity(&app.source);
+            let state = if previous.source == app.source {
+                state
+            } else {
+                state.with_app(&id, |app_state| {
+                    let retained_installation = if identity_changed {
                         previous
                             .github()
                             .and_then(|github| {
@@ -84,26 +168,40 @@ impl Headway {
                             .or(app_state.retained_installation)
                     } else {
                         app_state.retained_installation
-                    },
-                    installed: if identity_changed {
-                        None
-                    } else {
-                        app_state.installed
-                    },
-                    last_check: None,
-                    last_error: None,
-                    ..app_state
-                });
-                Ok((next, ()))
-            })?;
-        }
+                    };
+                    AppState {
+                        retained_installation,
+                        installed: if identity_changed {
+                            None
+                        } else {
+                            app_state.installed
+                        },
+                        pull_request: if identity_changed {
+                            None
+                        } else {
+                            app_state.pull_request
+                        },
+                        last_check: None,
+                        last_error: None,
+                        ..app_state
+                    }
+                })
+            };
+            config.apps[index] = app;
+            config.validate().map_err(candidate_error)?;
+            // State invalidation is durable before the new source becomes visible.
+            Ok((config, state, ()))
+        })?;
         drop(lock);
         self.get(&id)
     }
 
     pub fn remove(&self, id: &str, purge: bool) -> Result<RemovedApp> {
+        self.store.config()?.app(id)?;
         // Held until the end: no update may start while the checkout is being deleted.
-        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = AppLock::acquire_app(self.paths(), id)?;
+        let current = self.store.config()?.app(id)?.clone();
+        crate::recovery::reconcile(self.paths(), &current)?;
         if purge {
             let config = self.store.config()?;
             crate::source_storage::purge(self.paths(), config.app(id)?)?;
@@ -135,12 +233,8 @@ impl Headway {
     }
 
     pub fn save_settings(&self, settings: &Settings) -> Result<Settings> {
-        // Round-trip every field through the same validation as `settings set`.
-        let validated = Settings::KEYS
-            .iter()
-            .try_fold(Settings::default(), |acc, key| {
-                acc.with_key(key, &setting_value(settings, key))
-            })?;
+        settings.validate()?;
+        let validated = settings.clone();
         self.store.update_config(|config| {
             Ok((
                 Config {
@@ -189,7 +283,7 @@ impl Headway {
     /// Records `reference` (`latest`, a SHA or a tag) as installed without building it.
     pub async fn mark(&self, id: &str, reference: &str) -> Result<AppView> {
         self.store.config()?.app(id)?;
-        let lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let lock = AppLock::acquire_app_async(self.paths(), id).await?;
         let app = self.store.config()?.app(id)?.clone();
         let github =
             app.require_github("mark (other sources detect installed versions from the system)")?;
@@ -239,7 +333,17 @@ impl Headway {
         })?;
         if explicit {
             // The cache knows nothing about an arbitrary ref: recompute what is newer.
-            let _ = self.check(id).await;
+            if let Err(err) = self.check(id).await {
+                self.store.update_state(|state| {
+                    Ok((
+                        state.with_app(id, |state| AppState {
+                            last_error: Some(LastError::from_error(&err, "check")),
+                            ..state
+                        }),
+                        (),
+                    ))
+                })?;
+            }
         }
         drop(lock);
         self.get(id)

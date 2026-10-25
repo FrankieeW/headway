@@ -8,6 +8,26 @@ use crate::ipc_tests::packages::{executable, package_harness, script_app};
 use crate::ipc_tests::support::ok;
 use crate::state::AppState;
 
+/// One complete cycle with its auto-updates awaited, so assertions are stable.
+///
+/// Both phases run on their own task (like the app does) instead of being polled
+/// inline: the cycle future is large in debug builds, and awaiting it directly on
+/// the test task risks a stack overflow while a build/journalling path is hot.
+async fn cycle(harness: &crate::ipc_tests::support::Harness) {
+    let app = harness.app.handle().clone();
+    let ids = tokio::task::spawn({
+        let app = app.clone();
+        async move { super::run_cycle(&app).await }
+    })
+    .await
+    .unwrap();
+    tokio::task::spawn(async move {
+        crate::runner::run_updates(&app, ids, crate::runner::Origin::Background).await;
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn cycle_only_runs_known_updates_that_opt_in_and_are_idle() {
     // Given unknown, opted-out, busy, current, and eligible script sources.
@@ -38,7 +58,7 @@ async fn cycle_only_runs_known_updates_that_opt_in_and_are_idle() {
     let state = harness.app.state::<AppState>();
     let _busy = AppLock::acquire(&state.hw.paths().app_lock("busy"), "busy").unwrap();
     // When one full background check/update cycle completes.
-    super::run_cycle(harness.app.handle()).await;
+    cycle(&harness).await;
     // Then only the known, opted-in, idle update executed.
     assert_eq!(
         std::fs::read_to_string(harness.home.path().join("eligible.ran")).unwrap(),
@@ -104,7 +124,7 @@ esac
         settings["notify"] = json!(false);
         ok(&harness, "save_settings", json!({"settings":settings}));
         // When the complete scheduler cycle executes.
-        super::run_cycle(harness.app.handle()).await;
+        cycle(&harness).await;
         // Then the subprocess trace matches the configured policy exactly.
         let runs = harness.home.path().join("runs");
         if expected.is_empty() {
@@ -129,8 +149,8 @@ async fn cycle_pauses_failure_and_resume_allows_retry() {
     settings["notify"] = json!(false);
     ok(&harness, "save_settings", json!({"settings":settings}));
     // When repeated cycles encounter the failure.
-    super::run_cycle(harness.app.handle()).await;
-    super::run_cycle(harness.app.handle()).await;
+    cycle(&harness).await;
+    cycle(&harness).await;
     // Then only one attempt ran, until explicit resume permits a retry.
     let state = harness.app.state::<AppState>();
     assert!(state.hw.get("failing").unwrap().auto_update_paused);
@@ -139,7 +159,7 @@ async fn cycle_pauses_failure_and_resume_allows_retry() {
         "run\n"
     );
     state.hw.resume_auto_update("failing").unwrap();
-    super::run_cycle(harness.app.handle()).await;
+    cycle(&harness).await;
     assert_eq!(
         std::fs::read_to_string(harness.home.path().join("runs")).unwrap(),
         "run\nrun\n"

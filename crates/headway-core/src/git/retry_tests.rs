@@ -1,6 +1,44 @@
 use super::*;
 use crate::testing::{FakeTools, GitFixture};
 
+#[tokio::test]
+async fn clone_retry_removes_partial_git_directory_before_replay() {
+    let work = tempfile::tempdir().unwrap();
+    let dir = work.path().join("checkout");
+    let attempts = work.path().join("attempts");
+    let tools = FakeTools::new().tool(
+        "git",
+        r#"
+if [ "$1" = clone ]; then
+  if [ ! -f "$ATTEMPTS" ]; then
+    printf first > "$ATTEMPTS"
+    mkdir -p "$5/.git"
+    printf partial > "$5/partial"
+    printf 'fatal: could not resolve host: github.com\n' >&2
+    exit 128
+  fi
+  test ! -e "$5/partial" || exit 19
+  mkdir -p "$5/.git"
+fi
+exit 0
+"#,
+    );
+    let env = tools
+        .env()
+        .with_var("ATTEMPTS", attempts.display().to_string());
+    let cancel = CancellationToken::new();
+    Checkout {
+        dir: &dir,
+        env: &env,
+        cancel: &cancel,
+    }
+    .sync("https://github.com/o/r.git", &mut |_, _| {})
+    .await
+    .unwrap();
+    assert!(dir.join(".git").is_dir());
+    assert!(!dir.join("partial").exists());
+}
+
 const FLAKY_GIT: &str = r#"
 if [ "$3" = checkout ]; then
     count=0

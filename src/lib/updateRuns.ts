@@ -35,8 +35,19 @@ export interface UpdateRun {
 /** Keep at most this many log lines per app in memory. */
 export const MAX_RUN_LINES = 2000;
 
+/**
+ * A finished run keeps its output so the user can still read it; after this
+ * long it is dropped so a long-lived window does not accumulate one 2 000-line
+ * buffer per app it ever updated.
+ */
+export const FINISHED_RUN_TTL_MS = 5 * 60_000;
+
+/** Upper bound on cached runs, even while many updates are active. */
+export const MAX_CACHED_RUNS = 40;
+
 const runs = new Map<string, UpdateRun>();
 const listeners = new Set<() => void>();
+const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -58,6 +69,41 @@ function setRun(id: string, run: UpdateRun | undefined): void {
     runs.delete(id);
   } else {
     runs.set(id, run);
+  }
+  notify();
+}
+
+function clearEviction(id: string): void {
+  const timer = evictionTimers.get(id);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    evictionTimers.delete(id);
+  }
+}
+
+/** Drop a finished run after the TTL; an unfinished run is never evicted. */
+function scheduleEviction(id: string): void {
+  clearEviction(id);
+  const timer = setTimeout(() => {
+    evictionTimers.delete(id);
+    const run = runs.get(id);
+    if (run?.finished) setRun(id, undefined);
+  }, FINISHED_RUN_TTL_MS);
+  // Do not keep a test process or a hidden window alive for a log buffer.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  evictionTimers.set(id, timer);
+}
+
+/** Evict the oldest finished runs when the cache grows past its bound. */
+function evictOverflow(): void {
+  if (runs.size <= MAX_CACHED_RUNS) return;
+  const finished = [...runs.entries()]
+    .filter(([, run]) => run.finished)
+    .sort(([, a], [, b]) => a.startedAt - b.startedAt);
+  for (const [id] of finished) {
+    if (runs.size <= MAX_CACHED_RUNS) break;
+    clearEviction(id);
+    runs.delete(id);
   }
   notify();
 }
@@ -121,7 +167,9 @@ export function applyUpdateEvent(event: UpdateEvent): void {
 
 /** A run just started: drop the lines of the previous one. */
 export function markRunStarted(id: string): void {
+  clearEviction(id);
   setRun(id, createRun(Date.now()));
+  evictOverflow();
 }
 
 /** The backend reported the outcome of a run. */
@@ -139,10 +187,13 @@ export function markRunFinished(payload: UpdateFinished): void {
     lines,
     finished: { ok: payload.ok, message },
   });
+  scheduleEviction(id);
+  evictOverflow();
 }
 
 /** Forget a run (used when a start attempt fails immediately). */
 export function clearRun(id: string): void {
+  clearEviction(id);
   setRun(id, undefined);
 }
 
@@ -165,8 +216,10 @@ export function useUpdateRun(id: string | undefined): UpdateRun | undefined {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-/** Test helper: drop every run. */
+/** Test helper: drop every run and its eviction timer. */
 export function resetRuns(): void {
+  for (const timer of evictionTimers.values()) clearTimeout(timer);
+  evictionTimers.clear();
   runs.clear();
   notify();
 }

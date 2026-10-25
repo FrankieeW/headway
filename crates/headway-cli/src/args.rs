@@ -12,6 +12,16 @@ fn build_version() -> &'static str {
     VERSION.as_str()
 }
 
+fn output_default() -> &'static str {
+    static OUTPUT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        std::env::var("HEADWAY_OUTPUT")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "human".to_owned())
+    });
+    OUTPUT.as_str()
+}
+
 const AFTER_HELP: &str = "\
 Examples:
   headway add BurntSushi/ripgrep        track every commit, build with cargo (inferred)
@@ -34,16 +44,16 @@ Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 GitHub/network, 5 build/insta
     after_help = AFTER_HELP
 )]
 pub struct Cli {
-    /// Result format on stdout
-    #[arg(long, value_enum, global = true, env = "HEADWAY_OUTPUT", default_value_t = Format::Human)]
+    /// Result format on stdout (default: `HEADWAY_OUTPUT` or human; empty env is ignored)
+    #[arg(long, value_enum, global = true, default_value = output_default())]
     pub output: Format,
-    /// Same as `--output json`
+    /// Same as `--output json`; overrides --output and `HEADWAY_OUTPUT`
     #[arg(long, global = true)]
     pub json: bool,
-    /// Same as `--output xml`, the format meant for AI agents
+    /// XML for AI agents; overrides --json, --output and `HEADWAY_OUTPUT`
     #[arg(long, global = true)]
     pub ai: bool,
-    /// No progress or build output on stderr
+    /// No progress/build output on stderr or human follow-up hints on stdout
     #[arg(long, short, global = true, conflicts_with = "verbose")]
     pub quiet: bool,
     /// Stream full build output on stderr, also in --json/--ai mode
@@ -75,19 +85,19 @@ pub enum Command {
     /// Browse open pull requests (install with install-pr)
     Prs {
         id: String,
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
         page: u32,
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
         per_page: u32,
     },
-    /// Build a PR head: install-pr <id> <number> [--as <id>] [--dry-run]
+    /// Build a PR head: install-pr <id> <number[@sha]> [--as <id>] [--dry-run]
     InstallPr(crate::revision_args::RevisionArgs),
     /// Browse a stable page of repository commits
     Commits {
         id: String,
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
         page: u32,
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=100))]
         per_page: u32,
         #[arg(long)]
         anchor: Option<String>,
@@ -135,7 +145,7 @@ pub enum Command {
     Remove {
         /// App id
         id: String,
-        /// Also delete the cached source checkout and logs
+        /// Also delete the cached source checkout, logs and retained backups
         #[arg(long)]
         purge: bool,
         /// Show what would be removed
@@ -317,7 +327,7 @@ pub enum TokenCommand {
     Status,
     /// Store a token in the keychain (read from stdin or a hidden prompt)
     Set {
-        /// Read the token from stdin
+        /// Read the token from stdin (also automatic when stdin is piped)
         #[arg(long, conflicts_with = "from_gh")]
         stdin: bool,
         /// Copy the token of the logged-in GitHub CLI (`gh auth token`)

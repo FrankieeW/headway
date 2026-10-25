@@ -46,7 +46,7 @@ pub struct Headway {
     secrets: Arc<dyn SecretStore>,
     api: String,
     env_mode: EnvMode,
-    env_cache: tokio::sync::Mutex<Option<ShellEnv>>,
+    env_cache: tokio::sync::Mutex<(u64, Option<ShellEnv>)>,
     pub(crate) commit_metadata_cache: crate::commit_metadata::Cache,
 }
 
@@ -107,15 +107,20 @@ impl HeadwayBuilder {
             secrets: self.secrets.unwrap_or_else(|| Arc::new(KeychainStore)),
             api: self.api,
             env_mode: self.env_mode,
-            env_cache: tokio::sync::Mutex::new(self.env),
+            env_cache: tokio::sync::Mutex::new((0, self.env)),
             commit_metadata_cache: crate::commit_metadata::Cache::default(),
         })
     }
 }
 
 mod apps;
+mod check_summary;
 mod checks;
 mod commits;
+#[cfg(test)]
+mod engine_recovery_tests;
+#[cfg(test)]
+mod engine_regressions;
 mod github;
 mod installation;
 mod inventory;
@@ -144,7 +149,9 @@ mod variant_prepare;
 mod variants;
 mod views;
 
+pub use check_summary::{CheckFailure, CheckLatest, CheckRecord, CheckSummary};
 pub use installation::InstallationDetection;
+pub use policy::AutoUpdateReport;
 pub use presence::Presence;
 pub use pull_requests::PullRequestPage;
 pub use views::{AppStatus, AppView, LogFile, RemovedApp, TokenStatus};
@@ -176,28 +183,66 @@ impl Headway {
 
     /// The environment for git and builds (cached; see [`EnvMode`]).
     pub async fn env(&self) -> ShellEnv {
-        let mut cache = self.env_cache.lock().await;
-        if let Some(env) = cache.as_ref() {
-            return env.clone();
-        }
+        let generation = {
+            let cache = self.env_cache.lock().await;
+            if let Some(env) = cache.1.as_ref() {
+                return env.clone();
+            }
+            cache.0
+        };
+        // Shell startup may take seconds: never hold the cache guard across it.
         let env = match self.env_mode {
             EnvMode::Inherit => ShellEnv::current(),
             EnvMode::LoginShell => ShellEnv::login_shell().await,
         };
-        *cache = Some(env.clone());
-        env
+        let mut cache = self.env_cache.lock().await;
+        if cache.0 == generation {
+            cache.1.get_or_insert_with(|| env.clone()).clone()
+        } else {
+            env
+        }
     }
 
     /// Forgets the cached environment (after the user changed their shell setup).
     pub async fn reload_env(&self) {
-        *self.env_cache.lock().await = None;
+        let mut cache = self.env_cache.lock().await;
+        cache.0 = cache.0.wrapping_add(1);
+        cache.1 = None;
     }
 
     // ---- diagnostics -------------------------------------------------------
 
     pub async fn doctor(&self) -> DoctorReport {
         let env = self.env().await;
-        let mut checks = vec![doctor::config_check(&self.store)];
+        let config_check = match self.store.config() {
+            Ok(config) => doctor::DoctorCheck {
+                name: "config".into(),
+                status: doctor::CheckStatus::Ok,
+                message: format!(
+                    "{} app(s) tracked in {}",
+                    config.apps.len(),
+                    display_path(&self.paths().config_file())
+                ),
+                hint: None,
+            },
+            Err(error) => doctor::error_check("config", &error),
+        };
+        let state_check = match self.store.state() {
+            Ok(_) => doctor::DoctorCheck {
+                name: "state".into(),
+                status: doctor::CheckStatus::Ok,
+                message: format!(
+                    "State schema is supported; recovery backup: {}",
+                    self.paths()
+                        .state_file()
+                        .with_extension("json.bak")
+                        .display()
+                ),
+                hint: None,
+            },
+            Err(error) => doctor::error_check("state", &error),
+        };
+        let mut checks = vec![config_check, state_check];
         let uses_github = self.store.config().is_ok_and(|config| {
             config.apps.is_empty() || config.apps.iter().any(|app| app.github().is_some())
         });
@@ -262,23 +307,26 @@ struct Attempt<'a> {
     cancel: &'a CancellationToken,
 }
 
+fn candidate_error(error: Error) -> Error {
+    match error {
+        Error::Config(message) => Error::InvalidInput(message),
+        other => other,
+    }
+}
+
+fn target_matches(app: &TrackedApp, installed: &str, target: &str) -> bool {
+    match app.github().map(|github| &github.track) {
+        Some(Track::Commit { .. }) => ids_match(installed, target),
+        _ => installed == target,
+    }
+}
+
 fn ref_label(installed: &InstalledRef) -> String {
     match &installed.version {
         Some(version) if version != &installed.id => {
             format!("{version} ({})", short(&installed.id))
         }
         _ => short(&installed.id),
-    }
-}
-
-fn setting_value(settings: &Settings, key: &str) -> String {
-    match key {
-        "check_interval_minutes" => settings.check_interval_minutes.to_string(),
-        "notify" => settings.notify.to_string(),
-        "bin_dir" => settings.bin_dir.clone(),
-        "apps_dir" => settings.apps_dir.clone(),
-        "gh_fallback" => settings.gh_fallback.to_string(),
-        _ => String::new(),
     }
 }
 

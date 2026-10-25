@@ -7,9 +7,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { appsApi, errorMessage, systemApi, type CiState } from "@/lib/api";
+import { appsApi, errorMessage, type CiState } from "@/lib/api";
+import { openUrl } from "@/lib/systemActions";
 import { cn } from "@/lib/utils";
-import { shortSha } from "@/lib/format";
+import { shortSha, timeAgo } from "@/lib/format";
 
 const ciColors: Record<CiState, string> = {
   success: "bg-success-soft text-success-text",
@@ -32,7 +33,7 @@ export function CommitBadges({
   readonly sha: string;
   readonly autoLoad: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
   const forceRefresh = useRef(false);
   const [visible, setVisible] = useState(false);
@@ -94,7 +95,7 @@ export function CommitBadges({
       .join(" · ") || version;
   const ciLabel = t(`commitMetadata.ci.${ci}`);
   const releaseLabel = t(`commitMetadata.${release}`);
-  const open = (url: string) => void systemApi.openUrl(url);
+  const open = (url: string) => openUrl(url);
 
   return (
     <div
@@ -103,7 +104,9 @@ export function CommitBadges({
       aria-label={t("commitMetadata.label")}
       title={
         data
-          ? t("commitMetadata.checkedAt", { time: data.checked_at })
+          ? t("commitMetadata.checkedAt", {
+              time: timeAgo(data.checked_at, i18n.language),
+            })
           : undefined
       }
     >

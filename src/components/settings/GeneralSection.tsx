@@ -7,7 +7,12 @@ import {
   SettingsSwitchRow,
 } from "@/components/settings/SettingsLayout";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { useAutostart, useSetAutostart } from "@/hooks/useSettings";
+import {
+  useAutostart,
+  useSaveSettings,
+  useSetAutostart,
+  useSettings,
+} from "@/hooks/useSettings";
 import { setLanguage, type Language } from "@/i18n";
 import type { Theme } from "@/lib/themeBootstrap";
 
@@ -22,6 +27,17 @@ export function GeneralSection() {
   const { theme, setTheme } = useTheme();
   const { data: autostart } = useAutostart();
   const setAutostart = useSetAutostart();
+  const { data: settings } = useSettings();
+  const saveSettings = useSaveSettings({ silent: true });
+
+  const changeLanguage = (value: Language): void => {
+    setLanguage(value);
+    // The tray is rendered by the backend, so persist the choice instead of
+    // keeping it in localStorage only.
+    if (settings && settings.language !== value) {
+      saveSettings.mutate({ ...settings, language: value });
+    }
+  };
 
   return (
     <SettingsBlock title={t("settings.general")}>
@@ -51,14 +67,19 @@ export function GeneralSection() {
         </div>
 
         <div className="flex min-h-[28px] items-center justify-between gap-4 px-4 py-3">
-          <span className="text-body font-medium text-fg-1">
-            {t("settings.language")}
+          <span className="min-w-0">
+            <span className="block text-body font-medium text-fg-1">
+              {t("settings.language")}
+            </span>
+            <span className="block text-caption text-fg-3">
+              {t("settings.languageDescription")}
+            </span>
           </span>
           <SegmentedControl
             size="sm"
             aria-label={t("settings.language")}
             value={i18n.language.startsWith("zh") ? "zh" : "en"}
-            onValueChange={(value) => setLanguage(value as Language)}
+            onValueChange={(value) => changeLanguage(value as Language)}
             items={LANGUAGES.map((value) => ({
               value,
               label: value === "zh" ? "中文" : "English",

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Source only for portable app/release builds. Cargo tracks this SDK search flag,
 # so an artifact linked previously against LIBRARY_PATH is not silently reused.
+# Same credential boundary as Headway's process::Cmd for whatever the caller builds.
+_token_env="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/token-env.sh"
+. "$_token_env"
+unset _token_env
 unset LIBRARY_PATH
 headway_macos_sdk="$(xcrun --sdk macosx --show-sdk-path)"
 CARGO_ENCODED_RUSTFLAGS="$(node --input-type=module - "$headway_macos_sdk" <<'JS'

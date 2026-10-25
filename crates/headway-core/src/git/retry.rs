@@ -13,6 +13,42 @@ pub(super) async fn run(
     cancel: &CancellationToken,
     on_line: &mut (dyn FnMut(LogStream, &str) + Send),
 ) -> Result<()> {
+    run_inner(cmd, cancel, on_line, None).await
+}
+
+pub(super) async fn clone(
+    cmd: &Cmd,
+    dir: &std::path::Path,
+    cancel: &CancellationToken,
+    on_line: &mut (dyn FnMut(LogStream, &str) + Send),
+) -> Result<()> {
+    if !dir.is_absolute()
+        || dir.parent().is_none()
+        || dir.file_name().is_none()
+        || dir
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(Error::InvalidInput(
+            "clone destination must be an owned absolute child path".into(),
+        ));
+    }
+    run_inner(cmd, cancel, on_line, Some(dir)).await
+}
+
+async fn cleanup(dir: &std::path::Path) -> Result<()> {
+    let dir = dir.to_owned();
+    tokio::task::spawn_blocking(move || crate::install::remove_any(&dir))
+        .await
+        .map_err(|error| Error::io("clone cleanup worker", std::io::Error::other(error)))?
+}
+
+async fn run_inner(
+    cmd: &Cmd,
+    cancel: &CancellationToken,
+    on_line: &mut (dyn FnMut(LogStream, &str) + Send),
+    clone_dir: Option<&std::path::Path>,
+) -> Result<()> {
     // Git's transport diagnostics must be stable regardless of the user's locale.
     let cmd = cmd.clone().env("LC_ALL", "C");
     let mut attempt = 1;
@@ -20,7 +56,16 @@ pub(super) async fn run(
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        match process::run(&cmd, cancel, on_line).await {
+        if let Some(dir) = clone_dir {
+            cleanup(dir).await?;
+        }
+        let result = process::run(&cmd, cancel, on_line).await;
+        if result.is_err()
+            && let Some(dir) = clone_dir
+        {
+            cleanup(dir).await?;
+        }
+        match result {
             Err(error) if attempt < 3 && interrupted_transfer(&error) => {
                 let delay = Duration::from_secs(attempt);
                 attempt += 1;
@@ -48,7 +93,9 @@ fn interrupted_transfer(error: &Error) -> bool {
     tail.iter().any(|line| {
         line.contains("fatal: early EOF")
             || line.contains("unexpected disconnect while reading sideband packet")
-            || ["16", "18", "28", "52", "55", "56", "92"]
+            || line.to_ascii_lowercase().contains("could not resolve host")
+            || line.to_ascii_lowercase().contains("failed to connect")
+            || ["6", "7", "16", "18", "28", "52", "55", "56", "92"]
                 .iter()
                 .any(|code| line.contains(&format!("RPC failed; curl {code} ")))
     })

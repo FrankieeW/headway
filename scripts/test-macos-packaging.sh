@@ -2,9 +2,11 @@
 # Native signing regression, without building or launching the Headway GUI.
 # Pass an evidence directory to retain the tiny app, generated configs and logs.
 set -euo pipefail
-unset HEADWAY_GITHUB_TOKEN
 [ "$(uname -s)" = Darwin ] || { echo 'macOS required' >&2; exit 2; }
 root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# Same credential boundary as Headway's process::Cmd: the fixture build below must not
+# inherit a GitHub token from the caller's shell.
+. "$root/scripts/token-env.sh"
 if [ "$#" -gt 0 ]; then
   mkdir -p "$1"
   evidence="$(cd "$1" && pwd)"

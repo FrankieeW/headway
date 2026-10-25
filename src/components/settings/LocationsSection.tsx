@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSaveSettings, useSettings } from "@/hooks/useSettings";
-import { systemApi } from "@/lib/api";
+import { revealPath } from "@/lib/systemActions";
 
 /**
  * The locations section: where binaries and `.app` bundles are installed.
@@ -68,7 +68,7 @@ export function LocationsSection() {
             <Button
               variant="neutral"
               size="regular"
-              onClick={() => void systemApi.revealPath(binDir)}
+              onClick={() => revealPath(binDir)}
               disabled={!binDir}
               className="shrink-0"
             >
@@ -97,7 +97,7 @@ export function LocationsSection() {
             <Button
               variant="neutral"
               size="regular"
-              onClick={() => void systemApi.revealPath(appsDir)}
+              onClick={() => revealPath(appsDir)}
               disabled={!appsDir}
               className="shrink-0"
             >

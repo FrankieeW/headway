@@ -59,10 +59,6 @@ impl Checkout<'_> {
             let set_url = self.git().args(["remote", "set-url", "origin", url]);
             process::run(&set_url, self.cancel, on_line).await?;
         } else {
-            if self.dir.exists() {
-                std::fs::remove_dir_all(self.dir)
-                    .map_err(|err| Error::io_at("remove", self.dir, err))?;
-            }
             if let Some(parent) = self.dir.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|err| Error::io_at("create", parent, err))?;
@@ -74,7 +70,7 @@ impl Checkout<'_> {
                 url,
                 &self.dir.display().to_string(),
             ]);
-            process::run(&clone, self.cancel, on_line).await?;
+            retry::clone(&clone, self.dir, self.cancel, on_line).await?;
         }
         let fetch = self.git().args([
             "fetch",
@@ -93,6 +89,12 @@ impl Checkout<'_> {
         reference: &str,
         on_line: &mut (dyn FnMut(LogStream, &str) + Send),
     ) -> Result<String> {
+        if reference.is_empty()
+            || reference.starts_with('-')
+            || reference.chars().any(char::is_control)
+        {
+            return Err(Error::InvalidInput("invalid git checkout reference".into()));
+        }
         if !self.has_commit(reference).await {
             // Commits only reachable by SHA (e.g. from a pull request) need an explicit fetch.
             let fetch = self.git().args(["fetch", "origin", reference]);

@@ -7,8 +7,9 @@ an app bundle into `/Applications`. Each repository is followed one of two ways:
 
 - **Every commit** on a branch: clone once, check out the new commit, run your build command, install
   the result. Step through one commit at a time (`--next`) or jump to the latest.
-- **Releases** (or version tags): download the macOS asset for your CPU, verify GitHub's SHA-256
-  digest, unpack the `.tar.gz`/`.zip`/`.dmg`, and install it. Release tags can also be built from source.
+- **Releases** (or version tags): download the macOS asset for your CPU, verify its SHA-256
+  against GitHub's digest when one is published, unpack the `.tar.gz`/`.zip`/`.dmg`, and install it.
+  A missing digest is reported, not treated as verification. Release tags can also be built from source.
 
 It comes as a menu-bar app and a CLI that share the same state. The CLI is built to be driven by AI
 agents: structured XML/JSON output, stable error codes, self-description, and an agent skill.
@@ -176,8 +177,10 @@ Managed GitHub artifact installs retain up to two prior payloads. Restoration ch
 paths, digests, repository and tracking mode, then restores without a build. A failed post-install
 verification restores the prior payload and recorded ref. `verify_command` runs with
 `HEADWAY_INSTALLED_PATH`, `HEADWAY_REF`, `HEADWAY_SHA` and `HEADWAY_VERSION`; it is never run merely
-to detect installation. Headway bundles also undergo native signature verification. External
-package managers and builds that install themselves do not use this cache. Old cache manifests
+to detect installation. Headway's own app bundles also undergo native code-signature integrity
+verification; this is not publisher authentication or notarization. Other apps can opt into a
+post-install verifier. External package managers and builds that install themselves do not use
+this cache. Old cache manifests
 without source identity are rejected explicitly. `remove --purge` also removes retained backups.
 
 ## Source storage and the full commit history
@@ -298,12 +301,18 @@ headway --ai list            # XML (or --json); HEADWAY_OUTPUT=xml makes it the 
 headway --ai commands        # every command and flag, as data
 ```
 
-- stdout carries exactly one document: `ok`, `command`, `data` or `error`, and `next` (suggested
-  follow-up commands). Progress and build output go to stderr.
+- JSON/XML commands write one result document: `ok`, `command`, `data` or `error`, and `next`
+  (advisory follow-up commands). `ok` is false whenever the command exits nonzero; batch commands
+  retain per-item results, so inspect `data.results[].error` too. Progress and build output go to
+  stderr. Help/version retain conventional human output; a closed stdout pipe exits quietly.
+  Nested commands include an additive `subcommand` path. Signals on read-only commands may terminate
+  before a result document can be written.
 - Errors have a stable `code`, a `hint`, the last output lines of a failed build in `details`, and a
   stable exit code: `2` usage, `3` not found, `4` GitHub/network, `5` build/install failed, `6` busy,
   `7` cancelled, `1` other.
-- `--dry-run` on `update`, `add`, `edit` and `remove` shows the plan without doing anything.
+- `--dry-run` validates and previews `update`, `add`, `edit`, `remove`, imports and revision installs
+  without saving subscriptions or installed/check state. Read-only network/system probes may run;
+  previews are observations, not reservations against later filesystem or upstream changes.
 - The skill at [`skills/headway/SKILL.md`](skills/headway/SKILL.md) teaches an agent the workflow
   (install it next to your other skills).
 
@@ -351,18 +360,38 @@ token with read-only *Contents* and *Metadata* access is enough.
 
 ## Security notes
 
-- Source installs run the repository's build command on your machine. Track repositories you trust.
-- The token lives in the login keychain and is read through `/usr/bin/security` (secret on stdin). Git
-  gets it through `GIT_CONFIG_*` environment variables, never URLs or arguments. Build commands never
-  get it, and `HEADWAY_GITHUB_TOKEN` is stripped from git and build environments; variables you
-  export yourself (such as `GITHUB_TOKEN`) are inherited as in your shell.
-- Builds run as you, so like any program you run they could read that keychain item through
-  `/usr/bin/security`. Use a fine-grained token with read-only access.
-- Downloads are not quarantined, so Gatekeeper does not vet installed apps. The SHA-256 digest proves
-  the file is what the release published, not that the publisher is trustworthy.
-- Release downloads are checked against the SHA-256 digest GitHub publishes for each asset.
-- Installs are staged next to the destination and renamed into place, so a failed copy leaves the old
-  version working. A plain directory is never replaced: `dest` names the file or the `.app` itself.
+Source builds, npm lifecycle scripts, Homebrew recipes and official updater commands run as your
+user, without a sandbox. Only subscribe to publishers you trust, especially with automatic updates.
+`HEADWAY_GITHUB_TOKEN`, `GITHUB_TOKEN` and `GH_TOKEN` are removed from build/tool environments; git
+receives scoped credentials through `GIT_CONFIG_*`, never argv or URLs. This is not isolation:
+same-user code can still access the login keychain through `/usr/bin/security`. Prefer a read-only,
+fine-grained token.
+
+Release SHA-256 digests are compared when GitHub publishes them; missing digests produce a warning.
+Neither a digest nor an ad-hoc code signature proves publisher identity. Downloads are not quarantined,
+so Gatekeeper does not assess every installed app. The distributed Headway app is ad-hoc signed and
+not notarized unless a release explicitly states otherwise. See [SECURITY.md](SECURITY.md) for the
+trust model, reporting guidance and release verification.
+
+A plain directory is never replaced: `dest` names the file or `.app` itself. Managed installs keep
+recovery evidence for interrupted replacements; do not manually delete active locks or transaction
+files. Hand-edited configuration is validated, but CLI/app saves reserialize TOML and do not preserve
+comments.
+
+## Configuration and state compatibility
+
+Paths such as `bin_dir`, `apps_dir`, `dest` and `source_root` must be absolute or use `~/`; language
+is `system`, `en` or `zh`. Conflicting managed destinations are rejected rather than allowing two
+subscriptions to overwrite one payload. A legacy hand-written config that violates these safety
+rules must be repaired in the `config.toml` reported by `headway paths`; `doctor` preserves and
+reports the validation error. Headway cannot safely guess the working directory of an old relative
+path. Save a copy before hand-editing; normal CLI/app saves reserialize TOML comments.
+
+Legacy unversioned state is read as schema 0 and migrated in memory; future unsupported schemas
+are rejected unchanged. Before a state mutation, the previous valid document is retained as
+`state.json.bak` in the config directory. A corrupt state is never silently reset: preserve the
+original, inspect `headway doctor`, and restore a known-good backup explicitly. Resetting state
+loses installed provenance; finding a file again will not invent a commit.
 
 ## Development
 
@@ -387,6 +416,10 @@ manually. It checks both DMG digests and the source tag before opening a PR that
 `node scripts/update-homebrew-tap.mjs --tap-root /path/to/homebrew-tap`. PR publication requires
 `--apply --create-pr` and the official tap checkout. Release publication and tap PR merging remain
 separate steps.
+
+The [architecture guide](docs/architecture.md) describes lock ordering, storage, machine contracts,
+IPC parity and the release checklist. See [SECURITY.md](SECURITY.md) for trust boundaries and private
+vulnerability reporting.
 
 ## 中文简介
 

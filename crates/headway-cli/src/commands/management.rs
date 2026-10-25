@@ -131,53 +131,72 @@ pub async fn auto_update(hw: &Headway, ids: &[String], printer: &Printer) -> Res
         super::ops::interrupted().await;
         signal_cancel.cancel();
     });
-    let sink = TerminalSink::new(printer.log_level(), printer.palette.color);
+    let sink = TerminalSink::new(printer.log_level(), printer.stderr_color);
     let mut records = Vec::new();
     let mut updated_steps = 0;
     let mut exit = 0;
+    let mut details = String::new();
+    let mut next = Vec::new();
     for id in &ids {
-        match hw.auto_update(id, &sink, &cancel).await {
-            Ok(outcomes) => {
-                updated_steps += outcomes.iter().filter(|outcome| outcome.changed).count();
-                records.push(json!({"id":id,"ok":true,"outcomes":outcomes}));
-            }
-            Err(error) => {
-                if exit == 0 {
-                    exit = u8::try_from(error.exit_code()).unwrap_or(1);
-                }
-                records.push(
-                    json!({"id":id,"ok":false,"error":headway_core::ErrorInfo::from(&error)}),
-                );
-            }
+        let report = hw.auto_update_report(id, &sink, &cancel).await;
+        updated_steps += report
+            .outcomes
+            .iter()
+            .filter(|outcome| outcome.changed)
+            .count();
+        for outcome in &report.outcomes {
+            let _ = writeln!(
+                details,
+                "{}",
+                crate::human::outcome(printer.palette, outcome)
+            );
         }
+        if let Some(error) = &report.error {
+            if exit == 0 {
+                exit = u8::try_from(error.exit_code).unwrap_or(1);
+            }
+            let _ = writeln!(details, "{id}: {}", error.message);
+            next.push(format!("headway show {id}"));
+            next.push(format!("headway log {id}"));
+        }
+        let mut record = json!({"id":id,"ok":report.error.is_none(),"outcomes":report.outcomes});
+        if let Some(error) = report.error {
+            record["error"] = json!(error);
+        }
+        records.push(record);
     }
     watcher.abort();
     Ok(Reply::new(
         &json!({"results":records,"updated_steps":updated_steps}),
         format!(
-            "Automatic cycle: {} subscriptions, {updated_steps} update steps",
+            "Automatic cycle: {} subscriptions, {updated_steps} update steps\n{details}",
             ids.len()
         ),
     )
+    .next(next)
     .exit_code(exit))
 }
 
 pub fn backups(hw: &Headway, id: &str) -> Result<Reply> {
     let backups = hw.list_backups(id)?;
-    let human = backups
-        .iter()
-        .map(|backup| {
-            format!(
-                "{}  {}",
-                backup.id,
-                backup
-                    .installed
-                    .as_ref()
-                    .map_or("unknown", |installed| installed.id.as_str())
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let human = if backups.is_empty() {
+        format!("No retained backups for `{id}`.")
+    } else {
+        backups
+            .iter()
+            .map(|backup| {
+                format!(
+                    "{}  {}",
+                    backup.id,
+                    backup
+                        .installed
+                        .as_ref()
+                        .map_or("unknown", |installed| installed.id.as_str())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let next = backups
         .first()
         .map(|backup| vec![format!("headway restore {id} {}", backup.id)])
@@ -192,7 +211,7 @@ pub async fn restore(hw: &Headway, id: &str, backup_id: &str, printer: &Printer)
         super::ops::interrupted().await;
         signal_cancel.cancel();
     });
-    let sink = TerminalSink::new(printer.log_level(), printer.palette.color);
+    let sink = TerminalSink::new(printer.log_level(), printer.stderr_color);
     let outcome = hw.restore_backup(id, backup_id, &sink, &cancel).await;
     watcher.abort();
     let outcome = outcome?;

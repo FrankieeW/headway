@@ -11,6 +11,9 @@ use crate::config::{AppKind, Settings};
 use crate::error::{Error, Result};
 use crate::paths::expand_tilde;
 
+mod journal;
+pub(crate) use journal::{Transaction, reconcile, sync_dir, sync_tree};
+
 /// `dest` from the config, or `bin_dir`/`apps_dir` joined with `file_name`.
 pub fn resolve_dest(
     configured: Option<&str>,
@@ -32,49 +35,18 @@ pub fn resolve_dest(
 
 /// Copies `src` (a file or a bundle directory) to `dest`, replacing what is there.
 pub fn install(src: &Path, dest: &Path) -> Result<()> {
-    let parent = dest.parent().ok_or_else(|| {
-        Error::InvalidInput(format!("{} has no parent directory", dest.display()))
-    })?;
-    let name = dest
-        .file_name()
-        .ok_or_else(|| Error::InvalidInput(format!("{} has no file name", dest.display())))?
-        .to_string_lossy()
-        .into_owned();
-    fs::create_dir_all(parent).map_err(|err| Error::io_at("create", parent, err))?;
-
-    validate(src, dest)?;
-    let existing_dir = dest.is_dir() && !dest.is_symlink();
-
-    let staged = parent.join(format!(".{name}.headway-new"));
-    remove_any(&staged)?;
-    if src.is_dir() {
-        copy_dir(src, &staged)?;
-    } else {
-        fs::copy(src, &staged).map_err(|err| Error::io_at("copy to", &staged, err))?;
-        crate::archive::set_executable(&staged)?;
-    }
-
-    if !existing_dir {
-        if src.is_dir() && dest.is_symlink() {
-            // rename(2) can't put a directory over a symlink: drop the link first.
-            fs::remove_file(dest).map_err(|err| Error::io_at("replace", dest, err))?;
-        }
-        // rename(2) atomically replaces files and symlinks.
-        return fs::rename(&staged, dest).map_err(|err| Error::io_at("install", dest, err));
-    }
-    let old = parent.join(format!(".{name}.headway-old"));
-    remove_any(&old)?;
-    fs::rename(dest, &old).map_err(|err| Error::io_at("move aside", dest, err))?;
-    if let Err(err) = fs::rename(&staged, dest) {
-        let _ = fs::rename(&old, dest);
-        return Err(Error::io_at("install", dest, err));
-    }
-    remove_any(&old)
+    reconcile(dest, false)?;
+    Transaction::begin(src, dest)?.commit()
 }
 
 pub(crate) fn validate(src: &Path, dest: &Path) -> Result<()> {
     // Only a bundle replaces a bundle. A plain directory at `dest` is almost certainly a
     // mistyped destination (`--dest ~/.local/bin`) and must never be swapped out.
+    if src.is_dir() && !(is_bundle(src) && is_bundle(dest)) {
+        return Err(Error::InvalidInput(
+            "only .app/.framework bundle directories can be installed".into(),
+        ));
+    }
     let existing_dir = dest.is_dir() && !dest.is_symlink();
     if existing_dir && !(src.is_dir() && is_bundle(src) && is_bundle(dest)) {
         let example = dest.join(src.file_name().unwrap_or_default());
@@ -112,25 +84,11 @@ fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
     } else {
         ("cp", &["-a"])
     };
-    let output = std::process::Command::new(program)
-        .env_remove(crate::token::TOKEN_ENV)
-        .args(args)
-        .arg(src)
-        .arg(dest)
-        .output()
-        .map_err(|err| Error::io(format!("run {program}"), err))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(Error::CommandFailed {
-            command: format!("{program} {} {}", src.display(), dest.display()),
-            status: output.status.code(),
-            tail: String::from_utf8_lossy(&output.stderr)
-                .lines()
-                .map(str::to_owned)
-                .collect(),
-        })
-    }
+    crate::process::Cmd::new(program, &crate::shell::ShellEnv::current())
+        .args(args.iter().copied())
+        .arg(src.display().to_string())
+        .arg(dest.display().to_string())
+        .run_blocking()
 }
 
 pub(crate) fn remove_any(path: &Path) -> Result<()> {

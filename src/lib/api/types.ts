@@ -100,6 +100,9 @@ export interface SourceLookup {
   readonly notes: string[];
 }
 
+/** Persisted language: `system` follows the OS. */
+export type SettingsLanguage = "system" | "zh" | "en";
+
 export interface Settings {
   /** 0 disables background checks */
   check_interval_minutes: number;
@@ -107,6 +110,11 @@ export interface Settings {
   bin_dir: string;
   apps_dir: string;
   gh_fallback: boolean;
+  /**
+   * Language shared by the window and the tray. `system` follows the OS.
+   * Optional here so an older backend (before this field existed) still loads.
+   */
+  language?: SettingsLanguage | null;
 }
 
 export interface InstalledRef {
@@ -217,6 +225,11 @@ export interface UpdateOutcome {
   installed_path?: string | null;
   log_path?: string | null;
   duration_ms: number;
+  /**
+   * Integrity evidence that was unavailable (e.g. GitHub published no asset
+   * digest). Omitted by the backend when empty; never implies authenticity.
+   */
+  warnings?: string[] | null;
 }
 
 export type Stage =
@@ -244,12 +257,23 @@ export interface CommandError {
   hint?: string | null;
   /** last output lines of a failed build or install */
   details?: string[] | null;
+  /** process exit code the CLI would use for this failure (additive contract) */
+  exit_code?: number | null;
 }
 
 export interface UpdateFinished {
   app_id: string;
   ok: boolean;
   outcome?: UpdateOutcome | null;
+  error?: CommandError | null;
+}
+
+/**
+ * Outcome of one bounded automatic-update cycle. The desktop runner reports
+ * these in `UpdateFinished`; a failed cycle keeps the successful `outcomes`.
+ */
+export interface AutoUpdateReport {
+  outcomes: UpdateOutcome[];
   error?: CommandError | null;
 }
 
@@ -359,8 +383,38 @@ export interface RemovedApp {
   purged: boolean;
 }
 
+/**
+ * One per-app record of a `check` run — the same document the CLI prints
+ * (`results` in `headway check --all --json`).
+ */
+export interface CheckSummaryRecord {
+  id: string;
+  ok: boolean;
+  /** set when `ok` is true */
+  status?: AppStatus | null;
+  pending_count?: number | null;
+  /** only the fields the summary needs, not a full `Candidate` */
+  latest?: { id: string; title: string; date?: string | null } | null;
+  /** `ErrorInfo` when `ok` is false */
+  error?: CommandError | null;
+}
+
+/** A failed app in the aggregate summary (shared CLI/desktop compatibility field). */
+export interface CheckSummaryFailure {
+  id: string;
+  message: string;
+  /** present on newer backends; `message` stays the stable minimum */
+  error?: CommandError | null;
+}
+
+/**
+ * `check_all` summary. Newer backends return the CLI's shared `results`
+ * document plus the desktop-compatible `failed` aggregate; older backends
+ * only returned counts + `failed`, so both are optional in the type.
+ */
 export interface CheckAllSummary {
+  results?: CheckSummaryRecord[] | null;
   checked: number;
   with_updates: number;
-  failed: { id: string; message: string }[];
+  failed?: CheckSummaryFailure[] | null;
 }

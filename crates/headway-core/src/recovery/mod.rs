@@ -8,7 +8,10 @@ use crate::state::InstalledRef;
 
 mod cache;
 mod digest;
+pub(crate) use digest::digest as payload_digest;
 mod identity;
+mod journal;
+pub(crate) use journal::{commit, pending, reconcile};
 #[cfg(test)]
 mod tests;
 mod transaction;

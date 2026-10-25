@@ -1,5 +1,5 @@
-use crate::state::{AppState, CmdResult, UPDATE_FINISHED, apps_changed};
-use headway_core::{Error, ErrorInfo, RevisionRequest, VariantRequest};
+use crate::state::{AppState, CmdResult, UPDATE_FINISHED, admit_run, apps_changed};
+use headway_core::{ErrorInfo, RevisionRequest, VariantRequest};
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 pub(crate) enum RevisionTask {
@@ -32,10 +32,9 @@ impl Drop for RunGuard<'_> {
 
 pub(crate) fn spawn<R: Runtime>(app: AppHandle<R>, task: RevisionTask) -> CmdResult<()> {
     let id = task.run_id().to_owned();
-    let cancel = app
-        .state::<AppState>()
-        .begin_run(&id)
-        .ok_or_else(|| ErrorInfo::from(&Error::Busy(id.clone())))?;
+    // Same admission as `runner::spawn_update`: the command learns immediately
+    // that the start was refused.
+    let cancel = admit_run(&app.state::<AppState>(), &id)?;
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
         let _guard = RunGuard {

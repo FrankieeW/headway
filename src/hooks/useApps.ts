@@ -11,6 +11,7 @@ import {
   type Target,
   type TrackedApp,
 } from "@/lib/api";
+import { normalizeCheckSummary } from "@/lib/checkSummary";
 import { queryKeys } from "@/lib/query/keys";
 import { clearRun, markRunStarted } from "@/lib/updateRuns";
 
@@ -19,8 +20,9 @@ export function useApps() {
   return useQuery({
     queryKey: queryKeys.apps,
     queryFn: () => appsApi.list(),
-    // the CLI and the scheduler may change things behind our back
-    refetchInterval: 30_000,
+    // The CLI and the scheduler may change things behind our back: the backend
+    // pushes `headway://apps-changed` for that, and the window refetches on
+    // focus. No periodic whole-list polling is needed on top of those events.
   });
 }
 
@@ -94,16 +96,27 @@ export function useCheckAll() {
   return useMutation({
     mutationFn: () => opsApi.checkAll(),
     onSuccess: async (summary) => {
+      const normalized = normalizeCheckSummary(summary);
       await invalidate();
       toast.success(
         t("toast.checkAllDone", {
-          checked: summary.checked,
-          updates: summary.with_updates,
+          checked: normalized.checked,
+          updates: normalized.with_updates,
         }),
       );
-      if (summary.failed.length > 0) {
+      if (normalized.failures.length > 0) {
+        // The shared record shape carries the per-app error and its hint.
+        const details = normalized.failures
+          .slice(0, 3)
+          .map((failure) =>
+            failure.message
+              ? `${failure.id}: ${failure.message}`
+              : failure.id,
+          )
+          .join("\n");
         toast.error(
-          t("toast.checkAllFailed", { count: summary.failed.length }),
+          t("toast.checkAllFailed", { count: normalized.failures.length }),
+          details ? { description: details } : undefined,
         );
       }
     },
@@ -180,7 +193,9 @@ export function useAddApp(options: { silent?: boolean } = {}) {
 }
 
 /** Change the configuration of a tracked app. */
-export function useSaveApp(options: { silent?: boolean } = {}) {
+export function useSaveApp(
+  options: { silent?: boolean; toastSuccess?: boolean } = {},
+) {
   const { t } = useTranslation();
   const invalidate = useInvalidateApps();
 
@@ -188,7 +203,9 @@ export function useSaveApp(options: { silent?: boolean } = {}) {
     mutationFn: (app: TrackedApp) => appsApi.save(app),
     onSuccess: async (_result, app) => {
       await invalidate(app.id);
-      toast.success(t("toast.appSaved", { name: app.name }));
+      if (options.toastSuccess !== false) {
+        toast.success(t("toast.appSaved", { name: app.name }));
+      }
     },
     onError: (error) => {
       if (!options.silent) toast.error(errorMessage(error));

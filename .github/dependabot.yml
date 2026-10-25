@@ -1,0 +1,44 @@
+version: 2
+
+# Keeps the SHA-pinned GitHub Actions current (Dependabot rewrites the pinned commit and the
+# `# vX.Y.Z` comment) and surfaces dependency advisories for the npm and Rust trees.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-development:
+        dependency-type: development
+        patterns: ["*"]
+      npm-production:
+        dependency-type: production
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"

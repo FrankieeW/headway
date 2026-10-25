@@ -67,7 +67,7 @@ pub struct SourceStorageStatus {
 impl Headway {
     pub fn source_storage_status(&self, id: &str) -> Result<SourceStorageStatus> {
         crate::repo::validate_app_id(id)?;
-        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = AppLock::acquire_app(self.paths(), id)?;
         let config = self.store().config()?;
         let app = config.app(id)?;
         let github = app.require_github("source storage")?;

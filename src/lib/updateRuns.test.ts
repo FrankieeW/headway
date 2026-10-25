@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyUpdateEvent,
   clearRun,
+  FINISHED_RUN_TTL_MS,
   getUpdateRun,
   markRunFinished,
   markRunStarted,
+  MAX_CACHED_RUNS,
   MAX_RUN_LINES,
   reduceRun,
   resetRuns,
@@ -193,5 +195,52 @@ describe("the run store", () => {
     markRunStarted("app");
     clearRun("app");
     expect(getUpdateRun("app")).toBeUndefined();
+  });
+});
+
+describe("finished run lifecycle", () => {
+  beforeEach(() => {
+    resetRuns();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetRuns();
+    vi.useRealTimers();
+  });
+
+  it("evicts a finished run after its TTL but keeps an active one", () => {
+    markRunStarted("done");
+    markRunFinished({ app_id: "done", ok: true });
+    markRunStarted("active");
+
+    // When the finished run is older than the TTL.
+    vi.advanceTimersByTime(FINISHED_RUN_TTL_MS + 1);
+
+    // Then its output buffer is released, while the active run stays.
+    expect(getUpdateRun("done")).toBeUndefined();
+    expect(getUpdateRun("active")).toBeDefined();
+  });
+
+  it("keeps a finished run visible before the TTL", () => {
+    markRunStarted("done");
+    markRunFinished({ app_id: "done", ok: true });
+    vi.advanceTimersByTime(FINISHED_RUN_TTL_MS - 1);
+    expect(getUpdateRun("done")?.finished?.ok).toBe(true);
+  });
+
+  it("bounds the number of cached runs by evicting the oldest finished one", () => {
+    for (let index = 0; index < MAX_CACHED_RUNS + 5; index += 1) {
+      const id = `app-${index}`;
+      markRunStarted(id);
+      markRunFinished({ app_id: id, ok: true });
+    }
+
+    const cached = Array.from({ length: MAX_CACHED_RUNS + 5 }, (_, index) =>
+      getUpdateRun(`app-${index}`),
+    ).filter(Boolean);
+    expect(cached.length).toBeLessThanOrEqual(MAX_CACHED_RUNS);
+    // The oldest finished runs are the ones dropped.
+    expect(getUpdateRun("app-0")).toBeUndefined();
   });
 });

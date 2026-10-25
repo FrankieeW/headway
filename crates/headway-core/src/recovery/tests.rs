@@ -8,6 +8,8 @@ use crate::{CancellationToken, Headway, NullSink};
 use std::fs;
 use std::path::PathBuf;
 
+#[path = "crash_tests.rs"]
+mod crash;
 #[path = "identity_tests.rs"]
 mod identity;
 #[path = "identity_update_tests.rs"]
@@ -84,6 +86,7 @@ impl Fixture {
                 ))
             })
             .unwrap();
+        super::commit(self.hw.paths(), &self.app)?;
         Ok(())
     }
 

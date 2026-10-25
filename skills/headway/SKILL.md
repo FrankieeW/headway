@@ -13,11 +13,19 @@ share config, state, logs and locks, so whatever you do here shows up in the app
 ## Rules
 
 - Always pass `--ai` (XML) or `--json` and read **stdout only**; progress and build output go to
-  stderr. Every result is one document: `ok`, `command`, `data` (or `error`) and `next`.
-- Branch on `error.code` and the exit code, never on message text. Read `error.hint` and the
-  `next` commands: they are the intended follow-ups.
+  stderr. Results contain `ok`, `command`, `data` (or `error`) and `next`. `ok` agrees with the exit
+  status. Nested commands also expose a `subcommand` path without renaming the existing `command`.
+- Branch on the exit code and `error.code`, never message text. Batch failures retain their data:
+  inspect `data.results[].ok` and `data.results[].error` even when top-level `ok` is false.
+  Auto-update failures can include completed `outcomes`; do not say no update occurred without
+  reading them. `error.hint` and `next` are advisory, not authorization or installation evidence.
+- Help/version keep conventional text output. A consumer closing stdout early exits quietly;
+  signals on read-only commands can terminate before a document is written. `--ai` takes precedence
+  over `--json`, which takes precedence over `--output` and then `HEADWAY_OUTPUT`.
 - Run `headway update <id> --dry-run --ai` before the first real update of an app and tell the user
-  what will be built or downloaded and where it will be installed.
+  what will be built or downloaded and where it will be installed. A dry run validates without saving
+  subscriptions or installed/check state, but can run read-only network/version probes; it is not a
+  reservation against concurrent file, permission or upstream-ref changes.
 - Source builds execute code from the repository. Only add repositories the user asked for.
 - GitHub and npm support `--next` and `--to <ref-or-version>` (including rollback). Homebrew
   and script sources only support the latest version. Plain `update` installs the latest.
@@ -139,7 +147,11 @@ Recipe entries can be edited after import. Saved
 Notify never installs; next applies a bounded sequence; latest installs once. Paused apps remain
 paused until resumed. `auto-update [ids...]` runs one saved-policy cycle (empty means all);
 manual `update --all` remains an explicit latest update. Policy/source changes are checked again
-between steps. A verification/update failure may set `auto_update_paused`.
+between steps. A verification/update failure may set `auto_update_paused`. If a later step fails,
+completed `outcomes` remain in the result; report both the successful steps and the error.
+`check` and desktop `check_all` share `results`, `checked` and `with_updates`; `failed` is an additive
+compatibility projection. Per-item errors include the same `code`, `exit_code`, `hint` and `details`
+as ordinary errors.
 
 ## Verification and restore
 
@@ -152,7 +164,12 @@ app lock, validates paths/digests and repository/track identity, and records his
 source backups are hidden from listing and cannot be restored; malformed or legacy unbound
 manifests remain explicit errors. Purge removes them. Package-manager/script installs and
 self-installing builds do not use this cache. A failed verifier rolls back the payload/ref; an
-emergency rollback failure reports the rescue path and clears installed certainty.
+emergency rollback failure reports the rescue path and clears installed certainty. Warnings in
+plans and update `warnings` must be relayed: an asset without GitHub's SHA-256 digest is not described
+as verified. A digest or native code-signature integrity check does not authenticate the publisher.
+Other apps can opt into a `verify_command`; unsigned source builds are not universally rejected.
+Interrupted managed replacements retain recovery evidence; do not delete transaction files or
+active locks to force a retry.
 
 ## Source retention, paginated commits and alternate repositories
 
@@ -199,7 +216,8 @@ headway --ai install-pr <id> 123@<head-sha> --as <test-id>
 ```
 
 `prs` lists open PRs; resolving an explicit number also supports closed PRs and deleted forks.
-Use the returned `reference` (`pr:<number>@<40-character-sha>`) for reviewed operations.
+Use the `reference` returned by `commit-options` (`pr:<number>@<40-character-sha>`) for reviewed
+operations; `prs` returns the head SHA as `pull_requests[].head.sha`, not a `reference` field.
 The PR head is rechecked before installation; a moved/force-pushed head is rejected without
 installing a different revision. PR versions require a source recipe and never use ordinary
 release assets. `--as` keeps the parent payload; omit it for an in-place install. Successful
@@ -285,11 +303,20 @@ headway --ai edit zed --cask true
 | `command_failed` | 5 | the build or install failed; `error.details` has the last output lines |
 | `checksum_mismatch` | 5 | download corrupted or tampered with; do not install, retry |
 | `busy` | 6 | another update of this app is running (CLI or app); wait |
+| `store_busy` | 6 | another configuration write has not released the store lock; retry |
+| `config_changed` | 1 | configuration changed during an observation; re-run with current config |
+| `recovery_pending` | 1 | an interrupted install needs reconciliation; check the app before editing/reusing its id |
 | `cancelled` | 7 | interrupted |
 | `keychain_error`, `io_error` | 1 | environment problem; see the message |
 
-`check` and multi-app `update` report per-app results in `data` and exit with the first failure's
-code. `doctor` exits 1 when a check fails.
+`check`, multi-app `update` and `auto-update` report per-app results in `data` and exit with the
+first failure's code. `doctor` exits 1 when a diagnostic fails; `discover` exits 1 on provider errors.
+`ok` is false in these cases even though the successful per-item data is retained.
+
+State schema versions are additive; unsupported future versions are rejected unchanged. Before a
+state mutation, the previous valid state is saved as `state.json.bak` beside the state file. A corrupt
+state is never silently reset: inspect `doctor` and the error, preserve the original, and restore the
+known-good backup only with the user's authorization. Deleting state discards installed provenance.
 
 ## Statuses
 
@@ -302,9 +329,16 @@ invent a SHA. If the recorded managed artifact disappears, update can reinstall 
 
 ## Environment
 
-- `HEADWAY_OUTPUT=xml|json` sets the default output format.
+- `HEADWAY_OUTPUT=human|xml|json` sets the default output format; an empty value is treated as unset.
 - `HEADWAY_GITHUB_TOKEN` overrides the keychain token for one process.
 - `HEADWAY_HOME=<dir>` keeps config, cache and logs under one directory (sandboxes, tests).
+- `HEADWAY_API_URL` changes the authenticated API destination (GitHub Enterprise or loopback tests).
+  Only use a trusted HTTPS endpoint; plaintext HTTP is for loopback test servers, not arbitrary hosts.
 - Build commands run with `/bin/sh -c` in the checkout and get `HEADWAY_REF`, `HEADWAY_SHA`,
-  `HEADWAY_VERSION`, `HEADWAY_BIN_DIR`, `HEADWAY_APPS_DIR`. Headway's token is never passed to them
-  (`HEADWAY_GITHUB_TOKEN` is stripped); variables the user exported, like `GITHUB_TOKEN`, are inherited.
+  `HEADWAY_VERSION`, `HEADWAY_BIN_DIR`, `HEADWAY_APPS_DIR`. `HEADWAY_GITHUB_TOKEN`, `GITHUB_TOKEN` and
+  `GH_TOKEN` are stripped. Builds still run as the user and can access the login keychain: only trust
+  authorized publishers and prefer read-only fine-grained tokens.
+- `headway settings get`/`settings set` inspect and edit shared settings (`headway --ai commands`
+  describes the exact subcommands). `language` is `system`, `en` or `zh` for native desktop text.
+  `completions` generates shell completion; `--limit`, `--tail`, `--quiet`, `--verbose`, `--no-color`
+  and `--output` are described in the command tree. `log` is plain text only in human mode.

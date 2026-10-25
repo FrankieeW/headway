@@ -64,6 +64,22 @@ i18n.use(initReactI18next).init({
   debug: false,
 });
 
+/** Keep `<html lang>` in sync so screen readers use the right language. */
+const applyDocumentLanguage = (language: Language): void => {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+};
+
+i18n.on("languageChanged", (language) => {
+  if (isLanguage(language)) {
+    applyDocumentLanguage(language);
+  }
+});
+
+applyDocumentLanguage(getInitialLanguage());
+
 /** 切换界面语言，并写入本地存储 */
 export const setLanguage = (language: Language): void => {
   if (!isLanguage(language)) {
@@ -73,6 +89,7 @@ export const setLanguage = (language: Language): void => {
   if (i18n.language !== language) {
     void i18n.changeLanguage(language);
   }
+  applyDocumentLanguage(language);
 
   try {
     if (window.localStorage.getItem(LANGUAGE_STORAGE_KEY) !== language) {

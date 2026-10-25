@@ -15,6 +15,14 @@ pub struct Stamp {
     pub target: String,
 }
 
+pub fn stamp_of(bytes: &[u8]) -> Stamp {
+    #[derive(Deserialize)]
+    struct VersionReply {
+        data: Stamp,
+    }
+    serde_json::from_slice::<VersionReply>(bytes).unwrap().data
+}
+
 pub struct Repo {
     _temp: tempfile::TempDir,
     pub root: PathBuf,
@@ -43,7 +51,10 @@ impl Repo {
             root.join("scripts/build-headway.sh"),
         )
         .unwrap();
+        // These are the real build helper's sourced dependencies, not independent copies.
         for script in [
+            "token-env.sh",
+            "apple-signing-env.sh",
             "macos-build-env.sh",
             "macos-bundle-config.sh",
             "verify-macos-artifacts.sh",
@@ -138,7 +149,7 @@ impl Repo {
             "artifact {relative}: {}",
             String::from_utf8_lossy(&output.stdout)
         );
-        serde_json::from_slice(&output.stdout).unwrap()
+        stamp_of(&output.stdout)
     }
 
     pub fn tools(&self) -> String {
@@ -153,6 +164,7 @@ impl Repo {
             .env("PATH", std::env::join_paths(paths).unwrap())
             .env("HEADWAY_HOME", home)
             .env("HEADWAY_API_URL", api)
+            .env("FIXTURE_BUILD_REPOSITORY", "octo/headway")
             .env("FIXTURE_LOG", self.home.join("tools.log"))
             .env("HEADWAY_GITHUB_TOKEN", "fixture-token-must-not-reach-tools");
         cmd

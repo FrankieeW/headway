@@ -23,7 +23,8 @@ import {
   requestFromDraft,
   type RevisionDraft,
 } from "./revisionDraft";
-import { appsApi, errorMessage, systemApi, type AppView } from "@/lib/api";
+import { appsApi, errorMessage, type AppView } from "@/lib/api";
+import { openUrl } from "@/lib/systemActions";
 import {
   useRevisionInstall,
   type RevisionJob,
@@ -200,7 +201,7 @@ export function RevisionDialog({
                     variant="ghost"
                     onClick={() => {
                       if (result.release_url)
-                        void systemApi.openUrl(result.release_url);
+                        openUrl(result.release_url);
                     }}
                   >
                     {t("versions.openRelease")}

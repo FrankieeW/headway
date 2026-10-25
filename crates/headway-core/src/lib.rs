@@ -64,8 +64,10 @@ pub use revision_history::CommitPage;
 pub use revision_install::{
     LaunchOutcome, RevisionMethod, RevisionOptions, RevisionRequest, VariantRequest,
 };
-pub use service::PullRequestPage;
 pub use service::{AppStatus, AppView, EnvMode, Headway, LogFile, RemovedApp, TokenStatus};
+pub use service::{
+    AutoUpdateReport, CheckFailure, CheckLatest, CheckRecord, CheckSummary, PullRequestPage,
+};
 pub use service::{InstallationDetection, Presence};
 pub use source::{BrewSource, GithubSource, NpmSource, ScriptSource, Source, SourceSpec};
 pub use source_options::{GithubOptions, RepositoryOption, RepositorySettings, VariantInfo};

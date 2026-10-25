@@ -2,6 +2,11 @@
   "name": "headway",
   "version": "0.4.2",
   "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=12"
+  },
   "type": "module",
   "license": "MIT",
   "description": "Track GitHub repositories and keep locally-built apps and CLI tools up to date",
@@ -15,7 +20,11 @@
     "build:renderer": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "check:ipc": "node scripts/check-ipc-contract.mjs",
+    "check:release-version": "node scripts/check-release-version.mjs",
+    "check:signing-env": "bash scripts/apple-signing-env.test.sh",
+    "check:token-env": "bash scripts/token-env.test.sh"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -45,7 +54,7 @@
     "@tauri-apps/cli": "^2.10.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
-    "@types/node": "^20.0.0",
+    "@types/node": "^22.12.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
@@ -60,6 +69,6 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.3.0",
     "vite": "^7.3.0",
-    "vitest": "^2.0.5"
+    "vitest": "^5.0.5"
   }
 }

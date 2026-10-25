@@ -1,2 +1,10 @@
+# Only esbuild may run install-time build scripts; everything else is blocked by default.
 allowBuilds:
   esbuild: true
+
+# `postcss-selector-parser` <7.1.6 has a quadratic-complexity advisory
+# (GHSA-rj75-hqrm-r3gf), reachable only through Tailwind's own dev/build tooling.
+# 7.x is still CommonJS, so the Tailwind 3 plugin stack keeps working; verified with
+# `pnpm build:renderer` and `pnpm test`.
+overrides:
+  postcss-selector-parser: ^7.1.7

@@ -1,14 +1,20 @@
 //! The window's IPC contract: commands invoked with exactly the JSON the
 //! TypeScript layer (`src/lib/api/index.ts`) sends, through the real handler.
 
+mod admission;
 mod build_info;
+mod contract;
+pub(crate) mod host;
 mod installation_origins;
 mod management;
 mod operations;
 pub(crate) mod packages;
 mod revisions;
+mod self_subscription;
+mod settings_ops;
 mod sources;
 pub(crate) mod support;
+mod system;
 
 use std::process::Command;
 use std::time::{Duration, Instant};

@@ -1,7 +1,6 @@
 //! Checks, updates and baselines.
 
-use headway_core::{AppView, LogFile, Target, UpdatePlan};
-use serde::Serialize;
+use headway_core::{AppView, CheckSummary, Error, ErrorInfo, LogFile, Target, UpdatePlan};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::runner::{self, Origin};
@@ -19,44 +18,16 @@ pub async fn check_app<R: Runtime>(
     result.cmd()
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct Failure {
-    id: String,
-    message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CheckAllSummary {
-    checked: usize,
-    with_updates: usize,
-    failed: Vec<Failure>,
-}
-
+/// Checks every tracked app. The record shape is core's, so the desktop and the
+/// CLI print the same document (`checked`, `with_updates`, `failed`, `results`).
 #[tauri::command]
 pub async fn check_all<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
-) -> CmdResult<CheckAllSummary> {
-    let results = state.hw.check_many(&[]).await.cmd()?;
+) -> CmdResult<CheckSummary> {
+    let summary = state.hw.check_summary(&[]).await.cmd()?;
     apps_changed(&app);
-    let with_updates = results
-        .iter()
-        .filter(|(_, result)| result.as_ref().is_ok_and(AppView::has_update))
-        .count();
-    let failed = results
-        .iter()
-        .filter_map(|(id, result)| {
-            result.as_ref().err().map(|err| Failure {
-                id: id.clone(),
-                message: err.to_string(),
-            })
-        })
-        .collect();
-    Ok(CheckAllSummary {
-        checked: results.len(),
-        with_updates,
-        failed,
-    })
+    Ok(summary)
 }
 
 #[tauri::command]
@@ -69,6 +40,10 @@ pub async fn plan_update(
 }
 
 /// Starts an update in the background; progress arrives as events.
+///
+/// The run is admitted synchronously: a refused start (another process updating,
+/// the app quitting, or a restart already admitted) is reported here instead of
+/// leaving the window with a run that never emits events.
 #[tauri::command]
 pub async fn start_update<R: Runtime>(
     app: AppHandle<R>,
@@ -76,14 +51,10 @@ pub async fn start_update<R: Runtime>(
     id: String,
     target: Target,
 ) -> CmdResult<()> {
-    let view = state.hw.get(&id).cmd()?;
-    if view.busy {
-        return Err(headway_core::ErrorInfo::from(&headway_core::Error::Busy(
-            id,
-        )));
+    if state.hw.get(&id).cmd()?.busy {
+        return Err(ErrorInfo::from(&Error::Busy(id)));
     }
-    runner::spawn_update(&app, id, target, Origin::User);
-    Ok(())
+    runner::spawn_update(&app, id, target, Origin::User)
 }
 
 #[tauri::command]

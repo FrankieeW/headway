@@ -1,7 +1,7 @@
-//! Printing results: exactly one document on stdout per run, in the chosen
-//! format; progress and logs go to stderr.
+//! One result document on stdout; progress and logs go to stderr.
+//! Help/version deliberately retain clap's conventional human output.
 
-use std::io::IsTerminal as _;
+use std::io::{IsTerminal as _, Write as _};
 use std::process::ExitCode;
 
 use clap::ValueEnum;
@@ -13,6 +13,10 @@ use crate::args::Cli;
 use crate::human::Palette;
 use crate::progress::LogLevel;
 use crate::xml;
+
+#[path = "output_usage.rs"]
+mod usage;
+pub use usage::usage_error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Format {
@@ -58,20 +62,23 @@ impl Reply {
 pub struct Printer {
     pub format: Format,
     pub palette: Palette,
+    pub stderr_color: bool,
     quiet: bool,
     verbose: bool,
+    subcommand: Option<&'static str>,
 }
 
 impl Printer {
     pub fn new(cli: &Cli) -> Self {
-        let color = !cli.no_color
-            && std::env::var_os("NO_COLOR").is_none()
-            && std::io::stdout().is_terminal();
         Self {
             format: cli.format(),
-            palette: Palette { color },
+            palette: Palette {
+                color: color_enabled(cli.no_color, std::io::stdout().is_terminal()),
+            },
+            stderr_color: color_enabled(cli.no_color, std::io::stderr().is_terminal()),
             quiet: cli.quiet,
             verbose: cli.verbose,
+            subcommand: cli.command.subcommand(),
         }
     }
 
@@ -87,31 +94,39 @@ impl Printer {
     }
 
     pub fn success(&self, command: &str, reply: &Reply) -> ExitCode {
-        match self.format {
+        let next: Vec<_> = reply
+            .next
+            .iter()
+            .map(|hint| format_hint(self.format, hint))
+            .collect();
+        let text = match self.format {
             Format::Human => {
-                let text = reply.human.trim_end();
-                if !text.is_empty() {
-                    println!("{text}");
+                let mut text = reply.human.trim_end().to_owned();
+                if !next.is_empty() && !self.quiet {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&self.palette.dim(&format!("next: {}", next.join("  |  "))));
                 }
-                if !reply.next.is_empty() && !self.quiet {
-                    println!(
-                        "{}",
-                        self.palette
-                            .dim(&format!("next: {}", reply.next.join("  |  ")))
-                    );
-                }
+                text
             }
             Format::Json => {
-                let document =
-                    json!({"ok": true, "command": command, "data": reply.data, "next": reply.next});
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&document).unwrap_or_default()
-                );
+                let mut document = json!({"ok": reply.exit_code == 0, "command": command,
+                    "data": reply.data, "next": next});
+                if let Some(path) = self.subcommand {
+                    document["subcommand"] = json!(path);
+                }
+                serde_json::to_string_pretty(&document).unwrap_or_default()
             }
-            Format::Xml => println!("{}", xml::document(command, true, &reply.data, &reply.next)),
-        }
-        ExitCode::from(reply.exit_code)
+            Format::Xml => xml::document_with_subcommand(
+                command,
+                self.subcommand,
+                reply.exit_code == 0,
+                &reply.data,
+                &next,
+            ),
+        };
+        stdout(&text, reply.exit_code)
     }
 
     pub fn failure(&self, command: &str, err: &Error) -> ExitCode {
@@ -120,123 +135,87 @@ impl Printer {
         match self.format {
             Format::Human => {
                 let p = Palette {
-                    color: self.palette.color && std::io::stderr().is_terminal(),
+                    color: self.stderr_color,
                 };
-                eprintln!("{} {}", p.red("error:"), info.message);
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "{} {}",
+                    p.red("error:"),
+                    info.message
+                );
                 let skip = info.details.len().saturating_sub(15);
                 for line in &info.details[skip..] {
-                    eprintln!("  {}", p.dim(line));
+                    let _ = writeln!(std::io::stderr().lock(), "  {}", p.dim(line));
                 }
                 if let Some(hint) = &info.hint {
-                    eprintln!("{} {hint}", p.yellow("hint:"));
+                    let _ = writeln!(std::io::stderr().lock(), "{} {hint}", p.yellow("hint:"));
                 }
+                ExitCode::from(exit_code)
             }
             Format::Json => {
-                let document = json!({"ok": false, "command": command, "error": error_value(&info, exit_code)});
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&document).unwrap_or_default()
-                );
+                let mut document =
+                    json!({"ok": false, "command": command, "error": info, "next": []});
+                if let Some(path) = self.subcommand {
+                    document["subcommand"] = json!(path);
+                }
+                stdout(
+                    &serde_json::to_string_pretty(&document).unwrap_or_default(),
+                    exit_code,
+                )
             }
-            Format::Xml => {
-                let data = json!({"error": error_value(&info, exit_code)});
-                println!("{}", xml::document(command, false, &data, &[]));
-            }
+            Format::Xml => stdout(
+                &xml::document_with_subcommand(
+                    command,
+                    self.subcommand,
+                    false,
+                    &json!({"error": info}),
+                    &[],
+                ),
+                exit_code,
+            ),
         }
-        ExitCode::from(exit_code)
     }
 }
 
-fn error_value(info: &ErrorInfo, exit_code: u8) -> Value {
-    let mut value = serde_json::to_value(info).unwrap_or(Value::Null);
-    if let Value::Object(map) = &mut value {
-        map.insert("exit_code".to_owned(), json!(exit_code));
-    }
-    value
+/// Explicit disables win over force-color; stdout and stderr have separate TTY policy.
+fn color_enabled(disabled: bool, tty: bool) -> bool {
+    !disabled
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::env::var("TERM").as_deref() != Ok("dumb")
+        && std::env::var("CLICOLOR").as_deref() != Ok("0")
+        && (tty
+            || std::env::var("CLICOLOR_FORCE").is_ok_and(|value| !value.is_empty() && value != "0"))
 }
 
-/// Reports a command line clap could not parse, structured when JSON/XML was asked for.
-pub fn usage_error(err: &clap::Error) -> ExitCode {
-    use clap::error::ErrorKind;
-    let code = u8::try_from(err.exit_code()).unwrap_or(2);
-    if matches!(
-        err.kind(),
-        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
-    ) || requested_format() == Format::Human
+fn format_hint(format: Format, hint: &str) -> String {
+    let flag = match format {
+        Format::Human => return hint.to_owned(),
+        Format::Json => "--json",
+        Format::Xml => "--ai",
+    };
+    if hint
+        .split_whitespace()
+        .any(|part| part == flag || part == format!("'{flag}'"))
     {
-        let _ = err.print();
+        return hint.to_owned();
+    }
+    hint.strip_prefix("headway ")
+        .map_or_else(|| hint.to_owned(), |tail| format!("headway {flag} {tail}"))
+}
+
+/// A closed downstream pipe is normal consumption, not a panic or an error document.
+/// Other write errors are failures and must not be silently reported as success.
+fn stdout(text: &str, code: u8) -> ExitCode {
+    if text.is_empty() {
         return ExitCode::from(code);
     }
-    let message = err.render().to_string();
-    let info = ErrorInfo {
-        code: "usage_error".to_owned(),
-        message: message
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim_start_matches("error: ")
-            .to_owned(),
-        hint: Some(
-            "run `headway commands --json` (or `headway <command> --help`) for the accepted flags"
-                .to_owned(),
-        ),
-        details: message
-            .lines()
-            .skip(1)
-            .filter(|line| !line.trim().is_empty())
-            .map(str::to_owned)
-            .collect(),
-    };
-    let value = error_value(&info, code);
-    let command = requested_command();
-    match requested_format() {
-        Format::Xml => println!(
-            "{}",
-            xml::document(&command, false, &json!({"error": value}), &[])
-        ),
-        _ => println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({"ok": false, "command": command, "error": value}))
-                .unwrap_or_default()
-        ),
-    }
-    ExitCode::from(code)
-}
-
-/// The subcommand named on a command line that failed to parse, if any.
-fn requested_command() -> String {
-    let command = <Cli as clap::CommandFactory>::command();
-    let names: Vec<&str> = command
-        .get_subcommands()
-        .map(clap::Command::get_name)
-        .collect();
-    std::env::args()
-        .skip(1)
-        .find(|arg| names.contains(&arg.as_str()))
-        .unwrap_or_default()
-}
-
-/// The format asked for on a command line that failed to parse.
-fn requested_format() -> Format {
-    let args: Vec<String> = std::env::args().collect();
-    let flag_value = args
-        .iter()
-        .position(|arg| arg == "--output")
-        .and_then(|index| args.get(index + 1).cloned())
-        .or_else(|| {
-            args.iter()
-                .find_map(|arg| arg.strip_prefix("--output=").map(str::to_owned))
-        })
-        .or_else(|| std::env::var("HEADWAY_OUTPUT").ok());
-    if args.iter().any(|arg| arg == "--ai") {
-        Format::Xml
-    } else if args.iter().any(|arg| arg == "--json") {
-        Format::Json
-    } else {
-        match flag_value.as_deref() {
-            Some("json") => Format::Json,
-            Some("xml") => Format::Xml,
-            _ => Format::Human,
+    let newline = if text.ends_with('\n') { "" } else { "\n" };
+    match write!(std::io::stdout().lock(), "{text}{newline}") {
+        Ok(()) => ExitCode::from(code),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::from(code),
+        Err(error) => {
+            let _ = writeln!(std::io::stderr().lock(), "error: write stdout: {error}");
+            ExitCode::FAILURE
         }
     }
 }

@@ -4,20 +4,43 @@ impl Headway {
     // ---- checks and updates ------------------------------------------------
 
     pub async fn check(&self, id: &str) -> Result<AppView> {
+        self.check_with_cancel(id, &CancellationToken::new()).await
+    }
+
+    pub async fn check_with_cancel(&self, id: &str, cancel: &CancellationToken) -> Result<AppView> {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let app = self.store.config()?.app(id)?.clone();
-        let lock = if app.source.detects_installed() {
-            Some(AppLock::acquire(&self.paths().app_lock(id), id)?)
+        let lock = if app.source.detects_installed() || crate::recovery::pending(self.paths(), &app)
+        {
+            Some(AppLock::acquire_app_async(self.paths(), id).await?)
         } else {
             None
         };
         let app = self.store.config()?.app(id)?.clone();
-        self.check_unlocked(&app, &CancellationToken::new()).await?;
+        if lock.is_some() {
+            crate::recovery::reconcile(self.paths(), &app)?;
+        }
+        self.check_unlocked(&app, cancel).await?;
         drop(lock);
         self.get(id)
     }
 
     /// Checks several apps (all when `ids` is empty) with bounded concurrency.
     pub async fn check_many(&self, ids: &[String]) -> Result<Vec<(String, Result<AppView>)>> {
+        self.check_many_with_cancel(ids, &CancellationToken::new())
+            .await
+    }
+
+    pub async fn check_many_with_cancel(
+        &self,
+        ids: &[String],
+        cancel: &CancellationToken,
+    ) -> Result<Vec<(String, Result<AppView>)>> {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let ids: Vec<String> = if ids.is_empty() {
             self.store
                 .config()?
@@ -26,17 +49,25 @@ impl Headway {
                 .map(|app| app.id)
                 .collect()
         } else {
-            ids.to_vec()
+            let mut seen = std::collections::HashSet::new();
+            ids.iter()
+                .filter(|id| seen.insert((*id).clone()))
+                .cloned()
+                .collect()
         };
         let results = stream::iter(ids)
             .map(|id| async move {
-                let result = self.check(&id).await;
+                let result = self.check_with_cancel(&id, cancel).await;
                 (id, result)
             })
             .buffered(CHECK_CONCURRENCY)
             .collect()
             .await;
         Ok(results)
+    }
+
+    pub async fn check_summary(&self, ids: &[String]) -> Result<CheckSummary> {
+        Ok(CheckSummary::from_results(&self.check_many(ids).await?))
     }
 
     pub(super) async fn check_unlocked(
@@ -63,35 +94,36 @@ impl Headway {
             return Err(Error::Cancelled);
         }
         if self.store.config()?.app(id)?.source != app.source {
-            return Err(Error::Busy(id.clone()));
+            return Err(Error::ConfigChanged(id.clone()));
         }
-        self.store.update_state(|state| {
-            let next = state.with_app(id, |app_state| match &outcome {
-                Ok(checked) => {
-                    let app_state = sync_installed(app_state, &checked.installed);
-                    AppState {
-                        // An update may have finished while GitHub was asked: re-center on it.
-                        last_check: Some(match app_state.installed.as_ref() {
-                            Some(now)
-                                if !app.source.detects_installed()
-                                    && Some(&now.id) != checked_against.as_ref() =>
-                            {
-                                checked.result.clone().rebased_on(&now.id)
-                            }
-                            _ => checked.result.clone(),
-                        }),
-                        // A good check clears check errors, but not a failed update.
-                        last_error: app_state.last_error.filter(|err| err.during != "check"),
-                        ..app_state
+        self.store
+            .update_state_for_source(id, &app.source, |state| {
+                let next = state.with_app(id, |app_state| match &outcome {
+                    Ok(checked) => {
+                        let app_state = sync_installed(app_state, &checked.installed);
+                        AppState {
+                            // An update may have finished while GitHub was asked: re-center on it.
+                            last_check: Some(match app_state.installed.as_ref() {
+                                Some(now)
+                                    if !app.source.detects_installed()
+                                        && Some(&now.id) != checked_against.as_ref() =>
+                                {
+                                    checked.result.clone().rebased_on(&now.id)
+                                }
+                                _ => checked.result.clone(),
+                            }),
+                            // A good check clears check errors, but not a failed update.
+                            last_error: app_state.last_error.filter(|err| err.during != "check"),
+                            ..app_state
+                        }
                     }
-                }
-                Err(err) => AppState {
-                    last_error: Some(LastError::from_error(err, "check")),
-                    ..app_state
-                },
-            });
-            Ok((next, ()))
-        })?;
+                    Err(err) => AppState {
+                        last_error: Some(LastError::from_error(err, "check")),
+                        ..app_state
+                    },
+                });
+                Ok((next, ()))
+            })?;
         outcome?;
         Ok(())
     }
@@ -119,7 +151,7 @@ impl Headway {
     }
 }
 
-fn sync_installed(state: AppState, sync: &InstalledSync) -> AppState {
+pub(super) fn sync_installed(state: AppState, sync: &InstalledSync) -> AppState {
     let InstalledSync::Detected(version) = sync else {
         return state;
     };

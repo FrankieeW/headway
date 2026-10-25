@@ -106,6 +106,14 @@ fn without_dry_run() -> String {
     format!("headway {}", args.join(" "))
 }
 
+/// Candidate configs originate in CLI arguments, not an on-disk config file.
+fn input_error(error: headway_core::Error) -> headway_core::Error {
+    match error {
+        headway_core::Error::Config(message) => headway_core::Error::InvalidInput(message),
+        other => other,
+    }
+}
+
 /// What to run after looking at `view`.
 fn next_for(view: &AppView) -> Vec<String> {
     let id = &view.app.id;
@@ -117,10 +125,6 @@ fn next_for(view: &AppView) -> Vec<String> {
             }
             next
         }
-        AppStatus::NotInstalled if view.app.github().is_some() => vec![
-            format!("headway update {id}"),
-            format!("headway mark {id} latest"),
-        ],
         AppStatus::NotInstalled | AppStatus::Unknown => {
             vec![format!("headway update {id} --dry-run")]
         }

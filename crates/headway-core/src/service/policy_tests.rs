@@ -230,3 +230,16 @@ async fn policy_failure_after_one_step_returns_error_and_stops() {
     assert_eq!(history.len(), 2);
     assert_eq!(history.iter().filter(|entry| entry.ok).count(), 1);
 }
+
+#[tokio::test]
+async fn report_retains_success_before_a_later_failure() {
+    let (root, _tools, hw) = fixture(AutoUpdateMode::Next, 3);
+    std::fs::write(root.path().join("fail"), "1.2.0").unwrap();
+    let report = hw
+        .auto_update_report("tool", &NullSink, &CancellationToken::new())
+        .await;
+    assert_eq!(report.outcomes.len(), 1);
+    assert_eq!(report.outcomes[0].to.id, "1.1.0");
+    assert_eq!(report.error.unwrap().code, "command_failed");
+    assert_eq!(hw.get("tool").unwrap().installed.unwrap().id, "1.1.0");
+}

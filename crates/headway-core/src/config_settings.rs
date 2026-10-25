@@ -18,6 +18,8 @@ pub struct Settings {
     pub apps_dir: String,
     /// Use `gh auth token` when no token is configured.
     pub gh_fallback: bool,
+    /// Desktop language: follow the system, English, or Chinese.
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -28,18 +30,39 @@ impl Default for Settings {
             bin_dir: "~/.local/bin".to_owned(),
             apps_dir: "/Applications".to_owned(),
             gh_fallback: true,
+            language: "system".to_owned(),
         }
     }
 }
 
 impl Settings {
-    pub const KEYS: [&'static str; 5] = [
+    pub const KEYS: [&'static str; 6] = [
         "check_interval_minutes",
         "notify",
         "bin_dir",
         "apps_dir",
         "gh_fallback",
+        "language",
     ];
+
+    /// Validates settings loaded from disk as well as API input.
+    pub fn validate(&self) -> Result<()> {
+        for (key, value) in [("bin_dir", &self.bin_dir), ("apps_dir", &self.apps_dir)] {
+            non_empty_path(value).map_err(|err| Error::Config(format!("settings.{key}: {err}")))?;
+        }
+        // Zero disables checking; the longest useful interval is one year.
+        if self.check_interval_minutes > 525_600 {
+            return Err(Error::Config(
+                "settings.check_interval_minutes must be between 0 and 525600".into(),
+            ));
+        }
+        if !["system", "en", "zh"].contains(&self.language.as_str()) {
+            return Err(Error::Config(
+                "settings.language must be system, en or zh".into(),
+            ));
+        }
+        Ok(())
+    }
 
     /// Returns a copy with `key` set from its string form (as typed on the command line).
     pub fn with_key(&self, key: &str, value: &str) -> Result<Self> {
@@ -63,6 +86,10 @@ impl Settings {
                 bin_dir: non_empty_path(value)?,
                 ..self.clone()
             },
+            "language" => Self {
+                language: value.to_owned(),
+                ..self.clone()
+            },
             "apps_dir" => Self {
                 apps_dir: non_empty_path(value)?,
                 ..self.clone()
@@ -74,6 +101,8 @@ impl Settings {
                 )));
             }
         };
+        next.validate()
+            .map_err(|err| Error::InvalidInput(err.to_string()))?;
         Ok(next)
     }
 }
@@ -87,7 +116,7 @@ fn parse_bool(value: &str) -> Result<bool> {
 }
 
 fn non_empty_path(value: &str) -> Result<String> {
-    if value.starts_with('/') || value.starts_with('~') {
+    if value.starts_with('/') || value == "~" || value.starts_with("~/") {
         Ok(value.to_owned())
     } else {
         Err(Error::InvalidInput(format!(

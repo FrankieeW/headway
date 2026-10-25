@@ -45,6 +45,12 @@ pub enum Error {
     },
     #[error("`{0}` is busy: another update of it is running")]
     Busy(String),
+    #[error("configuration of `{0}` changed while the operation was running")]
+    ConfigChanged(String),
+    #[error("configuration store is busy: {0}")]
+    StoreBusy(String),
+    #[error("app `{0}` has an unfinished installation requiring recovery")]
+    RecoveryPending(String),
     #[error("cancelled")]
     Cancelled,
     #[error("keychain error: {0}")]
@@ -64,6 +70,8 @@ pub enum Error {
 pub struct ErrorInfo {
     pub code: String,
     pub message: String,
+    #[serde(default = "default_exit_code")]
+    pub exit_code: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
     /// Last output lines of a failed command.
@@ -76,6 +84,7 @@ impl From<&Error> for ErrorInfo {
         Self {
             code: err.code().to_owned(),
             message: err.to_string(),
+            exit_code: err.exit_code(),
             hint: err.hint(),
             details: match err {
                 Error::CommandFailed { tail, .. } => tail.clone(),
@@ -83,6 +92,10 @@ impl From<&Error> for ErrorInfo {
             },
         }
     }
+}
+
+const fn default_exit_code() -> i32 {
+    1
 }
 
 fn exit_suffix(status: Option<i32>) -> String {
@@ -128,6 +141,9 @@ impl Error {
             Self::Checksum { .. } => "checksum_mismatch",
             Self::CommandFailed { .. } => "command_failed",
             Self::Busy(_) => "busy",
+            Self::ConfigChanged(_) => "config_changed",
+            Self::StoreBusy(_) => "store_busy",
+            Self::RecoveryPending(_) => "recovery_pending",
             Self::Cancelled => "cancelled",
             Self::Keychain(_) => "keychain_error",
             Self::Io { .. } => "io_error",
@@ -145,9 +161,14 @@ impl Error {
             Self::AppNotFound(_) | Self::RemoteNotFound(_) | Self::NoAsset(_) => 3,
             Self::Auth(_) | Self::RateLimited { .. } | Self::GitHub { .. } | Self::Network(_) => 4,
             Self::CommandFailed { .. } | Self::Checksum { .. } => 5,
-            Self::Busy(_) => 6,
+            Self::Busy(_) | Self::StoreBusy(_) => 6,
             Self::Cancelled => 7,
-            Self::Config(_) | Self::Keychain(_) | Self::Io { .. } | Self::Parse { .. } => 1,
+            Self::RecoveryPending(_)
+            | Self::Config(_)
+            | Self::ConfigChanged(_)
+            | Self::Keychain(_)
+            | Self::Io { .. }
+            | Self::Parse { .. } => 1,
         }
     }
 
@@ -174,9 +195,27 @@ impl Error {
             Self::Busy(_) => {
                 "wait for the running update to finish, or cancel it in the Headway app"
             }
+            Self::RecoveryPending(id) => {
+                return Some(format!(
+                    "restore the original tracked configuration if it was removed by hand, then run `headway check {id}` to reconcile; preserve the transaction journal under the config directory"
+                ));
+            }
+            Self::StoreBusy(_) => "retry after the other configuration write finishes",
+            Self::ConfigChanged(_) => "re-run the command using the current app configuration",
             Self::Network(_) => "check the network connection or proxy settings",
             Self::Checksum { .. } => {
                 "the download was corrupted or tampered with; retry, and report it upstream if it persists"
+            }
+            Self::Parse { what, .. } if what.ends_with("state.json") => {
+                "preserve state.json; restore the validated state.json.bak beside it if available; an intentional reset loses installed provenance and requires re-detection or an explicit mark"
+            }
+            Self::Config(message) if message.contains("unsupported state schema") => {
+                "upgrade Headway to read this state schema; preserve state.json and state.json.bak unchanged"
+            }
+            Self::Config(message)
+                if message.contains("share destination") || message.contains("settings.") =>
+            {
+                "locate config.toml with `headway paths` and repair the named settings or destinations by hand before retrying"
             }
             Self::Config(_) | Self::Parse { .. } => {
                 "fix the file shown above (see `headway paths`), or edit the app with `headway edit`"
@@ -233,5 +272,17 @@ mod tests {
         );
         assert!(Error::AppNotFound("x".into()).hint().is_some());
         assert!(Error::Cancelled.hint().is_none());
+    }
+    #[test]
+    fn additive_exit_code_preserves_old_error_packets() {
+        let old: ErrorInfo =
+            serde_json::from_str(r#"{"code":"io_error","message":"old"}"#).unwrap();
+        assert_eq!(old.exit_code, 1);
+        let error = Error::Busy("tool".into());
+        assert_eq!(ErrorInfo::from(&error).exit_code, 6);
+        assert_eq!(
+            Error::RecoveryPending("tool".into()).code(),
+            "recovery_pending"
+        );
     }
 }

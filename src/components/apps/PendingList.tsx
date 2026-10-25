@@ -5,7 +5,8 @@ import { Check, ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { systemApi, type AppView, type Candidate } from "@/lib/api";
+import { type AppView, type Candidate } from "@/lib/api";
+import { openUrl } from "@/lib/systemActions";
 import { firstLine, shortSha, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -147,7 +148,7 @@ function CandidateRow({
         {candidate.url ? (
           <button
             type="button"
-            onClick={() => void systemApi.openUrl(candidate.url as string)}
+            onClick={() => openUrl(candidate.url as string)}
             title={t("pending.openSource")}
             aria-label={t("pending.openSource")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-control text-fg-2 transition-colors hover:bg-surface hover:text-fg-1"

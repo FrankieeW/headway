@@ -1,12 +1,13 @@
 //! `headway`: keep apps and CLI tools built from GitHub current on macOS, one
 //! commit or one release at a time.
 //!
-//! Built to be driven by people and by AI agents alike: every run prints exactly
-//! one result document on stdout (human text, `--json`, or `--ai` XML), streams
-//! progress on stderr, and exits with a stable code (see `headway --help`).
+//! Result documents use human text, `--json`, or `--ai` XML; progress is on stderr.
+//! Help/version retain conventional text. Signals can stop read-only commands
+//! before a result; closed downstream pipes are handled quietly.
 
 mod args;
 mod args_fields;
+mod args_paths;
 mod commands;
 mod describe;
 mod fields;

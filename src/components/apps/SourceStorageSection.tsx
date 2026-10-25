@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { appsApi, errorMessage, systemApi, type TrackedApp } from "@/lib/api";
+import { appsApi, errorMessage, type TrackedApp } from "@/lib/api";
+import { revealPath } from "@/lib/systemActions";
 import { Button } from "@/components/ui/button";
 
 export function SourceStorageSection({ app }: { readonly app: TrackedApp }) {
@@ -54,7 +55,7 @@ export function SourceStorageSection({ app }: { readonly app: TrackedApp }) {
             variant="neutral"
             disabled={!status.data.exists}
             onClick={() => {
-              if (status.data) void systemApi.revealPath(status.data.path);
+              if (status.data) revealPath(status.data.path);
             }}
           >
             {t("versions.revealSource")}

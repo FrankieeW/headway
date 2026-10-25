@@ -87,7 +87,9 @@ async fn bounded_text_preserves_exact_limit_missing_and_http_errors() {
         ),
         (
             "upstream",
-            ResponseTemplate::new(500).set_body_string("x".repeat(1000)),
+            ResponseTemplate::new(500)
+                .insert_header("retry-after", "0")
+                .set_body_string("x".repeat(1000)),
         ),
     ] {
         Mock::given(path(format!("/repos/o/r/contents/{name}")))

@@ -1,4 +1,4 @@
-use super::{AppView, Headway, normalized};
+use super::{AppView, Headway, candidate_error, normalized};
 use crate::inventory::InventoryReport;
 use crate::recipes::AppRecipe;
 use crate::{Error, Result, TrackedApp};
@@ -60,12 +60,23 @@ impl Headway {
                     auto_update: false,
                     ..app
                 })
+                .map_err(candidate_error)
             })
             .collect::<Result<_>>()?;
         if apps.is_empty() {
             return Ok(Vec::new());
         }
-        validate_batch(&self.store.config()?.apps, &apps)?;
+        let mut config = self.store.config()?;
+        validate_batch(&config.apps, &apps)?;
+        config.apps.extend(apps.iter().cloned());
+        config.validate().map_err(candidate_error)?;
+        for app in &apps {
+            if crate::recovery::pending(self.paths(), app) {
+                return Err(Error::RecoveryPending(app.id.clone()));
+            }
+            self.validate_app_destination(&config, app)
+                .map_err(candidate_error)?;
+        }
         Ok(apps)
     }
 
@@ -78,17 +89,30 @@ impl Headway {
         if apps.is_empty() {
             return Ok(Vec::new());
         }
-        let state = self.store.state()?;
-        self.store.update_config(|mut config| {
-            // Recheck the current config while holding the store lock: a plan is not a reservation.
-            validate_batch(&config.apps, &apps)?;
-            let mut views = Vec::with_capacity(apps.len());
-            for app in apps {
-                views.push(AppView::new(app.clone(), state.app(&app.id), false));
-                config.apps.push(app);
+        // Deterministic lock order; no app lock is ever acquired inside the store lock.
+        let mut ids: Vec<_> = apps.iter().map(|app| app.id.clone()).collect();
+        ids.sort();
+        let locks = ids
+            .iter()
+            .map(|id| crate::lock::AppLock::acquire_app(self.paths(), id))
+            .collect::<Result<Vec<_>>>()?;
+        for app in &apps {
+            if crate::recovery::pending(self.paths(), app) {
+                return Err(Error::RecoveryPending(app.id.clone()));
             }
-            Ok((config, views))
-        })
+        }
+        self.store.register(|mut config, mut state| {
+            validate_batch(&config.apps, &apps)?;
+            for app in &apps {
+                state = state.without_app(&app.id);
+            }
+            config.apps.extend(apps.iter().cloned());
+            config.validate().map_err(candidate_error)?;
+            Ok((config, state, ()))
+        })?;
+        drop(locks);
+        // Filesystem presence probes happen after releasing the global store lock.
+        apps.iter().map(|app| self.get(&app.id)).collect()
     }
 
     /// Editable examples; choosing a recipe does not install or persist it.

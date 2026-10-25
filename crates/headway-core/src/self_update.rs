@@ -69,6 +69,23 @@ impl Headway {
         let bytes = serde_json::to_vec(request).map_err(|e| Error::parse("restart request", &e))?;
         crate::store::write_atomic(&self.restart_file(), &bytes)
     }
+    /// Cheap, non-mutating gate for the desktop monitor: is there an actionable restart
+    /// request for *this* installation?
+    ///
+    /// Reads only `self-restart.json` and canonicalizes the current executable — no bundle
+    /// validation, no installed-CLI probe, no `config.toml`/`state.json` parse, and no field
+    /// is flipped. `take_self_restart_when` remains the consuming operation. A missing,
+    /// unreadable or unparsable request file is "nothing pending" (the next tick retries).
+    pub fn self_restart_pending(&self) -> Result<bool> {
+        let Some(request) = self.restart_request().ok().flatten() else {
+            return Ok(false);
+        };
+        if request.dispatched || request.confirmed || request.restart_error.is_some() {
+            return Ok(false);
+        }
+        let exe = std::env::current_exe().map_err(|e| Error::io("current executable", e))?;
+        Ok(inside_bundle(&exe, &request.app_path))
+    }
     pub async fn self_update_status(&self) -> Result<SelfUpdateStatus> {
         let app = crate::cli_link::bundle(self, None).await?;
         let installed_path = app.as_ref().map(|p| p.join("Contents/MacOS/headway"));
@@ -265,6 +282,10 @@ mod tests {
         assert!(!hw.take_self_restart().unwrap());
     }
 }
+
+#[cfg(test)]
+#[path = "self_update_pending_tests.rs"]
+mod pending_tests;
 
 #[cfg(test)]
 mod admission_tests {

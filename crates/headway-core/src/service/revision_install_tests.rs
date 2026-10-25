@@ -123,6 +123,7 @@ impl Fixture {
         let payload = self.dir.path().join("release");
         fs::create_dir(&payload).unwrap();
         fs::write(payload.join("tool"), script("download")).unwrap();
+        crate::archive::set_executable(&payload.join("tool")).unwrap();
         let archive = self.dir.path().join("tool-macos-universal.tar.gz");
         let status = Command::new("tar")
             .arg("-czf")

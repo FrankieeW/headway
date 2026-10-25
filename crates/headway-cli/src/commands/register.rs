@@ -70,7 +70,9 @@ pub async fn add(hw: &Headway, args: &AddArgs, p: Palette) -> Result<Reply> {
         _ => notes,
     };
 
-    app.validate().map_err(|err| with_add_hint(err, &app))?;
+    app.validate()
+        .map_err(|err| super::input_error(with_add_hint(err, &app)))?;
+    let app = hw.validate_add(app)?;
 
     let mut human = String::new();
     if args.dry_run {
@@ -92,13 +94,10 @@ pub async fn add(hw: &Headway, args: &AddArgs, p: Palette) -> Result<Reply> {
     );
     append_notes(&mut human, &notes);
     let data = json!({"app": view.app, "notes": notes, "saved": true});
-    let mut next = vec![
+    let next = vec![
         format!("headway check {id}"),
         format!("headway update {id} --dry-run"),
     ];
-    if view.app.github().is_some() {
-        next.push(format!("headway mark {id} latest"));
-    }
     Ok(Reply::new(&data, human).next(next))
 }
 

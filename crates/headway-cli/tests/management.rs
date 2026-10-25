@@ -7,6 +7,8 @@ fn command(home: &std::path::Path) -> Command {
     let mut command = Command::new(assert_cmd::cargo::cargo_bin!("headway"));
     command
         .env("HEADWAY_HOME", home)
+        .env("HEADWAY_API_URL", "http://127.0.0.1:1")
+        .env("HEADWAY_GITHUB_TOKEN", "test-token")
         .env("NO_COLOR", "1")
         .env_remove("HEADWAY_OUTPUT");
     command

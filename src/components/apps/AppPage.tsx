@@ -59,7 +59,9 @@ export function AppPage({
   const startUpdate = useStartUpdate();
   const cancelUpdate = useCancelUpdate();
   const markInstalled = useMarkInstalled();
-  const saveApp = useSaveApp();
+  // Switching updates is an inline control: no success toast, but a failed
+  // save must reject so the switch can roll back (and still shows the error).
+  const saveApp = useSaveApp({ toastSuccess: false });
   const removeApp = useRemoveApp();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -105,8 +107,8 @@ export function AppPage({
   const latest = view.last_check?.latest ?? null;
   const installing = startUpdate.isPending || view.busy;
 
-  const handleAutoUpdate = (value: boolean) => {
-    saveApp.mutate({
+  const handleAutoUpdate = (value: boolean): Promise<unknown> =>
+    saveApp.mutateAsync({
       ...view.app,
       auto_update: value,
       update_policy:
@@ -114,7 +116,6 @@ export function AppPage({
           ? { ...view.app.update_policy, mode: "latest" }
           : (view.app.update_policy ?? DEFAULT_UPDATE_POLICY),
     });
-  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

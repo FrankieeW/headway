@@ -34,8 +34,18 @@ fn package_and_script_checks_report_installed_versions_and_unknown_status() {
     assert_eq!(checked["status"], "unknown");
     assert_eq!(checked["last_check"]["status"], "unknown");
     assert_eq!(checked["pending_count"], 0);
+    // The document is core's shared `CheckSummary`: the CLI's `check --all` and
+    // the window receive the same `results`/`checked`/`with_updates`/`failed`.
     let summary = ok(&harness, "check_all", json!({}));
-    assert_eq!(summary, json!({"checked":4, "with_updates":3, "failed":[]}));
+    assert_eq!(summary["checked"], 4);
+    assert_eq!(summary["with_updates"], 3);
+    assert_eq!(summary["failed"], json!([]));
+    let results = summary["results"].as_array().unwrap();
+    assert_eq!(results.len(), 4);
+    for record in results {
+        assert!(record["id"].is_string(), "{record}");
+        assert!(record["ok"].is_boolean(), "{record}");
+    }
 }
 
 #[test]

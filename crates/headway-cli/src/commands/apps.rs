@@ -108,7 +108,8 @@ pub(super) fn toml_of(app: &TrackedApp) -> String {
 pub fn edit(hw: &Headway, args: &EditArgs, p: Palette) -> Result<Reply> {
     let current = hw.get(&args.id)?.app;
     let app = fields::apply(current.clone(), &args.fields)?;
-    app.validate()?;
+    app.validate().map_err(super::input_error)?;
+    let app = hw.validate_replace(app)?;
     let changed = app != current;
     if args.dry_run || !changed {
         let note = if changed {
@@ -144,15 +145,27 @@ pub fn edit(hw: &Headway, args: &EditArgs, p: Palette) -> Result<Reply> {
 }
 
 pub fn remove(hw: &Headway, id: &str, purge: bool, dry_run: bool, p: Palette) -> Result<Reply> {
-    hw.get(id)?;
+    let app = hw.get(id)?.app;
     let paths = hw.paths();
     let mut targets = vec![format!(
         "the `{id}` entry in {}",
         display_path(&paths.config_file())
     )];
     if purge {
-        targets.push(display_path(&paths.source_dir(id)));
+        if let Some(headway_core::Install::Source(source)) =
+            app.github().map(|github| &github.install)
+        {
+            let root = source.storage.root.as_deref().map_or_else(
+                || paths.cache_dir.join("sources"),
+                headway_core::paths::expand_tilde,
+            );
+            targets.push(display_path(&root.join(id)));
+            targets.push(display_path(
+                &root.join(format!(".{id}.headway-source.json")),
+            ));
+        }
         targets.push(display_path(&paths.app_log_dir(id)));
+        targets.push(display_path(&paths.cache_dir.join("backups").join(id)));
     }
     let human_list = targets
         .iter()

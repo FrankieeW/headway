@@ -137,6 +137,15 @@ fn with_fallback_path(vars: BTreeMap<String, String>) -> BTreeMap<String, String
     vars
 }
 
+/// Captures the user's interactive login-shell environment.
+///
+/// The child deliberately inherits the full environment instead of using `process::Cmd`: it is
+/// the user's own shell running the user's own rc files, and the captured environment is also
+/// Headway's documented token-resolution source (`HEADWAY_GITHUB_TOKEN`, `GITHUB_TOKEN`,
+/// `GH_TOKEN`), so stripping those here would silently remove token sources from the desktop
+/// app. Any subprocess that executes repository code goes through `process::Cmd`, which strips
+/// all three. Execution is bounded (10 s), stdin is closed, and rc output before the marker is
+/// ignored so a chatty prompt cannot corrupt the captured environment.
 async fn capture_login_shell() -> Option<BTreeMap<String, String>> {
     let shell = std::env::var("SHELL")
         .ok()

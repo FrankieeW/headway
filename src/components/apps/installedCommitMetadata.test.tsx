@@ -50,7 +50,7 @@ const summary = (app: AppView) => (
     onUpdateLatest={() => {}}
     onUpdateNext={() => {}}
     onCancel={() => {}}
-    onToggleAutoUpdate={() => {}}
+    onToggleAutoUpdate={async () => undefined}
   />
 );
 beforeEach(async () => {

@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt as _, AsyncRead, BufReader};
 use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -21,8 +20,17 @@ const TAIL_LINES: usize = 30;
 /// children (`daemon &`) may hold the pipes open indefinitely; they are not waited for.
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
 
+#[cfg(test)]
+#[path = "process/boundary_tests.rs"]
+mod boundary_tests;
+mod capture;
+pub(crate) use capture::capture_with_cancel;
 mod command;
+mod lines;
+mod measure;
 pub use command::Cmd;
+use lines::forward_lines;
+pub(crate) use measure::measure;
 
 /// Quotes `arg` for a POSIX shell when it contains anything beyond safe characters.
 pub fn shell_quote(arg: &str) -> String {
@@ -52,16 +60,7 @@ impl Captured {
 
 /// Runs `cmd` to completion and captures its output (for short queries).
 pub async fn capture(cmd: &Cmd) -> Result<Captured> {
-    let output = cmd
-        .command()
-        .output()
-        .await
-        .map_err(|err| cmd.spawn_error(err))?;
-    Ok(Captured {
-        status: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
+    capture::capture(cmd).await
 }
 
 /// Runs `cmd`, handing every output line to `on_line`.
@@ -74,7 +73,7 @@ pub async fn run(
     on_line: &mut (dyn FnMut(LogStream, &str) + Send),
 ) -> Result<()> {
     let mut child = cmd.command().spawn().map_err(|err| cmd.spawn_error(err))?;
-    let (tx, mut rx) = mpsc::channel::<(LogStream, String)>(256);
+    let (tx, mut rx) = mpsc::channel::<(LogStream, String)>(16);
     if let Some(stdout) = child.stdout.take() {
         tokio::spawn(forward_lines(stdout, LogStream::Stdout, tx.clone()));
     }
@@ -84,15 +83,22 @@ pub async fn run(
     drop(tx);
 
     let mut tail: VecDeque<String> = VecDeque::with_capacity(TAIL_LINES);
+    let mut budget = (8 * 1024 * 1024_usize, 20_000_usize);
+    let deadline = tokio::time::sleep(cmd.timeout);
+    tokio::pin!(deadline);
     let wait_error = |err| Error::io(format!("wait for `{}`", cmd.display()), err);
     // Until the command exits, forwarding its output as it comes.
     let status = loop {
         tokio::select! {
             message = rx.recv() => match message {
-                Some((stream, line)) => record(&mut tail, on_line, stream, &line),
+                Some((stream, line)) => record(&mut tail, &mut budget, on_line, stream, &line),
                 // Output closed first: just wait for the exit.
                 None => break tokio::select! {
                     status = child.wait() => status.map_err(wait_error)?,
+                    () = &mut deadline => {
+                        terminate(&mut child).await;
+                        return Err(timeout_error(cmd, &tail));
+                    }
                     () = cancel.cancelled() => {
                         terminate(&mut child).await;
                         return Err(Error::Cancelled);
@@ -100,6 +106,10 @@ pub async fn run(
                 },
             },
             status = child.wait() => break status.map_err(wait_error)?,
+            () = &mut deadline => {
+                terminate(&mut child).await;
+                return Err(timeout_error(cmd, &tail));
+            }
             () = cancel.cancelled() => {
                 terminate(&mut child).await;
                 return Err(Error::Cancelled);
@@ -112,7 +122,7 @@ pub async fn run(
     loop {
         tokio::select! {
             message = rx.recv() => match message {
-                Some((stream, line)) => record(&mut tail, on_line, stream, &line),
+                Some((stream, line)) => record(&mut tail, &mut budget, on_line, stream, &line),
                 None => break,
             },
             () = &mut drain => break,
@@ -131,6 +141,7 @@ pub async fn run(
 
 fn record(
     tail: &mut VecDeque<String>,
+    budget: &mut (usize, usize),
     on_line: &mut (dyn FnMut(LogStream, &str) + Send),
     stream: LogStream,
     line: &str,
@@ -139,33 +150,32 @@ fn record(
         tail.pop_front();
     }
     tail.push_back(line.to_owned());
-    on_line(stream, line);
+    if budget.1 == 0 {
+        return;
+    }
+    if line.len() > budget.0 || budget.1 == 1 {
+        *budget = (0, 0);
+        on_line(
+            LogStream::Info,
+            "Command output limit reached; further output is drained but not retained.",
+        );
+    } else {
+        budget.0 -= line.len();
+        budget.1 -= 1;
+        on_line(stream, line);
+    }
 }
 
-async fn forward_lines(
-    reader: impl AsyncRead + Unpin,
-    stream: LogStream,
-    tx: mpsc::Sender<(LogStream, String)>,
-) {
-    let mut reader = BufReader::new(reader);
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                let text = String::from_utf8_lossy(&buf);
-                // Progress bars redraw with `\r`; keep only the final state of the line.
-                let line = text
-                    .trim_end_matches(['\n', '\r'])
-                    .rsplit('\r')
-                    .next()
-                    .unwrap_or_default();
-                if tx.send((stream, strip_ansi(line))).await.is_err() {
-                    break;
-                }
-            }
-        }
+fn timeout_error(cmd: &Cmd, tail: &VecDeque<String>) -> Error {
+    let mut tail: Vec<_> = tail.iter().cloned().collect();
+    tail.push(format!(
+        "command timed out after {} seconds",
+        cmd.timeout.as_secs()
+    ));
+    Error::CommandFailed {
+        command: cmd.display(),
+        status: None,
+        tail,
     }
 }
 
@@ -185,6 +195,7 @@ async fn terminate(child: &mut Child) {
 
 fn signal_group(pid: u32, signal: &str) {
     let _ = std::process::Command::new("/bin/kill")
+        .env_clear()
         .args(["-s", signal, "--", &format!("-{pid}")])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

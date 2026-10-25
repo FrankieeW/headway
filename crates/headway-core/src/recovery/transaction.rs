@@ -33,48 +33,90 @@ impl Replacement<'_> {
         if self.cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
+        super::reconcile(self.paths, self.app)?;
         let cache = Cache::new(self.paths, self.app)?;
-        cache.list()?;
         install::validate(src, dest)?;
+        let payload = src.to_owned();
+        tokio::task::spawn_blocking(move || crate::archive::validate_tree(&payload))
+            .await
+            .map_err(|error| Error::io("payload budget worker", std::io::Error::other(error)))??;
         let previous = Store::new(self.paths.clone())
             .state()?
             .app(&self.app.id)
-            .installed
-            .filter(|old| {
-                old.path
-                    .as_deref()
-                    .is_some_and(|path| crate::paths::expand_tilde(path) == dest)
-            });
+            .installed;
+        let snapshot_previous = previous.clone().filter(|old| {
+            old.path
+                .as_deref()
+                .is_none_or(|path| crate::paths::expand_tilde(path) == dest)
+        });
+        let mut intent = super::journal::Intent::create(
+            self.paths,
+            self.app,
+            dest,
+            candidate,
+            previous.clone(),
+        )?;
         let pending = if dest.exists() {
-            Some(cache.snapshot(dest, previous)?)
+            let paths = self.paths.clone();
+            let app = self.app.clone();
+            let dest = dest.to_owned();
+            Some(
+                tokio::task::spawn_blocking(move || {
+                    Cache::new(&paths, &app)?.snapshot(&dest, snapshot_previous)
+                })
+                .await
+                .map_err(|error| Error::io("snapshot worker", std::io::Error::other(error)))??,
+            )
         } else {
             None
         };
         self.log
             .stage(Stage::Install, format!("Installing {}", dest.display()));
-        let mut rollback = Rollback {
-            dest,
-            pending,
-            armed: true,
-            paths: self.paths,
-            id: &self.app.id,
-        };
-        let result = async {
-            install::install(src, dest)?;
-            self.verify(dest, candidate, command).await
-        }
-        .await;
-        if let Err(error) = result {
-            rollback.restore()?;
+        let src = src.to_owned();
+        let destination = dest.to_owned();
+        let mut transaction =
+            tokio::task::spawn_blocking(move || install::Transaction::begin(&src, &destination))
+                .await
+                .map_err(|error| Error::io("install worker", std::io::Error::other(error)))??;
+        if let Err(error) = self.verify(dest, candidate, command).await {
+            if let Err(rollback_error) = transaction.rollback() {
+                let rescue = pending.map(super::cache::Pending::preserve);
+                Store::new(self.paths.clone()).update_state(|state| {
+                    Ok((
+                        state.with_app(&self.app.id, |state| crate::state::AppState {
+                            installed: None,
+                            last_check: None,
+                            ..state
+                        }),
+                        (),
+                    ))
+                })?;
+                return Err(Error::io(
+                    format!(
+                        "verification rollback failed; installed version is unknown; rescue payload {}",
+                        rescue.as_deref().map_or_else(
+                            || "retained in install journal".into(),
+                            |path| path.display().to_string()
+                        )
+                    ),
+                    std::io::Error::other(rollback_error),
+                ));
+            }
+            super::journal::clear(self.paths, self.app)?;
             return Err(error);
         }
-        rollback.armed = false;
-        if let Some(pending) = rollback.pending.take()
-            && let Err(error) = cache.retain(pending)
-        {
-            self.log.info(&format!(
-                "Installed and verified, but backup retention failed: {error}"
-            ));
+        intent.verified(self.paths, self.app)?;
+        // The service owns the state commit. Until it commits, a restart rolls
+        // this replacement back rather than attributing uncommitted bytes.
+        transaction.defer();
+        if let Some(pending) = pending {
+            let retained = tokio::task::spawn_blocking(move || cache.retain(pending)).await;
+            match retained {
+                Ok(Ok(())) => {}
+                other => self.log.info(&format!(
+                    "Installed and verified, but backup retention failed: {other:?}"
+                )),
+            }
         }
         Ok(())
     }
@@ -88,10 +130,13 @@ impl Replacement<'_> {
         if self.cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        let known_self = self
-            .app
-            .github()
-            .is_some_and(|github| github.repo.eq_ignore_ascii_case("FrankieeW/headway"));
+        let provenance = crate::build_info::BuildInfo::current();
+        let known_self = self.app.github().is_some_and(|github| {
+            provenance
+                .repository
+                .as_deref()
+                .is_some_and(|repo| github.repo.eq_ignore_ascii_case(repo))
+        });
         let env = self
             .env
             .clone()
@@ -124,6 +169,7 @@ impl Replacement<'_> {
             process::run(
                 &Cmd::new("/usr/bin/codesign", &env)
                     .args(["--verify", "--deep", "--strict"])
+                    .timeout(std::time::Duration::from_secs(5 * 60))
                     .arg(dest.display().to_string()),
                 self.cancel,
                 &mut output,
@@ -136,7 +182,9 @@ impl Replacement<'_> {
                 "Running configured post-install verification",
             );
             process::run(
-                &Cmd::new("/bin/sh", &env).args(["-c", command]),
+                &Cmd::new("/bin/sh", &env)
+                    .args(["-c", command])
+                    .timeout(std::time::Duration::from_secs(5 * 60)),
                 self.cancel,
                 &mut output,
             )
@@ -146,57 +194,5 @@ impl Replacement<'_> {
             return Err(Error::Cancelled);
         }
         Ok(())
-    }
-}
-
-struct Rollback<'a> {
-    dest: &'a Path,
-    pending: Option<super::cache::Pending>,
-    armed: bool,
-    paths: &'a Paths,
-    id: &'a str,
-}
-
-impl Rollback<'_> {
-    fn restore(&mut self) -> Result<()> {
-        self.armed = false;
-        let result = match &self.pending {
-            Some(old) => install::install(&old.payload, self.dest),
-            None => install::remove_any(self.dest),
-        };
-        let rescue = if result.is_err() {
-            self.pending.take().map(super::cache::Pending::preserve)
-        } else {
-            None
-        };
-        if result.is_err() || self.pending.is_none() {
-            Store::new(self.paths.clone()).update_state(|state| {
-                Ok((
-                    state.with_app(self.id, |app| crate::state::AppState {
-                        installed: None,
-                        last_check: None,
-                        ..app
-                    }),
-                    (),
-                ))
-            })?;
-        }
-        result.map_err(|error| {
-            Error::io(
-                format!("verification rollback failed; installed version is unknown; previous payload retained at {}",
-                    rescue.as_deref().map_or_else(|| "none".into(), |path| path.display().to_string())),
-                std::io::Error::other(error),
-            )
-        })
-    }
-}
-
-impl Drop for Rollback<'_> {
-    fn drop(&mut self) {
-        if self.armed
-            && let Err(error) = self.restore()
-        {
-            eprintln!("Headway rollback failed: {error}");
-        }
     }
 }

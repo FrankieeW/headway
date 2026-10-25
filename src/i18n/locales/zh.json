@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Headway",
-    "tagline": "统一更新 GitHub、npm、Homebrew 和官方脚本安装的软件",
     "addRepository": "添加软件",
     "emptyTitle": "尚未添加软件",
     "emptyDescription": "选择 GitHub、npm、Homebrew 或官方脚本，开始跟踪更新。"
@@ -48,9 +47,6 @@
   "token": {
     "source": {
       "keychain": "钥匙串",
-      "headwayEnv": "HEADWAY_GITHUB_TOKEN",
-      "githubEnv": "GITHUB_TOKEN",
-      "ghEnv": "GH_TOKEN",
       "ghCli": "gh 命令行",
       "none": "没有令牌"
     }
@@ -286,12 +282,28 @@
       "system": "跟随系统"
     },
     "language": "语言",
+    "languageDescription": "菜单栏和通知也使用这种语言。",
     "diagnostics": "诊断",
     "runChecks": "运行检查",
     "checks": "检查项",
     "checksDescription": "点「运行检查」查看当前环境。",
     "paths": "路径",
     "pathsDescription": "Headway 把文件放在哪里。",
+    "checksFailed": "诊断失败",
+    "diagnosticsPaths": {
+      "config": "配置文件",
+      "state": "状态文件",
+      "cache": "缓存",
+      "logs": "日志"
+    },
+    "diagnosticsChecks": {
+      "config": "配置",
+      "git": "Git",
+      "github": "GitHub",
+      "binDir": "CLI 目录",
+      "appsDir": "应用目录",
+      "app": "应用 {{id}}"
+    },
     "version": "版本",
     "reinstallCli": "重新安装"
   },
@@ -304,6 +316,11 @@
   "toast": {
     "updated": "已更新 {{name}}",
     "updatedTo": "已把 {{name}} 更新到 {{version}}",
+    "updatedWithWarnings": "已更新 {{name}}，但有警告",
+    "updatedToWithWarnings": "已把 {{name}} 更新到 {{version}}，但有警告",
+    "warningsMore": "另有 {{count}} 条警告",
+    "warningsLogHint": "使用此版本前请查看更新日志。",
+    "completedBeforeFailure": "失败前已完成 {{version}}。",
     "showLog": "查看日志",
     "checkAllDone": "检查了 {{checked}} 个应用 · 其中 {{updates}} 个有更新",
     "checkAllFailed": "有 {{count}} 个应用检查失败",
@@ -340,6 +357,7 @@
     "recovery": "缓存备份",
     "recoveryHint": "恢复由 Headway 管理的最近两份构建产物之一。",
     "retry": "重试",
+    "refreshStatus": "刷新状态",
     "noBackups": "暂无缓存备份。",
     "restore": "恢复备份",
     "restoreConfirm": "将 {{name}} 替换为备份 {{version}}？",

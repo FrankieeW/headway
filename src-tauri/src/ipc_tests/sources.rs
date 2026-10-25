@@ -143,3 +143,12 @@ fn legacy_github_payload_and_config_remain_readable() {
     assert_eq!(listed[0]["app"]["repo"], "octo/tool");
     assert_ne!(listed[0]["app"]["install"], Value::Null);
 }
+
+#[test]
+fn inspect_repo_rejects_input_that_is_not_a_repository() {
+    let harness = super::support::harness("http://127.0.0.1:9");
+    for input in ["", "not a repo", "https://github.com/only-owner", "owner/"] {
+        let error = call(&harness, "inspect_repo", json!({"repo": input})).unwrap_err();
+        assert_eq!(error["code"], "invalid_input", "accepted `{input}`");
+    }
+}

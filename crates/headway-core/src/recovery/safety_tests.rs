@@ -1,5 +1,15 @@
 use super::*;
 
+fn configure_bundle_destination(f: &mut Fixture, dest: &std::path::Path) {
+    f.app = with_github(f.app.clone(), |mut github| {
+        if let Install::Source(source) = &mut github.install {
+            source.dest = Some(dest.display().to_string());
+        }
+        github
+    });
+    f.hw.replace(f.app.clone()).unwrap();
+}
+
 #[tokio::test]
 async fn missing_metadata_and_outside_payload_paths_are_rejected() {
     // Given a cached snapshot whose metadata points outside its directory.
@@ -80,9 +90,10 @@ async fn verifier_receives_candidate_fields_without_github_token() {
 #[tokio::test]
 async fn unsigned_bundle_is_accepted_without_opted_in_verification() {
     // Given an unsigned third-party bundle and no verifier.
-    let f = Fixture::new(None);
+    let mut f = Fixture::new(None);
     let src = f.dir.path().join("build/Demo.app");
     let dest = f.dir.path().join("apps/Demo.app");
+    configure_bundle_destination(&mut f, &dest);
     fs::create_dir_all(src.join("Contents/MacOS")).unwrap();
     fs::write(src.join("Contents/MacOS/Demo"), "unsigned").unwrap();
     let env = ShellEnv::current();
@@ -110,9 +121,10 @@ async fn unsigned_bundle_is_accepted_without_opted_in_verification() {
 #[tokio::test]
 async fn configured_bundle_verification_checks_native_signature_and_rolls_back() {
     // Given an unsigned candidate and a prior bundle.
-    let f = Fixture::new(Some("true"));
+    let mut f = Fixture::new(Some("true"));
     let src = f.dir.path().join("build/Demo.app");
     let dest = f.dir.path().join("apps/Demo.app");
+    configure_bundle_destination(&mut f, &dest);
     for path in [&src, &dest] {
         fs::create_dir_all(path.join("Contents/MacOS")).unwrap();
     }

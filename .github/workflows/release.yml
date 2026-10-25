@@ -1,5 +1,7 @@
 name: release
 
+# Publishing is only triggered by a `v*` tag. `workflow_dispatch` builds and verifies the
+# artifacts (they are downloadable from the run) but never publishes a release.
 on:
   push:
     tags: ["v*"]
@@ -8,51 +10,45 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
-    name: build ${{ matrix.target }}
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            arch: arm64
-          - target: x86_64-apple-darwin
-            arch: x64
+  guard:
+    name: release guard (tag and version)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          workspaces: ". -> target"
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: pnpm
 
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Add Rust target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Resolve version
+      # Fails before anything is built when the tag and the checked-in versions disagree.
+      - name: Check tag and version sources agree
         id: version
         shell: bash
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [ -n "$TAG" ]; then
+            version="$(node scripts/check-release-version.mjs --tag "$TAG")"
+            head_sha="$(git rev-parse HEAD)"
+            tag_sha="$(git rev-parse "$TAG^{commit}")"
+            if [ "$head_sha" != "$tag_sha" ]; then
+              echo "::error::checked-out commit $head_sha is not the target of tag $TAG ($tag_sha)"
+              exit 1
+            fi
           else
-            version="$(awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml)"
+            version="$(node scripts/check-release-version.mjs)"
           fi
           if [ -z "$version" ]; then
             echo "::error::could not resolve the version to release"
@@ -61,19 +57,92 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Releasing Headway $version"
 
+  build:
+    name: build ${{ matrix.target }}
+    needs: guard
+    # Each leg runs on a native runner of its own architecture, so the shipped binaries are
+    # smoke-tested on the architecture they target instead of being cross-compiled.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write # build provenance attestation
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            arch: x64
+            runner: macos-15-intel
+    env:
+      # The repository has no Developer ID / notary credentials today: these secrets are empty,
+      # `scripts/macos-bundle-config.sh` then selects explicit ad-hoc signing, and the released
+      # artifacts stay unnotarized (README: "not notarized"). Filling them in is the only change
+      # needed to switch to a Developer ID signature (tauri notarizes when APPLE_ID,
+      # APPLE_PASSWORD and APPLE_TEAM_ID are present).
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-25
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ". -> target"
+
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # GitHub Actions materializes a missing repository secret as an EMPTY STRING, and
+      # tauri-bundler treats any present APPLE_* variable as credentials (var_os(..).is_some()),
+      # so it would run notarytool with empty APPLE_ID/PASSWORD/TEAM and fail the build.
+      # The helper unsets empty values (ad-hoc), keeps a complete Developer ID/notary set, and
+      # fails early on a partial set. Values are never printed.
+      - name: Report Apple signing mode (rejects partial credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          . scripts/apple-signing-env.sh
+
+      # The dirty flag is derived from the verified checkout, never hard-coded. A dirty tree is a
+      # hard failure: a build with unknown local modifications must not be published as clean.
       - name: Record build identity
         shell: bash
         run: |
           set -euo pipefail
           source_status="$(git status --porcelain --untracked-files=normal)"
-          test -z "$source_status"
+          if [ -n "$source_status" ]; then
+            printf '%s\n' "$source_status" >&2
+            echo "::error::the release checkout is dirty; refusing to build a mislabeled artifact"
+            exit 1
+          fi
           echo "HEADWAY_BUILD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "HEADWAY_BUILD_DIRTY=false" >> "$GITHUB_ENV"
 
       - name: Build CLI
-        env:
-          HEADWAY_BUILD_DIRTY: "false"
-          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
         shell: bash
+        env:
+          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           . scripts/macos-build-env.sh
@@ -85,6 +154,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Empty-but-present secrets must not be treated as a signing identity.
+          . scripts/apple-signing-env.sh
           mkdir -p target/release
           signing_identity="${APPLE_SIGNING_IDENTITY:--}"
           signing_options=runtime
@@ -95,12 +166,14 @@ jobs:
 
       # `beforeBuildCommand` is overridden so it does not rebuild the CLI for the host.
       - name: Build the app
-        env:
-          HEADWAY_BUILD_DIRTY: "false"
-          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
         shell: bash
+        env:
+          HEADWAY_BUILD_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          # Must run before `pnpm tauri build`: tauri-bundler treats an empty-but-present
+          # APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID as notarization credentials.
+          . scripts/apple-signing-env.sh
           . scripts/macos-build-env.sh
           config="$(scripts/macos-bundle-config.sh)"
           pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg --ci --config "$config" -- --locked
@@ -109,9 +182,12 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.guard.outputs.version }}
         run: |
           set -euo pipefail
+          # `verify-macos-artifacts.sh` reads APPLE_SIGNING_IDENTITY to enforce the ad-hoc vs
+          # Developer ID hardened-runtime policy; normalize empty secrets first.
+          . scripts/apple-signing-env.sh
           cli="target/$TARGET/release/headway"
           app="target/$TARGET/release/bundle/macos/Headway.app"
           case "$TARGET" in
@@ -124,24 +200,22 @@ jobs:
           lipo "$app/Contents/MacOS/headway-desktop" -verify_arch "$macho_arch"
           scripts/verify-macos-artifacts.sh "$cli" "$app/Contents/MacOS/headway" "$app/Contents/MacOS/headway-desktop"
           codesign --verify --deep --strict "$app"
-          host_target="$(rustc -vV | awk '/^host: / { print $2 }')"
-          if [ "$TARGET" = "$host_target" ]; then
-            smoke_home="$(mktemp -d)"
-            HEADWAY_HOME="$smoke_home" "$cli" --json version > target/release-version.json
-            HEADWAY_HOME="$smoke_home" "$app/Contents/MacOS/headway" --json version > target/bundled-version.json
-            cmp target/release-version.json target/bundled-version.json
-            node --input-type=module -e '
-              import assert from "node:assert/strict";
-              import { readFileSync } from "node:fs";
-              const report = JSON.parse(readFileSync("target/release-version.json", "utf8"));
-              assert.equal(report.ok, true);
-              assert.equal(report.data.commit, process.env.HEADWAY_BUILD_SHA);
-              assert.equal(report.data.version, process.env.VERSION);
-              assert.equal(report.data.dirty, false);
-              assert.equal(report.data.repository, process.env.GITHUB_REPOSITORY);
-              assert.equal(report.data.target, process.env.TARGET);
-            '
-          fi
+          # Every leg runs natively, so every leg is smoke-tested and version-checked.
+          smoke_home="$(mktemp -d)"
+          HEADWAY_HOME="$smoke_home" "$cli" --json version > target/cli-version.json
+          HEADWAY_HOME="$smoke_home" "$app/Contents/MacOS/headway" --json version > target/bundled-version.json
+          cmp target/cli-version.json target/bundled-version.json
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync("target/cli-version.json", "utf8"));
+            assert.equal(report.ok, true);
+            assert.equal(report.data.commit, process.env.HEADWAY_BUILD_SHA);
+            assert.equal(report.data.version, process.env.VERSION);
+            assert.equal(report.data.dirty, false);
+            assert.equal(report.data.repository, process.env.GITHUB_REPOSITORY);
+            assert.equal(report.data.target, process.env.TARGET);
+          '
 
       # The renderer build empties `dist/`, so the release artifacts are collected
       # afterwards and the frontend output is dropped first.
@@ -168,7 +242,7 @@ jobs:
       - name: Collect the app artifacts
         shell: bash
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.guard.outputs.version }}
           ARCH: ${{ matrix.arch }}
           TARGET: ${{ matrix.target }}
         run: |
@@ -189,20 +263,114 @@ jobs:
           cp "${dmgs[0]}" "dist/Headway-$VERSION-$ARCH.dmg"
           ls -lh dist
 
-      - uses: actions/upload-artifact@v4
+      # Only the three publishable files are attested and uploaded. `dist/headway-<target>/`
+      # is an unpacked staging directory for the tarball and must not leak into the artifact
+      # (a `dist/*` glob would include it).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          # `gh attestation verify <file> --repo FrankieeW/headway` verifies each of these.
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.dmg
+            dist/*.app.zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: headway-${{ matrix.target }}
-          path: dist/*
+          # Same three files as the attestation; the artifact root stays `dist/` so the
+          # release job's `merge-multiple` layout and SHA256SUMS.txt are unchanged.
+          path: |
+            dist/*.tar.gz
+            dist/*.dmg
+            dist/*.app.zip
           if-no-files-found: error
 
+  verify:
+    name: verify before publishing
+    needs: guard
+    runs-on: macos-latest
+    # Cold-cache worst case on a tag (release jobs do not share the CI branch cache): renders the
+    # frontend, then clippy + the full test suite, then the packaging regression.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-25
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ". -> target"
+
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test Apple signing environment normalization
+        run: bash scripts/apple-signing-env.test.sh
+
+      - name: Test token environment stripping
+        run: bash scripts/token-env.test.sh
+
+      - name: Build renderer
+        run: pnpm build:renderer
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Frontend tests
+        run: pnpm test
+
+      - name: IPC contract (frontend bindings vs Rust commands)
+        run: pnpm run check:ipc
+
+      - name: Test release guard and Homebrew planner
+        run: node --test scripts/*.test.mjs
+
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-deny
+
+      - name: RustSec advisories and crate sources
+        run: cargo deny --config .github/cargo-deny.toml check advisories sources
+
+      - name: Native packaging and signing-policy regression
+        run: ./scripts/test-macos-packaging.sh "$RUNNER_TEMP/packaging-evidence"
+
   release:
-    name: release
-    needs: build
+    name: publish
+    needs: [guard, verify, build]
+    # Only a tag publishes; a workflow_dispatch run stops after building/verifying and its
+    # artifacts stay downloadable from the run.
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
@@ -217,7 +385,7 @@ jobs:
             | xargs -r sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist/*
           generate_release_notes: true

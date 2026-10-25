@@ -27,7 +27,8 @@ pub(super) fn location<'a>(
         Install::Source(source) => source.dest.as_deref(),
         Install::Asset(asset) => asset.dest.as_deref(),
     };
-    let literal = |path: &&str| !path.contains(['*', '?', '[', ']', '{', '}', '$']);
+    // Destinations are literal paths, not shell expansions or asset globs.
+    let literal = |path: &&str| !path.contains(['*', '?']);
     configured.filter(literal).or_else(|| {
         installed
             .and_then(|installed| installed.path.as_deref())

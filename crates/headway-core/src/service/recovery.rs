@@ -5,7 +5,7 @@ impl Headway {
     /// Lists the two retained prior payloads. Unsupported providers return an error.
     pub fn list_backups(&self, id: &str) -> Result<Vec<BackupEntry>> {
         component(id)?;
-        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = AppLock::acquire_app(self.paths(), id)?;
         let config = self.store.config()?;
         let app = config.app(id)?;
         verification(app)?;
@@ -25,9 +25,10 @@ impl Headway {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = AppLock::acquire_app_async(self.paths(), id).await?;
         let config = self.store.config()?;
         let app = config.app(id)?;
+        crate::recovery::reconcile(self.paths(), app)?;
         verification(app)?;
         let (backup, dest) = Cache::new(self.paths(), app)?.load(backup_id)?;
         let current = self.store.state()?.app(id).installed;
@@ -110,6 +111,7 @@ impl Headway {
             Ok((next, ()))
         })?;
         result?;
+        crate::recovery::commit(self.paths(), app)?;
         log.stage(Stage::Done, format!("Restored backup {backup_id}"));
         Ok(RestoreOutcome {
             app_id: id.into(),

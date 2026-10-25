@@ -8,5 +8,7 @@ src-tauri/binaries/
 .DS_Store
 *.log
 .omc/
-/.omo/evidence/
+/.omo/
+/.review/
+/.worktree/
 coverage/

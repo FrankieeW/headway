@@ -60,8 +60,27 @@ impl fmt::Display for RepoId {
 
 fn invalid(input: &str) -> Error {
     Error::InvalidInput(format!(
-        "`{input}` is not a GitHub repository; use owner/name or a github.com URL"
+        "`{}` is not a GitHub repository; use owner/name or a github.com URL",
+        display_input(input)
     ))
+}
+
+/// Renders untrusted input safely for an error message: bounded length, no controls.
+fn display_input(input: &str) -> String {
+    const LIMIT: usize = 120;
+    let mut out = String::with_capacity(input.len().min(LIMIT));
+    for (index, character) in input.chars().enumerate() {
+        if index >= LIMIT {
+            out.push('…');
+            return out;
+        }
+        out.push(if character.is_control() {
+            '?'
+        } else {
+            character
+        });
+    }
+    out
 }
 
 fn is_valid_owner(owner: &str) -> bool {
@@ -166,6 +185,30 @@ mod tests {
         );
         assert_eq!(repo.html_url(), "https://github.com/tauri-apps/tauri");
         assert_eq!(repo.to_string(), "tauri-apps/tauri");
+    }
+
+    #[test]
+    fn repository_urls_never_leak_credentials() {
+        let repo = RepoId::parse("https://user:pass@github.com/BurntSushi/ripgrep").unwrap();
+        assert_eq!(repo.full_name(), "BurntSushi/ripgrep");
+        assert_eq!(
+            repo.https_clone_url(),
+            "https://github.com/BurntSushi/ripgrep.git"
+        );
+        assert!(!repo.https_clone_url().contains("user:pass"));
+    }
+
+    #[test]
+    fn malformed_repository_errors_escape_control_characters_and_queries() {
+        let message = RepoId::parse("https://github.com/o/r\u{1b}[31m")
+            .unwrap_err()
+            .to_string();
+        assert!(!message.contains('\u{1b}'), "{message:?}");
+        let long = RepoId::parse(&"x".repeat(10_000)).unwrap_err().to_string();
+        assert!(long.chars().count() < 300, "{long}");
+        // Queries and fragments are not part of a repository identity.
+        assert!(RepoId::parse("https://github.com/o/r?tab=readme").is_err());
+        assert!(RepoId::parse("https://github.com/o/r#readme").is_err());
     }
 
     #[test]

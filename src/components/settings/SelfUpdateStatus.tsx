@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SettingsBlock, SettingsCard, SettingsRow } from "./SettingsLayout";
 import { Button } from "@/components/ui/button";
 import { errorMessage, systemApi, type BuildInfo } from "@/lib/api";
 import { useApps } from "@/hooks/useApps";
+import { selfUpdateRefetchInterval } from "@/lib/polling";
 
 export function SelfUpdateStatus() {
   const { t } = useTranslation();
@@ -12,7 +14,10 @@ export function SelfUpdateStatus() {
   const status = useQuery({
     queryKey: ["self-update"],
     queryFn: systemApi.selfUpdateStatus,
-    refetchInterval: 5000,
+    // Every status call runs three subprocesses. Poll only while a restart is
+    // pending/queued; idle cards refresh on mount, window focus or below.
+    refetchInterval: (query) => selfUpdateRefetchInterval(query.state.data),
+    staleTime: 30_000,
   });
   const restart = useMutation({
     mutationFn: systemApi.requestSelfRestart,
@@ -23,7 +28,24 @@ export function SelfUpdateStatus() {
     `${build.version} · ${build.commit ?? t("roadmap.unknownCommit")}${build.dirty ? ` · ${t("roadmap.dirtyBuild")}` : ""}`;
   const busy = apps?.some((app) => app.busy) ?? false;
   return (
-    <SettingsBlock title={t("roadmap.selfUpdate")}>
+    <SettingsBlock
+      title={t("roadmap.selfUpdate")}
+      actions={
+        <Button
+          variant="ghost"
+          size="compact"
+          onClick={() => void status.refetch()}
+          disabled={status.isFetching}
+        >
+          {status.isFetching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
+          {t("roadmap.refreshStatus")}
+        </Button>
+      }
+    >
       <SettingsCard>
         {status.isPending ? <SettingsRow label={t("common.loading")} /> : null}
         {status.error ? (

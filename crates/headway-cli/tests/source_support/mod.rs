@@ -45,7 +45,7 @@ esac
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     pub(super) fn command(&self) -> Command {
-        let mut cmd = Command::cargo_bin("headway").unwrap();
+        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("headway"));
         cmd.env("HEADWAY_HOME", self.dir.path())
             .env("HEADWAY_API_URL", "http://127.0.0.1:1")
             .env("HEADWAY_GITHUB_TOKEN", "test-token")

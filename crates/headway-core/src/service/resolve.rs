@@ -3,20 +3,56 @@ use super::*;
 impl Headway {
     /// What `update` would do, without doing it.
     pub async fn plan(&self, id: &str, target: &Target) -> Result<UpdatePlan> {
+        self.plan_with_cancel(id, target, &CancellationToken::new())
+            .await
+    }
+
+    pub async fn plan_with_cancel(
+        &self,
+        id: &str,
+        target: &Target,
+        cancel: &CancellationToken,
+    ) -> Result<UpdatePlan> {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let config = self.store.config()?;
         let app = config.app(id)?.clone();
-        let cancel = CancellationToken::new();
-        if app.source.detects_installed() {
-            let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
-            self.refresh_for_update(&app, target, &cancel).await?;
-        }
         let gh = self.github_for(&app).await?;
-        let installed = super::presence::retained(&app, self.store.state()?.app(id).installed)?;
+        let pending = crate::recovery::pending(self.paths(), &app);
+        let mut installed = if pending {
+            None
+        } else {
+            super::presence::retained(&app, self.store.state()?.app(id).installed)?
+        };
+        if let (Source::Npm(source), Target::Ref(_)) = (&app.source, target) {
+            let version =
+                crate::npm::installed_version(cancel, &self.env().await, &source.package).await?;
+            installed = super::checks::sync_installed(
+                AppState {
+                    installed,
+                    ..AppState::default()
+                },
+                &InstalledSync::Detected(version),
+            )
+            .installed;
+        }
         let (candidate, checked) = self
-            .resolve(&gh, &app, installed.as_ref(), target, &cancel)
+            .resolve(&gh, &app, installed.as_ref(), target, cancel)
             .await?;
+        if let Some(checked) = &checked {
+            installed = super::checks::sync_installed(
+                AppState {
+                    installed,
+                    ..AppState::default()
+                },
+                &checked.installed,
+            )
+            .installed;
+        }
         let already = installed.as_ref().is_some_and(|installed| {
-            candidate.id != crate::script::LATEST && ids_match(&installed.id, &candidate.id)
+            candidate.id != crate::script::LATEST
+                && target_matches(&app, &installed.id, &candidate.id)
         }) || (matches!(app.source, Source::Npm(_))
             && checked
                 .as_ref()
@@ -24,25 +60,27 @@ impl Headway {
         let explicit = matches!(target, Target::Ref(_));
         let asset = match app.github().map(|github| &github.install) {
             Some(crate::config::Install::Asset(spec)) => {
-                let release = gh.release_by_tag(&app.repo_id()?, &candidate.id).await?;
+                let release = update::release_for_target(&gh, &app, &candidate).await?;
                 crate::asset::select(
                     &release.assets,
                     app.kind,
                     spec.pattern.as_deref(),
                     crate::asset::Arch::host(),
                 )
-                .ok()
-                .cloned()
+                .map(|asset| Some(asset.clone()))?
             }
             Some(crate::config::Install::Source(_)) | None => None,
         };
-        let steps = update::plan_steps(
+        let mut steps = update::plan_steps(
             &app,
             &config.settings,
             self.paths(),
             &candidate,
             asset.as_ref(),
         );
+        if pending {
+            steps.insert(0, "An installation is pending recovery; recorded baseline is not trusted. Run a check after the active update finishes.".into());
+        }
         Ok(UpdatePlan {
             app_id: app.id.clone(),
             // A real run skips an installed target, except an explicit `--to`, which reinstalls.

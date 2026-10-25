@@ -3,7 +3,7 @@ use crate::{AppKind, Error, Headway, Install, LaunchOutcome, Result, process::Cm
 impl Headway {
     /// Launches an independently installed app using its normal shared data.
     pub async fn launch_variant(&self, id: &str) -> Result<LaunchOutcome> {
-        let _lock = crate::lock::AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = crate::lock::AppLock::acquire_app_async(self.paths(), id).await?;
         let config = self.store().config()?;
         let app = config.app(id)?;
         let github = app.require_github("independent application launch")?;

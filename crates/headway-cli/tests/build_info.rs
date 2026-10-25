@@ -10,6 +10,9 @@ fn metadata_when_json_is_requested_ignores_runtime_stamps() {
     let home = tempfile::tempdir().unwrap();
     let output = Command::new(assert_cmd::cargo::cargo_bin!("headway"))
         .env("HEADWAY_HOME", home.path())
+        .env("HEADWAY_API_URL", "http://127.0.0.1:1")
+        .env("HEADWAY_GITHUB_TOKEN", "test-token")
+        .env_remove("HEADWAY_OUTPUT")
         .env(
             "HEADWAY_BUILD_SHA",
             "ffffffffffffffffffffffffffffffffffffffff",
@@ -39,6 +42,9 @@ fn metadata_when_ai_is_requested_is_one_xml_document() {
     let home = tempfile::tempdir().unwrap();
     let output = Command::new(assert_cmd::cargo::cargo_bin!("headway"))
         .env("HEADWAY_HOME", home.path())
+        .env("HEADWAY_API_URL", "http://127.0.0.1:1")
+        .env("HEADWAY_GITHUB_TOKEN", "test-token")
+        .env_remove("HEADWAY_OUTPUT")
         .args(["version", "--ai"])
         .assert()
         .success()
@@ -59,9 +65,8 @@ fn metadata_when_ai_is_requested_is_one_xml_document() {
         Some(if info.dirty { "true" } else { "false" })
     );
     assert!(
-        root.descendants()
-            .any(|node| node.has_tag_name("command")
-                && node.text() == Some("headway commands --json"))
+        root.descendants().any(|node| node.has_tag_name("command")
+            && node.text() == Some("headway --ai commands --json"))
     );
     assert!(output.stderr.is_empty());
 }
@@ -71,6 +76,9 @@ fn version_flag_retains_clap_display_behavior() {
     let home = tempfile::tempdir().unwrap();
     Command::new(assert_cmd::cargo::cargo_bin!("headway"))
         .env("HEADWAY_HOME", home.path())
+        .env("HEADWAY_API_URL", "http://127.0.0.1:1")
+        .env("HEADWAY_GITHUB_TOKEN", "test-token")
+        .env_remove("HEADWAY_OUTPUT")
         .args(["--version", "--json"])
         .assert()
         .success()

@@ -16,6 +16,9 @@ use crate::source::{GithubSource, Source};
 #[path = "config_settings.rs"]
 mod settings;
 pub use settings::Settings;
+#[path = "config_destinations.rs"]
+mod destinations;
+pub(crate) use destinations::{destination, same_destination, validate_destination};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -35,8 +38,12 @@ impl Config {
 
     /// Validates every app and rejects duplicate ids.
     pub fn validate(&self) -> Result<()> {
+        self.settings.validate()?;
         for (index, app) in self.apps.iter().enumerate() {
             app.validate()?;
+            if let Some(dest) = destination(app, &self.settings) {
+                validate_destination(self, &app.id, &dest)?;
+            }
             if self.apps[..index].iter().any(|other| other.id == app.id) {
                 return Err(Error::Config(format!("app id `{}` is used twice", app.id)));
             }
@@ -307,6 +314,9 @@ pub(crate) fn validate_install(install: &Install) -> std::result::Result<(), Str
             validate_dest(source.dest.as_deref()).map_err(|err| err.to_string())
         }
         Install::Asset(asset) => {
+            if let Some(pattern) = &asset.pattern {
+                crate::asset::validate_pattern(pattern).map_err(|err| err.to_string())?;
+            }
             if let Some(binary) = &asset.binary
                 && (binary.is_empty() || binary.contains('/'))
             {
@@ -329,6 +339,9 @@ fn is_inside_repo(path: &str) -> bool {
 
 fn validate_dest(dest: Option<&str>) -> Result<()> {
     match dest {
+        Some(dest) if dest.contains(['*', '?']) => Err(Error::Config(format!(
+            "install.dest `{dest}` must be a literal path, not a glob"
+        ))),
         Some(dest) if !(dest.starts_with('/') || dest.starts_with("~/")) => Err(Error::Config(
             format!("install.dest `{dest}` must be an absolute path or start with ~/"),
         )),

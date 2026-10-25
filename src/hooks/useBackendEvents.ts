@@ -11,6 +11,10 @@ import {
   type UpdateFinished,
 } from "@/lib/api";
 import { isLocalDataQuery, queryKeys } from "@/lib/query/keys";
+import {
+  completedOutcomeNote,
+  updateNotification,
+} from "@/lib/updateNotifications";
 import { applyUpdateEvent, markRunFinished } from "@/lib/updateRuns";
 
 export interface BackendEventHandlers {
@@ -57,19 +61,35 @@ export function useBackendEvents({
     const name = cachedAppName(queryClient, payload.app_id);
 
     if (payload.ok) {
-      const version = payload.outcome?.to.version || payload.outcome?.to.id;
-      toast.success(
-        version
-          ? t("toast.updatedTo", { name, version })
-          : t("toast.updated", { name }),
-      );
+      const notice = updateNotification(payload, name, t);
+      if (notice.tone === "warning") {
+        // Integrity evidence was unavailable: never announce this as verified
+        // success. The backend warning strings stay unchanged plain text.
+        toast.warning(notice.title, {
+          description: notice.description,
+          action: {
+            label: t("toast.showLog"),
+            onClick: () => onShowLog(payload.app_id),
+          },
+        });
+      } else {
+        toast.success(notice.title);
+      }
       return;
     }
 
-    // The last lines of a failed build say more than the exit code.
+    // The user just asked to cancel: an error toast would be noise.
+    if (payload.error?.code === "cancelled") {
+      return;
+    }
+
+    // The last lines of a failed build say more than the exit code. A cycle
+    // that failed after some steps still names the last completed outcome.
     const details = payload.error?.details?.slice(-3).join("\n");
+    const completed = completedOutcomeNote(payload, t);
+    const description = [completed, details].filter(Boolean).join("\n");
     toast.error(errorMessage(payload.error), {
-      description: details || undefined,
+      description: description || undefined,
       action: {
         label: t("toast.showLog"),
         onClick: () => onShowLog(payload.app_id),

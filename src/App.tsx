@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { useAppNavigation } from "@/hooks/useAppNavigation";
 import { useApps } from "@/hooks/useApps";
 import { useBackendEvents } from "@/hooks/useBackendEvents";
+import { useLanguagePreference } from "@/hooks/useSettings";
 
 /**
  * The shell: sidebar on the left, the current view on the right.
@@ -19,6 +20,8 @@ export default function App() {
   const navigation = useAppNavigation(apps, dataUpdatedAt);
   const [addOpen, setAddOpen] = useState(false);
 
+  // The persisted language (shared with the tray) wins over the OS default.
+  useLanguagePreference();
   useBackendEvents({
     onSelectApp: navigation.selectApp,
     onShowLog: navigation.showLog,

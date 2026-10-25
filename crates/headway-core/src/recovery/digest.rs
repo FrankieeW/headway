@@ -3,7 +3,7 @@ use sha2::{Digest as _, Sha256};
 use std::fs;
 use std::path::Path;
 
-pub(super) fn digest(path: &Path) -> Result<String> {
+pub(crate) fn digest(path: &Path) -> Result<String> {
     let mut hash = Sha256::new();
     hash_path(path, &mut hash)?;
     Ok(format!("{:x}", hash.finalize()))

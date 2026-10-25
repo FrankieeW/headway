@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { getLanguage, setLanguage } from "@/i18n";
 import { errorMessage, settingsApi, type Settings } from "@/lib/api";
 import { queryKeys } from "@/lib/query/keys";
 
@@ -13,8 +15,26 @@ export function useSettings() {
   });
 }
 
+/**
+ * Apply the persisted language to the window once settings arrive.
+ *
+ * `system` (the backend default) keeps the existing choice: the stored
+ * `localStorage` preference or the OS language. An explicit `en`/`zh` is
+ * written by the settings page and also drives the tray, so it wins.
+ */
+export function useLanguagePreference(): void {
+  const { data: settings } = useSettings();
+  const language = settings?.language;
+
+  useEffect(() => {
+    if ((language === "en" || language === "zh") && getLanguage() !== language) {
+      setLanguage(language);
+    }
+  }, [language]);
+}
+
 /** Save preferences. */
-export function useSaveSettings() {
+export function useSaveSettings(options: { silent?: boolean } = {}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
@@ -25,7 +45,7 @@ export function useSaveSettings() {
       // gh_fallback decides which token is used; bin_dir moves the CLI link
       await queryClient.invalidateQueries({ queryKey: queryKeys.token });
       await queryClient.invalidateQueries({ queryKey: queryKeys.cli });
-      toast.success(t("toast.settingsSaved"));
+      if (!options.silent) toast.success(t("toast.settingsSaved"));
       return saved;
     },
     onError: (error) => toast.error(errorMessage(error)),

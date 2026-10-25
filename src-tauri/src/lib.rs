@@ -1,10 +1,14 @@
 //! Headway desktop app: a menu-bar + window UI over `headway-core`, sharing its
 //! config, state, logs and locks with the `headway` CLI.
 
+use std::sync::Arc;
+
 mod cli_link;
 mod commands;
+mod host;
 #[cfg(test)]
 mod ipc_tests;
+mod locale;
 mod revision_runner;
 mod runner;
 mod scheduler;
@@ -80,9 +84,6 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
     ]
 }
 
-/// How long quitting waits for cancelled updates to stop.
-const EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
-
 pub fn run() {
     // Started from Finder the PATH is minimal: builds get the login shell's environment.
     let hw = match Headway::builder().env_mode(EnvMode::LoginShell).build() {
@@ -105,20 +106,31 @@ pub fn run() {
         ))
         .manage(AppState::new(hw))
         .setup(|app| {
-            let handle = app.handle();
-            tray::create(handle)?;
+            let handle = app.handle().clone();
+            // Host services are command-only; install them before any IPC can arrive.
+            handle
+                .state::<AppState>()
+                .install_host(Arc::new(host::TauriHost::new(handle.clone())));
+            tray::create(&handle)?;
             scheduler::start(handle.clone());
             watcher::start(handle.clone());
             self_update::start(handle.clone());
-            let handle = handle.clone();
+            // The system-language probe is a one-shot subprocess; the tray is
+            // built in English first and refreshed when the answer is known.
+            let localized = handle.clone();
             tauri::async_runtime::spawn(async move {
-                match handle
+                locale::prime_system_locale(&localized.state::<AppState>().hw).await;
+                tray::refresh(&localized);
+            });
+            let subscribed = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                match subscribed
                     .state::<AppState>()
                     .hw
                     .ensure_self_subscription()
                     .await
                 {
-                    Ok(_) => crate::state::apps_changed(&handle),
+                    Ok(_) => crate::state::apps_changed(&subscribed),
                     Err(error) => eprintln!("headway: self subscription: {error}"),
                 }
             });
@@ -137,21 +149,18 @@ pub fn run() {
 
     match app {
         Ok(app) => app.run(|handle, event| match event {
-            // Quitting mid-update: stop the builds first, so none is left running unlocked.
+            // Never exit with a build still running. The first request cancels and
+            // drains; repeated requests keep waiting instead of orphaning children,
+            // and the drain eventually forces the exit after its grace period.
             RunEvent::ExitRequested { api, .. } => {
-                let state = handle.state::<AppState>();
-                if !state.begin_exit() && state.cancel_all() > 0 {
-                    api.prevent_exit();
-                    let handle = handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let deadline = std::time::Instant::now() + EXIT_GRACE;
-                        while handle.state::<AppState>().active_runs() > 0
-                            && std::time::Instant::now() < deadline
-                        {
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                match state::prepare_exit(&handle.state::<AppState>()) {
+                    state::ExitDisposition::Exit => {}
+                    state::ExitDisposition::Block { start_drain } => {
+                        api.prevent_exit();
+                        if start_drain {
+                            state::spawn_exit_drain(handle.clone());
                         }
-                        handle.exit(0);
-                    });
+                    }
                 }
             }
             // Clicking the Dock icon brings the window back.

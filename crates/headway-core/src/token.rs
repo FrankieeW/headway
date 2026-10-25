@@ -9,7 +9,7 @@
 //! `GH_TOKEN` → `gh auth token` (if enabled).
 
 use std::fmt;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
@@ -35,9 +35,24 @@ pub trait SecretStore: Send + Sync {
 /// The login keychain, via `/usr/bin/security`.
 pub struct KeychainStore;
 
+/// `security` is a local OS adapter that cannot use `process::Cmd` (it needs a piped
+/// stdin for `-i`), so it applies that helper's policy explicitly: no inherited
+/// environment except the user's session basics, and never any token source
+/// (`HEADWAY_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`) — the token travels on stdin.
+fn security_command() -> Command {
+    let mut command = Command::new(SECURITY);
+    command.env_clear();
+    for key in ["PATH", "HOME", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command
+}
+
 impl SecretStore for KeychainStore {
     fn get(&self) -> Result<Option<String>> {
-        let output = Command::new(SECURITY)
+        let output = security_command()
             .args([
                 "find-generic-password",
                 "-s",
@@ -63,7 +78,7 @@ impl SecretStore for KeychainStore {
 
     fn set(&self, token: &str) -> Result<()> {
         let token = validate_token(token)?;
-        let mut child = Command::new(SECURITY)
+        let mut child = security_command()
             .arg("-i")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -93,7 +108,7 @@ impl SecretStore for KeychainStore {
     }
 
     fn delete(&self) -> Result<bool> {
-        let output = Command::new(SECURITY)
+        let output = security_command()
             .args([
                 "delete-generic-password",
                 "-s",
@@ -247,18 +262,41 @@ pub fn resolve(store: &dyn SecretStore, env: &ShellEnv, gh_fallback: bool) -> Re
 }
 
 /// `gh auth token`, if the GitHub CLI is installed and logged in.
+///
+/// A local OS adapter bounded like the other probes: no inherited environment beyond the
+/// captured shell one (minus `HEADWAY_GITHUB_TOKEN`, which is not a `gh` credential), and a
+/// hard deadline so a hung `gh` cannot stall token resolution (it runs on a blocking worker).
 pub fn gh_cli_token(env: &ShellEnv) -> Option<String> {
+    const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
     let gh = env.which("gh")?;
-    let output = Command::new(gh)
+    let mut vars = env.vars().clone();
+    vars.remove(TOKEN_ENV);
+    let mut child = Command::new(gh)
         .args(["auth", "token", "--hostname", "github.com"])
         .env_clear()
-        .envs(env.vars())
+        .envs(&vars)
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
+        .spawn()
         .ok()?;
-    let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    (output.status.success() && !token.is_empty()).then_some(token)
+    let deadline = std::time::Instant::now() + GH_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(_) => return None,
+        }
+    };
+    let mut stdout = String::new();
+    child.stdout.take()?.read_to_string(&mut stdout).ok()?;
+    let token = stdout.trim().to_owned();
+    (status.success() && !token.is_empty()).then_some(token)
 }
 
 #[cfg(test)]

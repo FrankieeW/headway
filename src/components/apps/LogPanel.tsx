@@ -4,7 +4,8 @@ import { FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { opsApi, systemApi } from "@/lib/api";
+import { opsApi } from "@/lib/api";
+import { revealPath } from "@/lib/systemActions";
 import { queryKeys } from "@/lib/query/keys";
 import { useUpdateRun } from "@/lib/updateRuns";
 import { cn } from "@/lib/utils";
@@ -81,7 +82,7 @@ export function LogPanel({ appId }: LogPanelProps) {
             <Button
               variant="neutral"
               size="compact"
-              onClick={() => void systemApi.revealPath(log.path as string)}
+              onClick={() => revealPath(log.path as string)}
             >
               <FolderOpen className="h-3.5 w-3.5" strokeWidth={1.75} />
               {t("log.revealInFinder")}

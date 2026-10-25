@@ -259,6 +259,7 @@ export const settings: Settings = {
   bin_dir: "~/.local/bin",
   apps_dir: "/Applications",
   gh_fallback: true,
+  language: "system",
 };
 
 export const token: TokenStatus = {

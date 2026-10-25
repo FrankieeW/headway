@@ -1,0 +1,86 @@
+name: security
+
+# Dependency advisories are time-dependent: a lockfile that is clean today can become
+# vulnerable after the next RustSec/npm advisory is published, so this runs weekly as well
+# as on every push and pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-advisories:
+    name: rust advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-25
+        with:
+          toolchain: stable
+
+      # Prebuilt cargo-deny from its GitHub release (the action verifies the download checksum).
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-deny
+
+      # `.github/cargo-deny.toml` filters the graph to the two shipped macOS targets and denies
+      # unknown registries; no advisories are suppressed with `ignore`.
+      - name: RustSec advisories and crate sources
+        run: cargo deny --config .github/cargo-deny.toml check advisories sources
+
+  npm-audit:
+    name: npm production audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The pnpm version is pinned by package.json `packageManager` (pnpm@12.14.0).
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # No install step: `pnpm audit` reads the committed lockfile and queries the registry, so
+      # no dependency lifecycle script ever runs in the security job. Only the shipped
+      # production tree gates the build; dev-only advisories are reported by `pnpm audit` locally
+      # and tracked with Dependabot rather than blocking every PR.
+      - name: Audit the production dependency tree
+        run: pnpm audit --prod --audit-level=high
+
+  dependency-review:
+    name: dependency review (pull requests)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+          # No pull-requests: write: the check fails the job instead of commenting, which keeps
+          # the token read-only for fork pull requests.
+          comment-summary-in-pr: never

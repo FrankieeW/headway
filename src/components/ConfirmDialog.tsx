@@ -36,7 +36,7 @@ export function ConfirmDialog({
   message,
   confirmText,
   cancelText,
-  variant = "destructive",
+  variant = "default",
   zIndex = "alert",
   checkboxLabel,
   checkboxDefaultChecked = false,

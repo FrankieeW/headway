@@ -19,7 +19,8 @@ import {
   useSettings,
   useTokenStatus,
 } from "@/hooks/useSettings";
-import { systemApi, type RateLimit } from "@/lib/api";
+import { type RateLimit } from "@/lib/api";
+import { openUrl } from "@/lib/systemActions";
 import { tokenSourceLabel } from "@/lib/format";
 
 const TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
@@ -160,7 +161,7 @@ export function GitHubSection() {
 
             <button
               type="button"
-              onClick={() => void systemApi.openUrl(TOKEN_URL)}
+              onClick={() => openUrl(TOKEN_URL)}
               className="mt-2 inline-flex items-center gap-1 text-caption text-action-text transition-colors hover:underline"
             >
               <ExternalLink className="h-3 w-3" strokeWidth={1.75} />

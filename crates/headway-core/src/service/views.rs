@@ -42,7 +42,7 @@ impl AppView {
         let installation = match super::installation::detect(&app, &state) {
             Ok(detection) => Some(detection),
             Err(error) => {
-                state.last_error = Some(LastError::from_error(&error, "check"));
+                state.last_error = Some(LastError::from_error(&error, "presence"));
                 None
             }
         };

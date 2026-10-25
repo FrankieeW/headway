@@ -68,6 +68,18 @@ pub(crate) fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                     "Release {tag} also ships `{asset}`: choose \"Releases\" to download it instead of building."
                 ));
             }
+            // Path templates are substituted raw (unlike shell-quoted build commands), so
+            // validate the rendered artifact before offering it for saving.
+            let artifact = facts.artifact.and_then(|template| {
+                let rendered = super::render_artifact(template, &bin, name);
+                if rendered.is_none() {
+                    notes.push(
+                        "The detected artifact path does not stay inside the checkout; set the artifact explicitly in the config."
+                            .to_owned(),
+                    );
+                }
+                rendered
+            });
             base(
                 preset.kind,
                 Track::Commit { branch: None },
@@ -75,9 +87,7 @@ pub(crate) fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                     storage: crate::source_storage::SourceStorage::default(),
                     build: presets::render_command(preset.build, &bin, name),
                     workdir: None,
-                    artifact: facts
-                        .artifact
-                        .map(|artifact| presets::render(artifact, &bin, name)),
+                    artifact,
                     dest: None,
                     verify_command: None,
                 }),

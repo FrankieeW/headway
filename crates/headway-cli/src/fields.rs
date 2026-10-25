@@ -66,7 +66,11 @@ pub fn apply(base: TrackedApp, fields: &AppFields) -> Result<TrackedApp> {
             let install = apply_install(base, fields, &github.repo, &name)?;
             if install.method() != github.install.method() {
                 match &github.install {
-                    Install::Source(source) => options.source_build = Some(source.clone()),
+                    // A bare `add --no-inspect` source is a placeholder, not a recipe.
+                    Install::Source(source) if !source.build.trim().is_empty() => {
+                        options.source_build = Some(source.clone());
+                    }
+                    Install::Source(_) => {}
                     Install::Asset(asset) => options.release_asset = Some(asset.clone()),
                 }
             }

@@ -37,13 +37,17 @@ done
 
 project_root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
-# Direct invocations get the same token boundary as Headway's process::Cmd.
-unset HEADWAY_GITHUB_TOKEN
+# Direct invocations get the same credential boundary as Headway's process::Cmd: every token
+# source is removed before any repository build/npm/cargo subprocess.
+. "$project_root/scripts/token-env.sh"
 # App artifacts must resolve SDK libraries, not a developer's Homebrew search path.
 # Keep the Rust-only CLI recipe's environment contract unchanged.
 if [ "$mode" = app ]; then
   need node
   need xcrun
+  # CI/secrets arrive as empty strings; tauri-bundler treats any present APPLE_* variable as
+  # notarization credentials. Normalize (unset empty, reject partial) before bundling.
+  . "$project_root/scripts/apple-signing-env.sh"
   . "$project_root/scripts/macos-build-env.sh"
 fi
 need git

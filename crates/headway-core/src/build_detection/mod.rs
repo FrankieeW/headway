@@ -150,6 +150,21 @@ impl<'a> Discovery<'a> {
 }
 
 pub(crate) fn prioritize(candidates: &mut Vec<BuildCandidate>, known_self: bool) {
+    // Repository metadata is untrusted: an artifact path must stay inside the checkout even
+    // after `{bin}`/`{name}` substitution. A suggestion we cannot install safely is kept as
+    // build-only evidence (artifact cleared, reason explains) instead of being offered/saved.
+    for candidate in candidates.iter_mut() {
+        if candidate
+            .artifact
+            .as_deref()
+            .is_some_and(|path| !safe_artifact_path(path))
+        {
+            candidate.artifact = None;
+            candidate.reason.push_str(
+                " Discovered artifact path is not a safe relative path inside the checkout; set the artifact explicitly before saving.",
+            );
+        }
+    }
     candidates.sort_by_key(|candidate| {
         (
             !installable(candidate),
@@ -191,6 +206,26 @@ fn installable(candidate: &BuildCandidate) -> bool {
                         && !preset.build.is_empty()
                         && preset.build == candidate.build
                 }))
+}
+
+/// A resolved artifact must stay relative to the checkout: manifests and README files are
+/// untrusted, and preset path templates are substituted without shell quoting.
+fn safe_artifact_path(path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    !path.as_os_str().is_empty()
+        && path.components().all(|component| {
+            matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+}
+
+/// Fills a preset artifact template with repository-derived names, rejecting a result that
+/// escapes the checkout (e.g. a manifest/README supplying `{bin}` = `../../…`).
+pub(crate) fn render_artifact(template: &str, bin: &str, name: &str) -> Option<String> {
+    let rendered = crate::presets::render(template, bin, name);
+    safe_artifact_path(&rendered).then_some(rendered)
 }
 
 #[cfg(test)]

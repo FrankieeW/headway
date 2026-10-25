@@ -19,7 +19,7 @@ pub struct CommitPage {
 pub(crate) fn validate_page(page: u32, per_page: u32) -> Result<()> {
     if page == 0 || !(1..=100).contains(&per_page) {
         return Err(Error::InvalidInput(
-            "Commit history requires page >= 1 and per_page between 1 and 100.".into(),
+            "Pagination requires page >= 1 and per_page between 1 and 100.".into(),
         ));
     }
     Ok(())

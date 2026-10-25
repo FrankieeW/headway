@@ -201,3 +201,47 @@ fn trusted_self_installing_preset_can_remain_without_artifact() {
     assert!(candidates[0].recommended);
     assert!(candidates[0].artifact.is_none());
 }
+
+#[test]
+fn rendered_artifacts_must_stay_inside_the_checkout() {
+    // Given safe and escaping values substituted into preset path templates.
+    assert_eq!(
+        render_artifact("target/release/{bin}", "ripgrep", "ripgrep").as_deref(),
+        Some("target/release/ripgrep")
+    );
+    assert_eq!(
+        render_artifact(".headway-out/{name}.app", "tool", "Headway").as_deref(),
+        Some(".headway-out/Headway.app")
+    );
+    // Repository-derived names must not turn a relative template into an escaping path.
+    assert!(render_artifact("target/release/{bin}", "../../../../etc/passwd", "tool").is_none());
+    assert!(render_artifact(".headway-out/{name}", "tool", "../escape").is_none());
+    assert!(render_artifact("/usr/local/bin/{bin}", "tool", "tool").is_none());
+}
+
+#[test]
+fn unsafe_manifest_artifacts_are_demoted_to_build_only_evidence() {
+    // Given candidates whose artifact must be copied somewhere outside the checkout.
+    let mut escaping = BuildCandidate::manifest("Makefile", "make tool".into());
+    escaping.artifact = Some("../../Library/LaunchAgents/evil.plist".into());
+    let mut absolute = BuildCandidate::manifest("Makefile", "make install".into());
+    absolute.artifact = Some("/usr/local/bin/tool".into());
+    let mut safe = BuildCandidate::manifest("Makefile", "make".into());
+    safe.artifact = Some("build/tool".into());
+    let mut candidates = vec![escaping, absolute, safe];
+    // When ranking suggestions.
+    prioritize(&mut candidates, false);
+    // Then only the contained path stays a ready suggestion; the others explain why not.
+    assert_eq!(candidates[0].artifact.as_deref(), Some("build/tool"));
+    assert!(candidates[0].recommended);
+    let demoted: Vec<&BuildCandidate> = candidates
+        .iter()
+        .filter(|candidate| candidate.artifact.is_none())
+        .collect();
+    assert_eq!(demoted.len(), 2);
+    assert!(
+        demoted
+            .iter()
+            .all(|candidate| candidate.reason.contains("not a safe relative path"))
+    );
+}

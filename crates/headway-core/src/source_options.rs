@@ -81,8 +81,7 @@ impl GithubOptions {
                     .chain(settings.source_build.clone().map(Install::Source))
                     .chain(settings.release_asset.clone().map(Install::Asset))
                 {
-                    crate::config::validate_install(&install)
-                        .map_err(crate::Error::InvalidInput)?;
+                    validate_install(&install)?;
                 }
             }
         }
@@ -93,7 +92,7 @@ impl GithubOptions {
             .into_iter()
             .chain(self.release_asset.clone().map(Install::Asset))
         {
-            crate::config::validate_install(&install).map_err(crate::Error::InvalidInput)?;
+            validate_install(&install)?;
         }
         if let Some(variant) = &self.variant {
             validate_app_id(&variant.parent_id)?;
@@ -106,5 +105,40 @@ impl GithubOptions {
             }
         }
         Ok(())
+    }
+}
+
+/// Validates an install entry, including the asset glob that selects its payload.
+fn validate_install(install: &Install) -> Result<()> {
+    crate::config::validate_install(install).map_err(crate::Error::InvalidInput)?;
+    if let Install::Asset(asset) = install
+        && let Some(pattern) = &asset.pattern
+    {
+        crate::asset::validate_pattern(pattern)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_pattern(pattern: &str) -> GithubOptions {
+        GithubOptions {
+            release_asset: Some(AssetInstall {
+                pattern: Some(pattern.to_owned()),
+                ..AssetInstall::default()
+            }),
+            ..GithubOptions::default()
+        }
+    }
+
+    #[test]
+    fn asset_patterns_are_validated() {
+        assert!(with_pattern("*macos*.zip").validate().is_ok());
+        let long = "z".repeat(257);
+        for pattern in ["", "bad\npattern", long.as_str()] {
+            assert!(with_pattern(pattern).validate().is_err(), "{pattern:?}");
+        }
     }
 }

@@ -46,7 +46,7 @@ impl Headway {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        let lock = crate::lock::AppLock::acquire(&self.paths().app_lock(parent_id), parent_id)?;
+        let lock = crate::lock::AppLock::acquire_app_async(self.paths(), parent_id).await?;
         let (prepared, _) = self.prepare_variant(parent_id, request).await?;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);

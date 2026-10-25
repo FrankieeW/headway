@@ -26,6 +26,7 @@ import type {
   Preset,
   RemovedApp,
   RepoInspection,
+  RepositoryOption,
   SourceLookup,
   Settings,
   Target,
@@ -134,6 +135,9 @@ export const appsApi = {
     invoke<AppView[]>("import_apps", { apps: apps.map(withPolicyDefaults) }),
   recipes: () => invoke<AppRecipe[]>("list_recipes"),
   presets: () => invoke<Preset[]>("list_presets"),
+  /** Saved origins (parent/fork choices) for one GitHub app. */
+  repositories: (id: string) =>
+    invoke<RepositoryOption[]>("list_repositories", { id }),
 };
 
 export const opsApi = {

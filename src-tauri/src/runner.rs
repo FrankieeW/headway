@@ -5,7 +5,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 use tauri_plugin_notification::NotificationExt as _;
 
-use crate::state::{AppState, UPDATE_EVENT, UPDATE_FINISHED, apps_changed};
+use crate::locale;
+use crate::state::{AppState, CmdResult, UPDATE_EVENT, UPDATE_FINISHED, admit_run, apps_changed};
 
 pub(crate) struct WindowSink<R: Runtime> {
     pub(crate) app: AppHandle<R>,
@@ -45,7 +46,17 @@ pub enum Origin {
     Background,
 }
 
-/// Runs one update to completion. Returns `false` if it was already running here.
+/// The result of one run in the shape the window and the notification need.
+struct Finished {
+    ok: bool,
+    /// The last successful outcome; background runs report the steps that did
+    /// land even when a later step failed.
+    outcome: Option<UpdateOutcome>,
+    error: Option<ErrorInfo>,
+}
+
+/// Runs one update to completion. Returns `false` when the run was not admitted
+/// (already updating here, or the app is quitting/restarting).
 pub async fn run_update<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
@@ -53,70 +64,33 @@ pub async fn run_update<R: Runtime>(
     origin: Origin,
 ) -> bool {
     let state = app.state::<AppState>();
-    let Some(cancel) = state.begin_run(id) else {
+    let Ok(cancel) = admit_run(&state, id) else {
         return false;
     };
-    // Ends the run even if the update panics, or this app could never update again.
-    let _run = RunGuard { state: &state, id };
-    apps_changed(app);
-    let sink = WindowSink { app: app.clone() };
-    let result = match origin {
-        Origin::User => state.hw.update(id, target, &sink, &cancel).await.map(Some),
-        Origin::Background => state
-            .hw
-            .auto_update(id, &sink, &cancel)
-            .await
-            .map(|runs| runs.last().cloned()),
-    };
-
-    let payload = match &result {
-        Ok(outcome) => UpdateFinished {
-            app_id: id.to_owned(),
-            ok: true,
-            outcome: outcome.clone(),
-            error: None,
-        },
-        Err(err) => UpdateFinished {
-            app_id: id.to_owned(),
-            ok: false,
-            outcome: None,
-            error: Some(ErrorInfo::from(err)),
-        },
-    };
-    let _ = app.emit(UPDATE_FINISHED, &payload);
-    apps_changed(app);
-
-    if origin == Origin::Background {
-        let notify = state.hw.settings().is_ok_and(|settings| settings.notify);
-        let body = match &result {
-            Ok(Some(outcome)) if outcome.changed => Some(format!(
-                "Updated {id} to {}",
-                outcome.to.version.as_deref().unwrap_or(&outcome.to.id)
-            )),
-            Ok(_) => None,
-            Err(err) => Some(format!("Updating {id} failed: {err}")),
-        };
-        if let (true, Some(body)) = (notify, body) {
-            let _ = app
-                .notification()
-                .builder()
-                .title("Headway")
-                .body(body)
-                .show();
-        }
-    }
+    run_admitted(app, id, target, origin, cancel).await;
     true
 }
 
 /// Starts an update without waiting for it.
-pub fn spawn_update<R: Runtime>(app: &AppHandle<R>, id: String, target: Target, origin: Origin) {
+///
+/// Admission happens here, synchronously, so the command that asked can report a
+/// refused start (the `busy` error) instead of leaving the window with a run that
+/// never produces events.
+pub fn spawn_update<R: Runtime>(
+    app: &AppHandle<R>,
+    id: String,
+    target: Target,
+    origin: Origin,
+) -> CmdResult<()> {
+    let cancel = admit_run(&app.state::<AppState>(), &id)?;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        run_update(&app, &id, &target, origin).await;
+        run_admitted(&app, &id, &target, origin, cancel).await;
     });
+    Ok(())
 }
 
-/// Updates every app that is behind, one after another.
+/// Updates every app that is behind, one after another (tray "Update all").
 pub fn spawn_update_all<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -132,8 +106,116 @@ pub fn spawn_update_all<R: Runtime>(app: &AppHandle<R>) {
                     .collect()
             })
             .unwrap_or_default();
-        for id in ids {
-            run_update(&app, &id, &Target::Latest, Origin::User).await;
-        }
+        run_updates(&app, ids, Origin::User).await;
     });
+}
+
+/// Starts a background batch in its own task. The scheduler keeps its check loop
+/// responsive while builds run: "Check now" and the next interval are not queued
+/// behind a long build.
+pub fn spawn_auto_updates<R: Runtime>(app: &AppHandle<R>, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        run_updates(&app, ids, Origin::Background).await;
+    });
+}
+
+/// Runs the given updates sequentially, admitting each one separately so an app
+/// that became busy (CLI, restart) is skipped instead of racing.
+///
+/// Production spawns this from the scheduler/tray; the scheduler tests await it
+/// directly so their assertions are deterministic.
+pub(crate) async fn run_updates<R: Runtime>(app: &AppHandle<R>, ids: Vec<String>, origin: Origin) {
+    for id in ids {
+        run_update(app, &id, &Target::Latest, origin).await;
+    }
+}
+
+/// Runs one already-admitted update to completion.
+async fn run_admitted<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+    target: &Target,
+    origin: Origin,
+    cancel: headway_core::CancellationToken,
+) {
+    let state = app.state::<AppState>();
+    // Ends the run even if the update panics, or this app could never update again.
+    let _run = RunGuard { state: &state, id };
+    apps_changed(app);
+    let sink = WindowSink { app: app.clone() };
+    let finished = match origin {
+        Origin::User => match state.hw.update(id, target, &sink, &cancel).await {
+            Ok(outcome) => Finished {
+                ok: true,
+                outcome: Some(outcome),
+                error: None,
+            },
+            Err(error) => Finished {
+                ok: false,
+                outcome: None,
+                error: Some(ErrorInfo::from(&error)),
+            },
+        },
+        Origin::Background => {
+            let report = state.hw.auto_update_report(id, &sink, &cancel).await;
+            let outcome = report.outcomes.last().cloned();
+            match report.error {
+                None => Finished {
+                    ok: true,
+                    outcome,
+                    error: None,
+                },
+                Some(error) => Finished {
+                    ok: false,
+                    outcome,
+                    error: Some(error),
+                },
+            }
+        }
+    };
+
+    let payload = UpdateFinished {
+        app_id: id.to_owned(),
+        ok: finished.ok,
+        outcome: finished.outcome.clone(),
+        error: finished.error.clone(),
+    };
+    let _ = app.emit(UPDATE_FINISHED, &payload);
+    apps_changed(app);
+
+    if origin == Origin::Background {
+        notify(app, &state, id, &finished);
+    }
+}
+
+/// Sends one native notification for a finished background run, if enabled.
+fn notify<R: Runtime>(app: &AppHandle<R>, state: &AppState, id: &str, finished: &Finished) {
+    if !state.hw.settings().is_ok_and(|settings| settings.notify) {
+        return;
+    }
+    let table = locale::for_headway(&state.hw).strings();
+    let name = state
+        .hw
+        .get(id)
+        .map_or_else(|_| id.to_owned(), |view| view.app.name);
+    let body = match (&finished.error, &finished.outcome) {
+        (Some(error), _) => Some(table.update_failed(&name, &error.message)),
+        (None, Some(outcome)) if outcome.changed => {
+            let version = outcome.to.version.as_deref().unwrap_or(&outcome.to.id);
+            Some(table.updated_to(&name, version))
+        }
+        (None, _) => None,
+    };
+    if let Some(body) = body {
+        let _ = app
+            .notification()
+            .builder()
+            .title(table.tooltip)
+            .body(body)
+            .show();
+    }
 }

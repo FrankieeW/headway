@@ -94,8 +94,14 @@ pub fn plan_steps(
                 asset.name,
                 human_bytes(asset.size)
             )];
-            if asset.digest.is_some() {
-                steps.push("verify the SHA-256 digest published by GitHub".to_owned());
+            if asset
+                .digest
+                .as_deref()
+                .is_some_and(|digest| digest.starts_with("sha256:"))
+            {
+                steps.push("verify the SHA-256 digest published by GitHub (integrity, not publisher authentication)".to_owned());
+            } else {
+                steps.push("WARNING: GitHub published no supported SHA-256 digest; download will proceed without published-checksum verification and report the computed SHA-256".to_owned());
             }
             let repo_name = app.repo_id().map(|repo| repo.name).unwrap_or_default();
             let raw = archive::detect(&asset.name) == ArchiveKind::Raw;

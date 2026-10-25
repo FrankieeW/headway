@@ -112,7 +112,6 @@ pub fn find(id: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|preset| preset.id == id)
 }
 
-/// Fills `{bin}` and `{name}`.
 /// Fills `{bin}` and `{name}` in a path template (artifacts).
 pub fn render(template: &str, bin: &str, name: &str) -> String {
     template.replace("{bin}", bin).replace("{name}", name)
@@ -190,10 +189,16 @@ pub fn cargo_workspace_contains(manifest: &str, member: &str) -> bool {
             .and_then(toml::Value::as_array)
             .is_some_and(|paths| {
                 paths.iter().filter_map(toml::Value::as_str).any(|path| {
-                    std::path::Path::new(path)
-                        .components()
-                        .filter(|part| *part != std::path::Component::CurDir)
-                        .eq(std::path::Path::new(member).components())
+                    let clean = |value: &str| {
+                        std::path::Path::new(value)
+                            .components()
+                            .filter(|part| *part != std::path::Component::CurDir)
+                            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    };
+                    crate::asset::glob_regex(&clean(path))
+                        .is_ok_and(|pattern| pattern.is_match(&clean(member)))
                 })
             })
     };

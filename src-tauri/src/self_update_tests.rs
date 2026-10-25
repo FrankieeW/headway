@@ -1,31 +1,11 @@
 //! Real handler contract checks; all bundles and links live in a temporary home.
-use crate::ipc_tests::support::{Harness, call, harness, ok};
+use crate::ipc_tests::support::{Harness, call, ok};
 use crate::state::AppState;
 use serde_json::json;
-use std::os::unix::fs::PermissionsExt as _;
 use tauri::Manager as _;
 
 fn fixture() -> Harness {
-    let h = harness("http://127.0.0.1:9");
-    let root = h.home.path().join("apps");
-    let app = root.join("Headway.app/Contents");
-    std::fs::create_dir_all(app.join("MacOS")).unwrap();
-    std::fs::write(app.join("Info.plist"), r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>wang.frankie.headway</string><key>CFBundleExecutable</key><string>headway-desktop</string></dict></plist>"#).unwrap();
-    for name in ["headway", "headway-desktop"] {
-        let path = app.join("MacOS").join(name);
-        std::fs::write(&path, "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true,\"data\":{\"version\":\"9.0.0\",\"commit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dirty\":false,\"target\":null}}'\n").unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    let state = h.app.state::<AppState>();
-    state
-        .hw
-        .set_setting("apps_dir", root.to_str().unwrap())
-        .unwrap();
-    state
-        .hw
-        .set_setting("bin_dir", h.home.path().join("bin").to_str().unwrap())
-        .unwrap();
-    h
+    crate::ipc_tests::support::bundle_harness()
 }
 
 #[test]

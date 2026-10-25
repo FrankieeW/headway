@@ -14,7 +14,7 @@ use wiremock::{
     reason = "Shared fixture also serves the self_build integration target."
 )]
 mod self_build_support;
-use self_build_support::{Repo, Stamp, success};
+use self_build_support::{Repo, stamp_of, success};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn next_builds_and_installs_the_next_self_host_commit_without_losing_cache() {
@@ -86,7 +86,7 @@ async fn next_builds_and_installs_the_next_self_host_commit_without_losing_cache
                 .output()
                 .unwrap(),
         );
-        let stamp: Stamp = serde_json::from_slice(&output.stdout).unwrap();
+        let stamp = stamp_of(&output.stdout);
         println!(
             "installed executable: {}",
             String::from_utf8_lossy(&output.stdout)

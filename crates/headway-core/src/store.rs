@@ -5,6 +5,7 @@
 //! are replaced atomically (write to a temp file, then rename).
 
 use std::fs::{self, File, OpenOptions};
+use std::hash::{Hash as _, Hasher as _};
 use std::io::Write as _;
 use std::path::Path;
 use std::time::SystemTime;
@@ -17,6 +18,7 @@ use crate::state::State;
 const CONFIG_HEADER: &str = "\
 # Headway configuration, shared by the `headway` CLI and the Headway app.
 # Edit with `headway add/edit/remove/settings`, in the app, or by hand.
+# Saving through Headway rewrites formatting and comments.
 # Reference: https://github.com/FrankieeW/headway#configuration
 
 ";
@@ -29,8 +31,8 @@ pub struct Store {
 /// Modification times of the two files, used to notice changes made by another process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Fingerprint {
-    config: Option<(SystemTime, u64)>,
-    state: Option<(SystemTime, u64)>,
+    config: Option<(SystemTime, u64, u64)>,
+    state: Option<(SystemTime, u64, u64)>,
 }
 
 impl Store {
@@ -57,11 +59,22 @@ impl Store {
     /// Loads `state.json`; a missing file is an empty state.
     pub fn state(&self) -> Result<State> {
         let path = self.paths.state_file();
-        match read_optional(&path)? {
-            Some(text) => serde_json::from_str(&text)
-                .map_err(|err| Error::parse(path.display().to_string(), &err)),
-            None => Ok(State::default()),
+        let Some(text) = read_optional(&path)? else {
+            return Ok(State::default());
+        };
+        let mut state: State = serde_json::from_str(&text).map_err(|err| Error::parse(
+            path.display().to_string(),
+            &format!("{err}; installed provenance was not reset: preserve this file; restore the validated state.json.bak beside it if available, or intentionally reset only after accepting loss of installed provenance"),
+        ))?;
+        if state.version > crate::state::STATE_VERSION {
+            return Err(Error::Config(format!(
+                "{} uses unsupported state schema {}; upgrade Headway; the file was not modified",
+                path.display(),
+                state.version
+            )));
         }
+        state.version = crate::state::STATE_VERSION;
+        Ok(state)
     }
 
     /// Applies `f` to the current config under the store lock and saves the result.
@@ -81,11 +94,63 @@ impl Store {
     /// Applies `f` to the current state under the store lock and saves the result.
     pub fn update_state<T>(&self, f: impl FnOnce(State) -> Result<(State, T)>) -> Result<T> {
         let _lock = self.lock()?;
-        let (next, output) = f(self.state()?)?;
+        let previous = self.state()?;
+        let (next, output) = f(previous.clone())?;
         let body = serde_json::to_vec_pretty(&next)
             .map_err(|err| Error::Config(format!("serialize state: {err}")))?;
+        self.backup_state(&previous)?;
         write_atomic(&self.paths.state_file(), &body)?;
         Ok(output)
+    }
+
+    /// Rechecks check provenance under the same lock as its state write.
+    pub(crate) fn update_state_for_source<T>(
+        &self,
+        id: &str,
+        source: &crate::Source,
+        f: impl FnOnce(State) -> Result<(State, T)>,
+    ) -> Result<T> {
+        let _lock = self.lock()?;
+        if &self.config()?.app(id)?.source != source {
+            return Err(Error::ConfigChanged(id.into()));
+        }
+        let previous = self.state()?;
+        let (next, output) = f(previous.clone())?;
+        let body = serde_json::to_vec_pretty(&next).map_err(|err| Error::parse("state", &err))?;
+        self.backup_state(&previous)?;
+        write_atomic(&self.paths.state_file(), &body)?;
+        Ok(output)
+    }
+
+    /// Clears orphan provenance before making new registrations visible. A failed config
+    /// write can lose only orphan state, never attach it to a new source after a crash.
+    pub(crate) fn register<T>(
+        &self,
+        f: impl FnOnce(Config, State) -> Result<(Config, State, T)>,
+    ) -> Result<T> {
+        let _lock = self.lock()?;
+        let previous = self.state()?;
+        let (config, state, output) = f(self.config()?, previous.clone())?;
+        config.validate()?;
+        let state_body =
+            serde_json::to_vec_pretty(&state).map_err(|err| Error::parse("state", &err))?;
+        let config_body =
+            toml::to_string_pretty(&config).map_err(|err| Error::parse("config", &err))?;
+        if state != previous {
+            self.backup_state(&previous)?;
+            write_atomic(&self.paths.state_file(), &state_body)?;
+        }
+        write_atomic(
+            &self.paths.config_file(),
+            format!("{CONFIG_HEADER}{config_body}").as_bytes(),
+        )?;
+        Ok(output)
+    }
+
+    fn backup_state(&self, state: &State) -> Result<()> {
+        let body =
+            serde_json::to_vec_pretty(state).map_err(|err| Error::parse("state backup", &err))?;
+        write_atomic(&self.paths.state_file().with_extension("json.bak"), &body)
     }
 
     pub fn fingerprint(&self) -> Fingerprint {
@@ -104,15 +169,30 @@ impl Store {
             .write(true)
             .open(&path)
             .map_err(|err| Error::io_at("open", &path, err))?;
-        file.lock()
-            .map_err(|err| Error::io_at("lock", &path, err))?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            match file.try_lock() {
+                Ok(()) => break,
+                Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    return Err(Error::StoreBusy(path.display().to_string()));
+                }
+                Err(std::fs::TryLockError::Error(err)) => {
+                    return Err(Error::io_at("lock", &path, err));
+                }
+            }
+        }
         Ok(file)
     }
 }
 
-fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
     let meta = fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    fs::read(path).ok()?.hash(&mut hasher);
+    Some((meta.modified().ok()?, meta.len(), hasher.finish()))
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>> {
@@ -133,18 +213,24 @@ fn create_parent(path: &Path) -> Result<()> {
 /// Writes `contents` to a sibling temp file and renames it over `path`.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
     create_parent(path)?;
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{file_name}.{}.tmp", std::process::id()));
-    let write = || -> std::io::Result<()> {
-        let mut file = File::create(&tmp)?;
-        file.write_all(contents)?;
-        file.sync_all()
-    };
-    write().map_err(|err| Error::io_at("write", &tmp, err))?;
-    fs::rename(&tmp, path).map_err(|err| Error::io_at("replace", path, err))
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::InvalidInput("atomic file has no parent".into()))?;
+    // NamedTempFile uses create_new and mode 0600, and cleans up on every error path.
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".headway-")
+        .tempfile_in(parent)
+        .map_err(|err| Error::io_at("create temporary file in", parent, err))?;
+    tmp.write_all(contents)
+        .map_err(|err| Error::io_at("write", tmp.path(), err))?;
+    tmp.as_file()
+        .sync_all()
+        .map_err(|err| Error::io_at("sync", tmp.path(), err))?;
+    tmp.persist(path)
+        .map_err(|err| Error::io_at("replace", path, err.error))?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|err| Error::io_at("sync directory", parent, err))
 }
 
 #[cfg(test)]
@@ -220,3 +306,7 @@ mod tests {
         assert_ne!(store.fingerprint(), before);
     }
 }
+
+#[cfg(test)]
+#[path = "store_regressions.rs"]
+mod regressions;

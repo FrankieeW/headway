@@ -51,7 +51,7 @@ impl Headway {
         let original = self.store().config()?.app(id)?.clone();
         let info = self.github().await?.repo(&original.repo_id()?).await?;
         let found = crate::repository_family::choices(&info)?;
-        let lock = crate::lock::AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let lock = crate::lock::AppLock::acquire_app_async(self.paths(), id).await?;
         self.store().update_config(|mut config| {
             let app = config
                 .apps
@@ -59,7 +59,7 @@ impl Headway {
                 .find(|app| app.id == id)
                 .ok_or_else(|| Error::AppNotFound(id.into()))?;
             if app.source != original.source {
-                return Err(Error::Busy(id.into()));
+                return Err(Error::ConfigChanged(id.into()));
             }
             let Source::Github(github) = &mut app.source else {
                 return Err(Error::InvalidInput(

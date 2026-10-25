@@ -3,12 +3,15 @@
 //! Asset names are lowercased before any suffix test, hence the lint allowance.
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
+use std::sync::OnceLock;
+
 use regex::Regex;
 
 use crate::config::AppKind;
 use crate::error::{Error, Result};
 use crate::github::Asset;
 
+/// The CPU architecture release assets are selected for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arch {
     Arm64,
@@ -16,13 +19,97 @@ pub enum Arch {
 }
 
 impl Arch {
+    /// The Mac's real CPU architecture, not the one this binary was compiled for.
+    ///
+    /// Headway can itself run under Rosetta on Apple Silicon; in that case native
+    /// arm64 assets are still the right choice for the host. The `x86_64` build probes
+    /// the kernel's `hw.optional.arm64` flag with an empty environment and no shell —
+    /// no repository or build code ever runs in that probe — and falls back to the
+    /// compile-time architecture if the probe is unavailable.
     pub fn host() -> Self {
-        if std::env::consts::ARCH == "x86_64" {
-            Self::X86_64
-        } else {
-            Self::Arm64
-        }
+        static HOST: OnceLock<Arch> = OnceLock::new();
+        *HOST.get_or_init(detect_host)
     }
+}
+
+/// Whether a GitHub asset name can be joined into a scratch directory safely.
+///
+/// Rejects empty names, path separators, `.`/`..`, control characters (which could
+/// also corrupt log output) and over-long names. The name is still untrusted data;
+/// this only guarantees it is a single ordinary file-system component.
+pub fn safe_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\'])
+        && !name.chars().any(char::is_control)
+}
+
+/// A bounded, control-character-free rendering of an untrusted asset name.
+pub fn display_name(name: &str) -> String {
+    const LIMIT: usize = 100;
+    let mut out = String::with_capacity(name.len().min(LIMIT));
+    for (index, character) in name.chars().enumerate() {
+        if index >= LIMIT {
+            out.push('…');
+            return out;
+        }
+        out.push(if character.is_control() {
+            '?'
+        } else {
+            character
+        });
+    }
+    out
+}
+
+/// Validates a user-supplied asset glob before it is saved in the config.
+pub fn validate_pattern(pattern: &str) -> Result<()> {
+    if pattern.is_empty() {
+        return Err(Error::InvalidInput(
+            "asset pattern is empty; omit it to pick the best macOS asset".into(),
+        ));
+    }
+    if pattern.len() > 256 {
+        return Err(Error::InvalidInput(
+            "asset pattern must be at most 256 bytes".into(),
+        ));
+    }
+    if pattern.chars().any(char::is_control) {
+        return Err(Error::InvalidInput(
+            "asset pattern must not contain control characters".into(),
+        ));
+    }
+    glob_regex(pattern)?;
+    Ok(())
+}
+
+fn detect_host() -> Arch {
+    if cfg!(target_arch = "aarch64") {
+        return Arch::Arm64;
+    }
+    if cfg!(target_os = "macos") && running_on_apple_silicon() {
+        return Arch::Arm64;
+    }
+    match std::env::consts::ARCH {
+        "x86_64" => Arch::X86_64,
+        _ => Arch::Arm64,
+    }
+}
+
+fn running_on_apple_silicon() -> bool {
+    let probe = std::process::Command::new("/usr/sbin/sysctl")
+        .args(["-n", "hw.optional.arm64"])
+        .env_clear()
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    probe.is_ok_and(|output| output.status.success() && parse_apple_silicon(&output.stdout))
+}
+
+fn parse_apple_silicon(stdout: &[u8]) -> bool {
+    std::str::from_utf8(stdout).is_ok_and(|text| text.trim() == "1")
 }
 
 const NOT_INSTALLABLE_SUFFIXES: [&str; 19] = [
@@ -81,32 +168,48 @@ const MAC_MARKERS: [&str; 8] = [
 ///
 /// With a `pattern` (a glob, case-insensitive) only matching assets are considered;
 /// otherwise assets are scored for macOS, the CPU architecture and the archive format.
+/// Names that could not be turned into a scratch file, or that cannot be installed on
+/// this machine (checksum, signature, other-OS, unsupported package), are never
+/// selected — with or without a pattern.
 pub fn select<'a>(
     assets: &'a [Asset],
     kind: AppKind,
     pattern: Option<&str>,
     arch: Arch,
 ) -> Result<&'a Asset> {
-    let names = || {
-        let list: Vec<&str> = assets.iter().map(|asset| asset.name.as_str()).collect();
-        if list.is_empty() {
-            "the release has no assets".to_owned()
-        } else {
-            format!("available: {}", list.join(", "))
-        }
-    };
+    let usable: Vec<&'a Asset> = assets
+        .iter()
+        .filter(|asset| safe_file_name(&asset.name))
+        .collect();
 
     if let Some(pattern) = pattern {
         let glob = glob_regex(pattern)?;
-        let matching: Vec<&Asset> = assets
+        let matching: Vec<&'a Asset> = usable
             .iter()
+            .copied()
             .filter(|asset| glob.is_match(&asset.name))
             .collect();
+        if matching.is_empty() {
+            return Err(Error::NoAsset(format!(
+                "nothing matches `{}` ({})",
+                display_name(pattern),
+                available(assets.iter())
+            )));
+        }
         return matching
             .iter()
             .copied()
-            .max_by_key(|asset| score(&asset.name, kind, arch).unwrap_or(i32::MIN))
-            .ok_or_else(|| Error::NoAsset(format!("nothing matches `{pattern}` ({})", names())));
+            .filter_map(|asset| score(&asset.name, kind, arch).map(|value| (value, asset)))
+            .max_by_key(|(value, _)| *value)
+            .map(|(_, asset)| asset)
+            .ok_or_else(|| {
+                Error::NoAsset(format!(
+                    "nothing matching `{}` can be installed on {} ({})",
+                    display_name(pattern),
+                    arch_label(arch),
+                    available(matching.iter().copied())
+                ))
+            });
     }
 
     let any_os_specific = assets.iter().any(|asset| {
@@ -116,8 +219,9 @@ pub fn select<'a>(
             .chain(OTHER_OS_MARKERS.iter())
             .any(|marker| name.contains(marker))
     });
-    assets
+    usable
         .iter()
+        .copied()
         .filter_map(|asset| score(&asset.name, kind, arch).map(|value| (value, asset)))
         .filter(|(value, _)| !any_os_specific || *value >= MAC_SCORE)
         .max_by_key(|(value, _)| *value)
@@ -126,9 +230,25 @@ pub fn select<'a>(
             Error::NoAsset(format!(
                 "no macOS {} asset found ({})",
                 arch_label(arch),
-                names()
+                available(assets.iter())
             ))
         })
+}
+
+/// Bounded, sanitized listing of asset names for an error message.
+fn available<'a>(assets: impl Iterator<Item = &'a Asset>) -> String {
+    let mut names: Vec<String> = assets
+        .map(|asset| display_name(&asset.name))
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        return "the release has no assets".to_owned();
+    }
+    let total = names.len();
+    names.truncate(20);
+    if total > names.len() {
+        names.push(format!("… and {} more", total - names.len()));
+    }
+    format!("available: {}", names.join(", "))
 }
 
 const MAC_SCORE: i32 = 100;
@@ -216,142 +336,5 @@ pub fn glob_regex(pattern: &str) -> Result<Regex> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assets(names: &[&str]) -> Vec<Asset> {
-        names
-            .iter()
-            .zip(1..)
-            .map(|(name, id)| Asset {
-                id,
-                name: (*name).to_owned(),
-                size: 1,
-                browser_download_url: None,
-                digest: None,
-            })
-            .collect()
-    }
-
-    fn pick(names: &[&str], kind: AppKind, arch: Arch) -> Option<String> {
-        let assets = assets(names);
-        select(&assets, kind, None, arch)
-            .ok()
-            .map(|asset| asset.name.clone())
-    }
-
-    const RIPGREP: [&str; 8] = [
-        "ripgrep-14.1.1-aarch64-apple-darwin.tar.gz",
-        "ripgrep-14.1.1-aarch64-apple-darwin.tar.gz.sha256",
-        "ripgrep-14.1.1-x86_64-apple-darwin.tar.gz",
-        "ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz",
-        "ripgrep-14.1.1-x86_64-pc-windows-msvc.zip",
-        "ripgrep_14.1.1-1_amd64.deb",
-        "ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz",
-        "ripgrep-14.1.1-i686-pc-windows-msvc.zip",
-    ];
-
-    #[test]
-    fn picks_the_matching_cpu_for_cli_tools() {
-        assert_eq!(
-            pick(&RIPGREP, AppKind::Cli, Arch::Arm64).unwrap(),
-            "ripgrep-14.1.1-aarch64-apple-darwin.tar.gz"
-        );
-        assert_eq!(
-            pick(&RIPGREP, AppKind::Cli, Arch::X86_64).unwrap(),
-            "ripgrep-14.1.1-x86_64-apple-darwin.tar.gz"
-        );
-    }
-
-    #[test]
-    fn falls_back_to_rosetta_but_never_the_other_way() {
-        let intel_only = [
-            "tool-x86_64-apple-darwin.tar.gz",
-            "tool-x86_64-linux.tar.gz",
-        ];
-        assert_eq!(
-            pick(&intel_only, AppKind::Cli, Arch::Arm64).unwrap(),
-            "tool-x86_64-apple-darwin.tar.gz"
-        );
-        let arm_only = ["tool-aarch64-apple-darwin.tar.gz"];
-        assert!(pick(&arm_only, AppKind::Cli, Arch::X86_64).is_none());
-    }
-
-    #[test]
-    fn prefers_dmg_for_apps_and_skips_pkg() {
-        let names = [
-            "Zed-aarch64.dmg",
-            "Zed-x86_64.dmg",
-            "Zed.pkg",
-            "zed-linux-x86_64.tar.gz",
-            "zed-remote-server-macos-aarch64.gz",
-        ];
-        assert_eq!(
-            pick(&names, AppKind::App, Arch::Arm64).unwrap(),
-            "Zed-aarch64.dmg"
-        );
-        assert!(pick(&["Tool.pkg"], AppKind::App, Arch::Arm64).is_none());
-    }
-
-    #[test]
-    fn universal_and_unmarked_assets() {
-        assert_eq!(
-            pick(
-                &["App_universal.dmg", "App_x64.dmg"],
-                AppKind::App,
-                Arch::Arm64
-            )
-            .unwrap(),
-            "App_universal.dmg"
-        );
-        // No OS markers anywhere: a lone archive is acceptable.
-        assert_eq!(
-            pick(
-                &["tool.tar.gz", "SHA256SUMS.txt"],
-                AppKind::Cli,
-                Arch::Arm64
-            )
-            .unwrap(),
-            "tool.tar.gz"
-        );
-        // Only other-OS assets: nothing to install.
-        assert!(
-            pick(
-                &["tool-linux.tar.gz", "tool-windows.zip"],
-                AppKind::Cli,
-                Arch::Arm64
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn bare_binaries_are_cli_candidates() {
-        assert_eq!(
-            pick(
-                &["jq-macos-arm64", "jq-linux-amd64", "jq-windows-amd64.exe"],
-                AppKind::Cli,
-                Arch::Arm64
-            )
-            .unwrap(),
-            "jq-macos-arm64"
-        );
-    }
-
-    #[test]
-    fn patterns_are_case_insensitive_globs() {
-        let list = assets(&RIPGREP);
-        let chosen = select(
-            &list,
-            AppKind::Cli,
-            Some("*X86_64-APPLE-darwin.tar.gz"),
-            Arch::Arm64,
-        )
-        .unwrap();
-        assert_eq!(chosen.name, "ripgrep-14.1.1-x86_64-apple-darwin.tar.gz");
-        let err = select(&list, AppKind::Cli, Some("*.dmg"), Arch::Arm64).unwrap_err();
-        assert!(matches!(&err, Error::NoAsset(msg) if msg.contains("available: ripgrep-14.1.1")));
-        assert!(glob_regex("a.b").unwrap().is_match("A.B"));
-        assert!(!glob_regex("a.b").unwrap().is_match("axb"));
-    }
-}
+#[path = "asset_tests.rs"]
+mod tests;

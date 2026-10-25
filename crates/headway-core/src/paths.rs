@@ -15,7 +15,7 @@ pub const HOME_ENV: &str = "HEADWAY_HOME";
 pub struct Paths {
     /// `config.toml` and `state.json`.
     pub config_dir: PathBuf,
-    /// Source checkouts, downloads and locks; safe to delete.
+    /// Source checkouts and downloads; safe to delete when no update is running.
     pub cache_dir: PathBuf,
     /// One directory of update logs per app.
     pub log_dir: PathBuf,
@@ -68,6 +68,12 @@ impl Paths {
     }
 
     pub fn app_lock(&self, id: &str) -> PathBuf {
+        self.config_dir.join("locks").join(format!("{id}.lock"))
+    }
+
+    /// Transitional v0.4.x lock location; held alongside the durable lock so an
+    /// already-running older desktop process observes updates by the new CLI.
+    pub fn legacy_app_lock(&self, id: &str) -> PathBuf {
         self.cache_dir.join("locks").join(format!("{id}.lock"))
     }
 
@@ -130,6 +136,10 @@ mod tests {
         );
         assert_eq!(
             paths.app_lock("rg"),
+            PathBuf::from("/tmp/hw/config/locks/rg.lock")
+        );
+        assert_eq!(
+            paths.legacy_app_lock("rg"),
             PathBuf::from("/tmp/hw/cache/locks/rg.lock")
         );
         assert_eq!(paths.app_log_dir("rg"), PathBuf::from("/tmp/hw/logs/rg"));
@@ -147,5 +157,19 @@ mod tests {
         assert_eq!(expand_tilde("~user/x"), PathBuf::from("~user/x"));
         assert_eq!(display_path(&home.join(".local/bin")), "~/.local/bin");
         assert_eq!(display_path(Path::new("/Applications")), "/Applications");
+    }
+    #[test]
+    fn purging_the_cache_does_not_break_update_exclusion() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::under(root.path());
+        std::fs::create_dir_all(&paths.cache_dir).unwrap();
+        let held = crate::lock::AppLock::acquire(&paths.app_lock("tool"), "tool").unwrap();
+        std::fs::remove_dir_all(&paths.cache_dir).unwrap();
+        assert!(matches!(
+            crate::lock::AppLock::acquire(&paths.app_lock("tool"), "tool"),
+            Err(Error::Busy(_))
+        ));
+        drop(held);
+        assert!(crate::lock::AppLock::acquire(&paths.app_lock("tool"), "tool").is_ok());
     }
 }

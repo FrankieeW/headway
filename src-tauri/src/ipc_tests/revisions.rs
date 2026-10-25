@@ -111,6 +111,17 @@ async fn pages_options_and_independent_dry_run_keep_config_and_payload_unchanged
     );
     assert_eq!(plan["app_id"], "tool-old");
     assert!(plan["steps"].to_string().contains("bin/tool-old"));
+    // A revision plan is read-only as well (no config write, no install).
+    let revision = ok(
+        &harness,
+        "plan_revision",
+        json!({"id":"tool","request":{"reference":sha,"method":"source"}}),
+    );
+    assert_eq!(revision["app_id"], "tool");
+    assert!(
+        revision["steps"].to_string().contains("bin/tool"),
+        "{revision}"
+    );
     assert_eq!(std::fs::read(config).unwrap(), before);
     assert!(!dest.exists());
     assert!(!bin.join("tool-old").exists());
@@ -118,4 +129,27 @@ async fn pages_options_and_independent_dry_run_keep_config_and_payload_unchanged
         call(&harness, "get_app", json!({"id":"tool-old"})).unwrap_err()["code"],
         "app_not_found"
     );
+}
+
+#[test]
+fn launch_variant_refuses_apps_without_an_independent_bundle() {
+    // A plain tracked CLI has no independent version to launch. The refusal must
+    // happen before any program is started.
+    let harness = super::support::harness("http://127.0.0.1:9");
+    let dest = harness.home.path().join("bin/tool");
+    super::support::ok(
+        &harness,
+        "add_app",
+        json!({"app": super::support::tool_app("file:///nowhere", &dest)}),
+    );
+    for id in ["tool", "missing"] {
+        let error = call(&harness, "launch_variant", json!({"id": id})).unwrap_err();
+        assert!(
+            matches!(
+                error["code"].as_str(),
+                Some("invalid_input" | "app_not_found")
+            ),
+            "{id}: {error}"
+        );
+    }
 }

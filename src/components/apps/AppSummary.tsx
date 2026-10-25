@@ -28,7 +28,11 @@ export interface AppSummaryProps {
   onUpdateLatest: () => void;
   onUpdateNext: () => void;
   onCancel: () => void;
-  onToggleAutoUpdate: (value: boolean) => void;
+  /**
+   * Persist the auto-update switch. Must return a promise that rejects when
+   * the backend rejected the change, so the switch can roll back.
+   */
+  onToggleAutoUpdate: (value: boolean) => Promise<unknown>;
 }
 
 type Tone = "normal" | "success" | "warning" | "danger";
@@ -100,11 +104,27 @@ export function AppSummary({
   );
   const activeRun = liveRun ?? (busy ? fallbackRun : undefined);
 
-  // the switch reacts immediately, the server confirms a moment later
+  // The switch reacts immediately, the server confirms a moment later. A
+  // failed save must not leave the switch showing the opposite of the
+  // persisted value, so a rejection restores the previous state.
   const [autoUpdate, setAutoUpdate] = useState(app.app.auto_update);
+  const [autoUpdatePending, setAutoUpdatePending] = useState(false);
   useEffect(() => {
     setAutoUpdate(app.app.auto_update);
   }, [app.app.auto_update]);
+
+  const toggleAutoUpdate = (value: boolean): void => {
+    const previous = autoUpdate;
+    setAutoUpdate(value);
+    setAutoUpdatePending(true);
+    void Promise.resolve(onToggleAutoUpdate(value))
+      .catch(() => {
+        setAutoUpdate(previous);
+      })
+      .finally(() => {
+        setAutoUpdatePending(false);
+      });
+  };
 
   const { text, tone } = describeStatus(app, t);
 
@@ -252,10 +272,8 @@ export function AppSummary({
           <Switch
             size="sm"
             checked={autoUpdate}
-            onCheckedChange={(value) => {
-              setAutoUpdate(value);
-              onToggleAutoUpdate(value);
-            }}
+            disabled={autoUpdatePending}
+            onCheckedChange={toggleAutoUpdate}
             aria-label={t("appPage.autoUpdate")}
           />
         </label>

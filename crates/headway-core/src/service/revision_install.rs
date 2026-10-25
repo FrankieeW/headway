@@ -49,7 +49,7 @@ impl Headway {
             return Err(Error::Cancelled);
         }
         self.store().config()?.app(id)?;
-        let _lock = crate::lock::AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = crate::lock::AppLock::acquire_app_async(self.paths(), id).await?;
         let config = self.store().config()?;
         let prepared = self
             .prepare_revision(config.app(id)?.clone(), request)
@@ -57,6 +57,7 @@ impl Headway {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
+        crate::recovery::reconcile(self.paths(), config.app(id)?)?;
         let from =
             super::presence::retained(&prepared.app, self.store().state()?.app(id).installed)?;
         let started = Instant::now();
@@ -134,6 +135,7 @@ impl Headway {
             ))
         })?;
         result?;
+        crate::recovery::commit(self.paths(), &prepared.app)?;
         let to = installed
             .ok_or_else(|| Error::Config("installation completed without a revision".into()))?;
         log.stage(Stage::Done, format!("Installed {}", to.id));
@@ -145,6 +147,7 @@ impl Headway {
             to,
             log_path,
             duration_ms,
+            warnings: log.warnings(),
         })
     }
     // Persist the variant's requested pin before running a build, so a config

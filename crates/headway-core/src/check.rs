@@ -66,15 +66,33 @@ pub async fn check_github(
         Track::Commit { branch } => check_commits(gh, &repo, branch.as_deref(), installed).await,
         Track::Release { prerelease, .. } => {
             let filter = github.track.tag_regex()?;
+            // Releases come newest first, so a bounded list still contains the latest
+            // release; truncation only drops older history from `pending`.
             let releases = gh.releases(&repo).await?;
             let candidates = release_candidates(&releases, *prerelease, filter.as_ref());
             Ok(evaluate_versions(candidates, installed))
         }
         Track::Tag { prerelease, .. } => {
             let filter = github.track.tag_regex()?;
-            let tags = gh.tags(&repo).await?;
-            let candidates = tag_candidates(&repo, &tags, *prerelease, filter.as_ref());
-            Ok(evaluate_versions(candidates, installed))
+            let tags = gh.tags_page(&repo).await?;
+            let candidates = tag_candidates(&repo, &tags.items, *prerelease, filter.as_ref());
+            let result = evaluate_versions(candidates, installed);
+            // The tag API has no documented ordering, so a truncated scan cannot prove
+            // which tag is latest. Report "unknown" instead of a silently wrong latest;
+            // a tag filter narrows the scan for repositories with more than 500 tags.
+            Ok(
+                if tags.truncated && result.status != UpdateStatus::NotInstalled {
+                    CheckResult {
+                        status: UpdateStatus::Unknown,
+                        latest: None,
+                        pending: Vec::new(),
+                        pending_total: 0,
+                        ..result
+                    }
+                } else {
+                    result
+                },
+            )
         }
     }
 }

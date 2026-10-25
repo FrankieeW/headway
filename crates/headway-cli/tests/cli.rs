@@ -119,7 +119,7 @@ async fn mock_github(server: &MockServer, commits: &[(String, String)]) {
 }
 
 fn headway(home: &Path, api: &str) -> Command {
-    let mut command = Command::cargo_bin("headway").unwrap();
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin!("headway"));
     command
         .env("HEADWAY_HOME", home)
         .env("HEADWAY_API_URL", api)
@@ -193,7 +193,7 @@ async fn follows_a_repository_one_commit_at_a_time() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|next| next == "headway update tool --next")
+            .any(|next| next == "headway --json update tool --next")
     );
 
     // One step: exactly the next commit.

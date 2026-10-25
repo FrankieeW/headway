@@ -108,7 +108,7 @@ pub fn outcome(p: Palette, outcome: &UpdateOutcome) -> String {
         .as_deref()
         .map(|path| format!(" → {path}"))
         .unwrap_or_default();
-    format!(
+    let mut text = format!(
         "{} {} {from}{}{version}{place}  {}",
         p.green("✓"),
         p.bold(&outcome.app_id),
@@ -117,7 +117,11 @@ pub fn outcome(p: Palette, outcome: &UpdateOutcome) -> String {
             "{:.1}s",
             f64::from(u32::try_from(outcome.duration_ms).unwrap_or(u32::MAX)) / 1000.0
         ))
-    )
+    );
+    for warning in &outcome.warnings {
+        let _ = write!(text, "\n  {} {warning}", p.yellow("warning:"));
+    }
+    text
 }
 
 pub fn inspection(p: Palette, found: &RepoInspection) -> String {

@@ -51,21 +51,28 @@ pub(crate) async fn bundle(hw: &Headway, explicit: Option<&str>) -> Result<Optio
 async fn validate_bundle(path: &Path) -> Result<()> {
     let env = ShellEnv::current();
     let plist = path.join("Contents/Info.plist");
-    for (key, expected) in [
+    let expected = [
         ("CFBundleIdentifier", "wang.frankie.headway"),
         ("CFBundleExecutable", "headway-desktop"),
-    ] {
-        let out = process::capture(&Cmd::new("/usr/libexec/PlistBuddy", &env).args([
-            "-c".to_owned(),
-            format!("Print :{key}"),
-            plist.display().to_string(),
-        ]))
-        .await?;
-        if !out.success() || out.stdout.trim() != expected {
-            return Err(Error::InvalidInput(
-                "not a validated Headway app bundle".into(),
-            ));
-        }
+    ];
+    // One bounded PlistBuddy invocation for both keys: bundle validation runs on every
+    // status poll, so two spawns per call were a measurable cost (and could hang without
+    // a deadline). The exec checks below stay pure filesystem metadata reads.
+    let mut command =
+        Cmd::new("/usr/libexec/PlistBuddy", &env).timeout(std::time::Duration::from_secs(15));
+    for (key, _) in expected {
+        command = command.arg("-c").arg(format!("Print :{key}"));
+    }
+    let out = process::capture(&command.arg(plist.display().to_string())).await?;
+    let mut values = out.stdout.lines().map(str::trim);
+    let valid = out.success()
+        && expected
+            .iter()
+            .all(|(_, want)| values.next() == Some(*want));
+    if !valid {
+        return Err(Error::InvalidInput(
+            "not a validated Headway app bundle".into(),
+        ));
     }
     for name in ["headway", "headway-desktop"] {
         if env

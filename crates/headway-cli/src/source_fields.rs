@@ -12,13 +12,13 @@ pub fn validate(source: &Source, f: &AppFields) -> Result<()> {
             "--keep-source",
             f.keep_source.is_some(),
             github,
-            "GitHub source builds",
+            "GitHub source-build",
         ),
         (
             "--source-root",
             f.source_root.is_some(),
             github,
-            "GitHub source builds",
+            "GitHub source-build",
         ),
         (
             "--verify-command",

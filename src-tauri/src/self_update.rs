@@ -1,12 +1,18 @@
 //! Desktop consumes shared restart requests only after admission closes new runs.
-use crate::state::{AppState, CmdResult, IntoCmd as _};
+use std::time::Duration;
+
+use crate::state::{self, AppState, CmdResult, IntoCmd as _};
 use headway_core::SelfUpdateStatus;
 use tauri::{AppHandle, Manager as _, Runtime, State};
+
+/// How often a pending restart request is checked.
+const POLL: Duration = Duration::from_secs(2);
 
 #[tauri::command]
 pub async fn self_update_status(state: State<'_, AppState>) -> CmdResult<SelfUpdateStatus> {
     state.hw.self_update_status().await.cmd()
 }
+
 #[tauri::command]
 pub async fn request_self_restart(state: State<'_, AppState>) -> CmdResult<SelfUpdateStatus> {
     state.hw.request_self_restart().await.cmd()
@@ -17,7 +23,7 @@ fn updates_idle(state: &AppState) -> headway_core::Result<bool> {
 }
 
 pub fn start<R: Runtime>(app: AppHandle<R>) {
-    tauri::async_runtime::spawn(async move {
+    state::supervise("self update", app, |app| async move {
         let state = app.state::<AppState>();
         if let Err(error) = state.hw.confirm_self_restart() {
             eprintln!("headway: restart confirmation: {error}");
@@ -38,7 +44,17 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
             Err(error) => eprintln!("headway: CLI link status: {error}"),
         }
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(POLL).await;
+            // Cheap gate: only build the whole app list when a request can
+            // actually be consumed by this installation.
+            match state.hw.self_restart_pending() {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("headway: restart request check: {error}");
+                    continue;
+                }
+            }
             match updates_idle(&state) {
                 Ok(true) => {}
                 Ok(false) => continue,

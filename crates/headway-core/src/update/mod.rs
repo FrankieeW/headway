@@ -1,17 +1,17 @@
 //! Installing one target (a commit or a release) for an app: the build or
 //! download pipeline itself. Recording the result is up to [`crate::service`].
 
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use crate::asset;
 use crate::config::{Settings, TrackedApp};
 use crate::error::{Error, Result};
 use crate::github::GitHub;
-use crate::paths::{Paths, display_path};
+use crate::paths::Paths;
 use crate::shell::ShellEnv;
 use crate::state::{Candidate, InstalledRef};
 
@@ -23,6 +23,7 @@ mod release_target;
 pub use log::{LOG_KEEP, RunLog, latest_log};
 #[cfg(test)]
 use log::{log_files, prune_logs};
+pub(crate) use release_target::release_for_target;
 
 /// What to install.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +94,9 @@ pub struct UpdateOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
     pub duration_ms: u64,
+    /// Integrity evidence that was unavailable; never implies publisher authenticity.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Result of a successful job.
@@ -116,34 +120,8 @@ pub struct Job<'a> {
     pub log: &'a RunLog<'a>,
 }
 
-/// Resolves `artifact` under `workdir`; `*`/`?` in the last segment pick the newest match.
-pub fn resolve_artifact(workdir: &Path, artifact: &str) -> Result<PathBuf> {
-    let path = workdir.join(artifact);
-    let missing = |detail: String| {
-        Error::Config(format!(
-            "the build finished but install.artifact `{artifact}` {detail} (in {})",
-            display_path(workdir)
-        ))
-    };
-    let name = file_name(&path)?;
-    if !name.contains(['*', '?']) {
-        return if path.exists() {
-            Ok(path)
-        } else {
-            Err(missing("does not exist".into()))
-        };
-    }
-    let parent = path.parent().unwrap_or(workdir);
-    let pattern = asset::glob_regex(&name)?;
-    let newest = fs::read_dir(parent)
-        .map_err(|_| missing("has no parent directory".into()))?
-        .filter_map(std::result::Result::ok)
-        .filter(|entry| pattern.is_match(&entry.file_name().to_string_lossy()))
-        .max_by_key(|entry| entry.metadata().and_then(|meta| meta.modified()).ok());
-    newest
-        .map(|entry| entry.path())
-        .ok_or_else(|| missing("matches nothing".into()))
-}
+mod artifact;
+pub use artifact::resolve_artifact;
 
 fn file_name(path: &Path) -> Result<String> {
     path.file_name()

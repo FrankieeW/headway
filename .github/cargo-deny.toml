@@ -1,0 +1,22 @@
+# cargo-deny configuration for Headway.
+#
+# CI runs only the checks listed in the workflow:
+#   cargo deny --config .github/cargo-deny.toml check advisories sources
+#
+# The product targets macOS only (Tauri bundles `app`/`dmg` for aarch64 and
+# x86_64), so the dependency graph is filtered to the two shipped Apple targets.
+# That keeps Linux-only GTK/glib crates out of the advisory graph instead of
+# suppressing their advisories with an `ignore` list.
+[graph]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+[advisories]
+# Warn on yanked crates (a lockfile refresh usually fixes them) but never add
+# suppressions here: if an advisory applies, update the dependency or record the
+# decision in the PR that changes this file.
+yanked = "warn"
+ignore = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

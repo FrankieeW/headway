@@ -1,17 +1,22 @@
 import { handleRevisions, seedRevisionMock } from "./mockRevisions";
+import { startMockUpdate, type MockUpdateHandle } from "./mockUpdateRun";
 import { handleInstallationOrigins } from "./mockPulls";
 import { mockCommitMetadata } from "./mockCommitMetadata";
 import { buildCandidates, handleRoadmap } from "./mockRoadmap";
 // Browser preview of the UI without the Rust backend: `pnpm dev:renderer`, then open
 // http://localhost:1420/?mock (add `&theme=dark` or `&lang=en` to switch).
 // Loaded only in development builds; the fixtures cover every app status.
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 import type {
   AppView,
   BuildInfo,
-  TrackedApp,
   SourceLookup,
+  Target,
+  TokenStatus,
+  TrackedApp,
+  UpdatePlan,
 } from "@/lib/api/types";
 
 import {
@@ -26,7 +31,75 @@ import {
   hoursAgo,
 } from "./mockFixtures";
 
-function handle(
+/** Device-local state the preview mutates, like the real backend would. */
+let tokenOverride: TokenStatus | null = null;
+const runningUpdates = new Map<string, MockUpdateHandle>();
+
+function currentToken(): TokenStatus {
+  return tokenOverride ?? token;
+}
+
+function checkAllSummary() {
+  const results = apps.map((view) => ({
+    id: view.app.id,
+    ok: true,
+    status: view.status,
+    pending_count: view.pending_count,
+    latest: view.last_check?.latest
+      ? {
+          id: view.last_check.latest.id,
+          title: view.last_check.latest.title,
+          date: view.last_check.latest.date ?? null,
+        }
+      : null,
+  }));
+  return {
+    results,
+    checked: apps.length,
+    with_updates: results.filter((record) => record.pending_count > 0).length,
+    failed: [] as { id: string; message: string }[],
+  };
+}
+
+function planFor(view: AppView, target: Target): UpdatePlan {
+  const candidate =
+    typeof target === "object"
+      ? { id: target.ref, title: target.ref, prerelease: false }
+      : target === "next"
+        ? (view.last_check?.pending.length
+            ? view.last_check.pending[view.last_check.pending.length - 1]
+            : (view.last_check?.latest ?? null))
+        : (view.last_check?.latest ?? null);
+  const from = view.installed ?? null;
+  const source = view.app.source;
+  const method =
+    source === "github"
+      ? view.app.install.method
+      : source === "npm"
+        ? "npm"
+        : source === "brew"
+          ? "brew"
+          : "script";
+  return {
+    app_id: view.app.id,
+    from,
+    to: candidate ?? {
+      id: "preview",
+      title: "Preview build",
+      prerelease: false,
+    },
+    up_to_date: Boolean(
+      candidate && from && candidate.id === from.id,
+    ),
+    reinstall: false,
+    method,
+    steps: ["Resolve the target", "Build or download", "Install"],
+    asset: null,
+  };
+}
+
+/** The mock's command table; exported so its semantics are tested. */
+export function handleMockCommand(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
@@ -138,6 +211,40 @@ function handle(
         },
       };
     }
+    case "list_repositories": {
+      const active = find();
+      return structuredClone(
+        active.app.source === "github" ? (active.app.repositories ?? []) : [],
+      );
+    }
+    case "start_update": {
+      const active = find();
+      if (!active) return null;
+      const target = (args?.target as Target | undefined) ?? "latest";
+      runningUpdates.set(
+        active.app.id,
+        startMockUpdate(active, target, {
+          onFinished: () => runningUpdates.delete(active.app.id),
+        }),
+      );
+      return null;
+    }
+    case "cancel_update": {
+      const handle = runningUpdates.get(id);
+      if (!handle) return false;
+      handle.cancel();
+      runningUpdates.delete(id);
+      return true;
+    }
+    case "plan_update":
+      return planFor(find(), (args?.target as Target | undefined) ?? "latest");
+    case "remove_app": {
+      const index = apps.findIndex((view) => view.app.id === id);
+      if (index < 0) throw { code: "app_not_found", message: "App not found" };
+      apps.splice(index, 1);
+      void emit("headway://apps-changed");
+      return { id, purged: Boolean(args?.purge) };
+    }
     case "add_app":
     case "save_app": {
       // The IPC mock receives the same typed payload as the real adapter.
@@ -152,10 +259,11 @@ function handle(
       const index = apps.findIndex((v) => v.app.id === app.id);
       if (index < 0) apps.push(view);
       else apps[index] = view;
+      void emit("headway://apps-changed");
       return view;
     }
     case "check_all":
-      return { checked: apps.length, with_updates: 2, failed: [] };
+      return checkAllSummary();
     case "read_log":
       return {
         path: "~/Library/Logs/Headway/zed/20261023-101500.000.log",
@@ -163,11 +271,25 @@ function handle(
           "10:15:00 [headway] Fetching https://github.com/zed-industries/zed.git\n10:15:04 [headway] Running `cargo build --release --locked -p zed`\n10:21:52 [headway] Installed v0.161.0-pre-42-g6c1f8b9",
       };
     case "get_settings":
-    case "save_settings":
-      return settings;
+      return structuredClone(settings);
+    case "save_settings": {
+      Object.assign(settings, args?.settings as Partial<typeof settings>);
+      return structuredClone(settings);
+    }
     case "token_status":
-    case "set_token":
-      return token;
+      return structuredClone(currentToken());
+    case "set_token": {
+      tokenOverride = {
+        source: "keychain",
+        masked: "ghp_…9xQ2",
+        login: "FrankieeW",
+        rate: token.rate,
+      };
+      return structuredClone(tokenOverride);
+    }
+    case "clear_token":
+      tokenOverride = { source: "none" };
+      return structuredClone(tokenOverride);
     case "list_presets":
       return presets;
     case "doctor":
@@ -245,7 +367,7 @@ export function installMockBackend(): void {
         return new Promise((resolve) =>
           setTimeout(
             () =>
-              resolve(handle(cmd, args as Record<string, unknown> | undefined)),
+              resolve(handleMockCommand(cmd, args as Record<string, unknown> | undefined)),
             1500,
           ),
         );
@@ -253,11 +375,11 @@ export function installMockBackend(): void {
         return new Promise((resolve) =>
           setTimeout(
             () =>
-              resolve(handle(cmd, args as Record<string, unknown> | undefined)),
+              resolve(handleMockCommand(cmd, args as Record<string, unknown> | undefined)),
             600,
           ),
         );
-      return handle(cmd, args as Record<string, unknown> | undefined);
+      return handleMockCommand(cmd, args as Record<string, unknown> | undefined);
     },
     {
       shouldMockEvents: true,

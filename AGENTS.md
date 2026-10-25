@@ -48,13 +48,17 @@ valid baseline for `mark`; dirty local builds must not be presented as clean rem
 - **Stable machine contract.** `Error::code()` strings and `Error::exit_code()` values are public API
   (documented in `SKILL.md`); add codes, never rename them. JSON field names are snake_case and shared
   by the CLI and the UI.
-- stdout carries exactly one result document; progress and logs go to stderr.
+- JSON/XML stdout carries one result document; progress and logs go to stderr. `ok` must agree with
+  the exit code, including partial failures. Handle broken pipes without panicking. Help/version
+  retain conventional text output; signals may end read-only commands before any result.
 - Lints are strict (`unwrap_used`, `expect_used`, `panic` denied outside tests; clippy pedantic).
 - Prefer returning new values over mutating shared state (`State::with_app`, `Settings::with_key`).
 - Never pass the GitHub token to build commands or put it in argv/URLs (git gets it via
   `GIT_CONFIG_*` env vars, the keychain via `security -i` on stdin). `Cmd::new` strips
-  `HEADWAY_GITHUB_TOKEN` from everything run through `process::Cmd` (git, builds, archive tools);
-  run new subprocesses through it.
+  `HEADWAY_GITHUB_TOKEN`, `GITHUB_TOKEN` and `GH_TOKEN` from everything run through `process::Cmd`
+  (git, builds, archive tools); run new subprocesses through it. OS adapters that cannot use the
+  async runner must apply the same credential removal and bound non-interactive work explicitly;
+  OS-owned keychain approval prompts are interactive, not build/version probes.
 - `install::install` only ever replaces a bundle with a bundle; never relax that guard.
 - UI strings go through i18next with keys in both `en.json` and `zh.json`; untrusted text (commit
   messages, release notes, logs) is rendered as text, never HTML. No `console.log`.

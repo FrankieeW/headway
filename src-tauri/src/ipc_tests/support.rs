@@ -14,14 +14,17 @@ use tauri::test::{
     INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets,
 };
 use tauri::webview::InvokeRequest;
-use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, Manager as _, WebviewWindow, WebviewWindowBuilder};
 
+use super::host::RecordingHost;
 use crate::state::AppState;
 
 pub(crate) struct Harness {
     pub(crate) home: tempfile::TempDir,
     pub(crate) app: App<MockRuntime>,
     pub(crate) window: WebviewWindow<MockRuntime>,
+    /// Opens links, reveals folders and toggles login items without side effects.
+    pub(crate) host: Arc<RecordingHost>,
 }
 
 pub(crate) fn harness(api: &str) -> Harness {
@@ -31,6 +34,17 @@ pub(crate) fn harness(api: &str) -> Harness {
 pub(crate) fn harness_with_env(api: &str, home: tempfile::TempDir, env: ShellEnv) -> Harness {
     // A dummy token keeps the keychain and `gh` out of the test.
     let env = env.with_var("HEADWAY_GITHUB_TOKEN", "ghp_dummytokendummytokendummy0000");
+    harness_inner(api, home, env)
+}
+
+/// A harness without a token in the environment, for the token commands: the
+/// injected [`MemoryStore`](headway_core::token::MemoryStore) is the only secret
+/// store, so the login keychain is never touched.
+pub(crate) fn harness_without_token(api: &str) -> Harness {
+    harness_inner(api, tempfile::tempdir().unwrap(), ShellEnv::current())
+}
+
+fn harness_inner(api: &str, home: tempfile::TempDir, env: ShellEnv) -> Harness {
     let hw = Headway::builder()
         .paths(Paths::under(home.path()))
         .secrets(Arc::new(MemoryStore::default()))
@@ -43,10 +57,49 @@ pub(crate) fn harness_with_env(api: &str, home: tempfile::TempDir, env: ShellEnv
         .invoke_handler(crate::invoke_handler())
         .build(mock_context(noop_assets()))
         .unwrap();
+    let host = Arc::new(RecordingHost::new());
+    app.state::<AppState>().install_host(host.clone());
     let window = WebviewWindowBuilder::new(&app, "main", tauri::WebviewUrl::default())
         .build()
         .unwrap();
-    Harness { home, app, window }
+    Harness {
+        home,
+        app,
+        window,
+        host,
+    }
+}
+
+/// A harness with a validated `Headway.app` bundle and `apps_dir`/`bin_dir`
+/// inside the temporary home. The bundled CLI answers `--json version` with a
+/// clean stamped build, exactly like a real installed copy.
+pub(crate) fn bundle_harness() -> Harness {
+    let harness = harness("http://127.0.0.1:9");
+    let root = harness.home.path().join("apps");
+    let contents = root.join("Headway.app/Contents");
+    std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+    std::fs::write(
+        contents.join("Info.plist"),
+        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>wang.frankie.headway</string><key>CFBundleExecutable</key><string>headway-desktop</string></dict></plist>"#,
+    )
+    .unwrap();
+    let cli = "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true,\"data\":{\"version\":\"9.0.0\",\"commit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"dirty\":false,\"target\":null}}'\n";
+    for name in ["headway", "headway-desktop"] {
+        let path = contents.join("MacOS").join(name);
+        std::fs::write(&path, cli).unwrap();
+        std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+    }
+    let state = harness.app.state::<AppState>();
+    state
+        .hw
+        .set_setting("apps_dir", root.to_str().unwrap())
+        .unwrap();
+    state
+        .hw
+        .set_setting("bin_dir", harness.home.path().join("bin").to_str().unwrap())
+        .unwrap();
+    harness
 }
 
 pub(crate) fn call(harness: &Harness, cmd: &str, args: Value) -> Result<Value, Value> {

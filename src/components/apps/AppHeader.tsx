@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { AppView } from "@/lib/api";
-import { systemApi } from "@/lib/api";
+import { openUrl } from "@/lib/systemActions";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE } from "@/lib/platform";
 import { sourceDetail } from "@/lib/sources";
 import { cn } from "@/lib/utils";
@@ -100,7 +100,7 @@ export function AppHeader({
         {app.app.source === "github" ? (
           <button
             type="button"
-            onClick={() => void systemApi.openUrl(repoUrl)}
+            onClick={() => openUrl(repoUrl)}
             title={repoUrl}
             style={NO_DRAG}
             className="inline-flex h-6 max-w-[160px] sm:max-w-[220px] items-center gap-1.5 rounded-full bg-subtle px-2 text-caption text-fg-2 transition-colors hover:bg-selected hover:text-fg-1"
@@ -159,7 +159,7 @@ export function AppHeader({
                   {t("appPage.markLatestInstalled")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onSelect={() => void systemApi.openUrl(repoUrl)}
+                  onSelect={() => openUrl(repoUrl)}
                 >
                   <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
                   {t("appPage.openOnGitHub")}

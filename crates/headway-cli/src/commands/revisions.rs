@@ -41,7 +41,12 @@ pub fn source_storage(hw: &Headway, id: &str) -> Result<Reply> {
         "{}  keep={}  exists={}",
         status.path, status.keep, status.exists
     );
-    Ok(Reply::new(&status, human).next(vec![format!("headway edit {id} --keep-source false")]))
+    let next = if status.keep {
+        vec![format!("headway edit {id} --keep-source false")]
+    } else {
+        Vec::new()
+    };
+    Ok(Reply::new(&status, human).next(next))
 }
 
 pub async fn options(hw: &Headway, id: &str, reference: &str) -> Result<Reply> {
@@ -151,7 +156,7 @@ pub async fn install(hw: &Headway, args: &RevisionArgs, printer: &Printer) -> Re
         super::ops::interrupted().await;
         signal.cancel();
     });
-    let sink = crate::progress::TerminalSink::new(printer.log_level(), printer.palette.color);
+    let sink = crate::progress::TerminalSink::new(printer.log_level(), printer.stderr_color);
     let result = if let Some(variant) = &variant {
         hw.install_variant(&args.id, variant, &sink, &cancel).await
     } else {
@@ -160,18 +165,10 @@ pub async fn install(hw: &Headway, args: &RevisionArgs, printer: &Printer) -> Re
     };
     watcher.abort();
     let outcome = result?;
-    Ok(Reply::new(
-        &outcome,
-        format!(
-            "Installed {} at {}",
-            outcome.to.id,
-            outcome
-                .installed_path
-                .as_deref()
-                .unwrap_or("the configured destination")
-        ),
+    Ok(
+        Reply::new(&outcome, crate::human::outcome(printer.palette, &outcome))
+            .next(vec![format!("headway show {}", outcome.app_id)]),
     )
-    .next(vec![format!("headway show {}", outcome.app_id)]))
 }
 
 pub async fn launch(hw: &Headway, id: &str) -> Result<Reply> {

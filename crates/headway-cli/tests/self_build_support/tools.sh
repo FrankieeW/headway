@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 [ "${HEADWAY_GITHUB_TOKEN+x}" != x ] || exit 90
+[ "${GITHUB_TOKEN+x}" != x ] || exit 90
+[ "${GH_TOKEN+x}" != x ] || exit 90
 name="$(basename "$0")"
 printf '%s\n' "$name $*" >> "$FIXTURE_LOG"
 case "$name" in
@@ -34,10 +36,12 @@ cargo)
   mkdir -p "$release"
   repository=null
   [ -z "${HEADWAY_BUILD_REPOSITORY:-}" ] || repository="\"$HEADWAY_BUILD_REPOSITORY\""
+  # Offline self-follow clones file://; its mock binary declares the selected fixture repo.
+  [ -z "${FIXTURE_BUILD_REPOSITORY:-}" ] || repository="\"$FIXTURE_BUILD_REPOSITORY\""
   cat > "$release/headway" <<CLI
 #!/bin/bash
 [ "\$*" = '--json version' ] || exit 94
-printf '%s\\n' '{"commit":"$HEADWAY_BUILD_SHA","dirty":$HEADWAY_BUILD_DIRTY,"target":"$HEADWAY_BUILD_TARGET","repository":$repository}'
+printf '%s\\n' '{"ok":true,"command":"version","data":{"version":"0.0.0","commit":"$HEADWAY_BUILD_SHA","dirty":$HEADWAY_BUILD_DIRTY,"target":"$HEADWAY_BUILD_TARGET","repository":$repository},"next":[]}'
 CLI
   chmod +x "$release/headway"
   ;;

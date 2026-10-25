@@ -21,10 +21,17 @@ pub async fn token(hw: &Headway, command: TokenCommand, p: Palette) -> Result<Re
         TokenCommand::Status => {
             let status = hw.token_status().await?;
             let human = token_human(p, &status);
-            let next = if status.login.is_some() {
-                Vec::new()
-            } else {
+            let next = if status.masked.is_none()
+                || status
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.code == "auth_failed")
+            {
                 vec!["headway token set".to_owned()]
+            } else if status.error.is_some() {
+                vec!["headway token status".to_owned()]
+            } else {
+                Vec::new()
             };
             Ok(Reply::new(&status, human).next(next))
         }
@@ -94,7 +101,7 @@ fn token_human(p: Palette, status: &TokenStatus) -> String {
                 .map_or("unverified", |error| error.message.as_str());
             let _ = writeln!(
                 out,
-                "{} token from {} ({masked}) does not work: {reason}",
+                "{} token from {} ({masked}) could not be verified: {reason}",
                 p.red("✗"),
                 source_label(status.source)
             );
@@ -185,30 +192,52 @@ pub fn commands() -> Reply {
     let mut human = String::from(
         "headway commands (use --json or --ai for the full machine-readable tree)\n\n",
     );
-    if let Some(subcommands) = tree["subcommands"].as_array() {
-        for sub in subcommands {
-            let flags: Vec<String> = sub["args"]
+    let globals = tree["args"]
+        .as_array()
+        .map(|args| {
+            args.iter()
+                .filter(|arg| arg["global"] == true)
+                .filter_map(|arg| arg["flag"].as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let _ = writeln!(
+        human,
+        "Global flags (usable after any command): {globals}\n"
+    );
+    describe_human(&tree, "", &mut human);
+    Reply::new(&tree, human)
+}
+
+fn describe_human(tree: &Value, prefix: &str, out: &mut String) {
+    if let Some(commands) = tree["subcommands"].as_array() {
+        for command in commands {
+            let path = format!("{prefix}{}", command["name"].as_str().unwrap_or_default());
+            let flags = command["args"]
                 .as_array()
                 .map(|args| {
                     args.iter()
-                        .map(|arg| match arg["flag"].as_str() {
-                            Some(flag) => flag.to_owned(),
-                            None => format!("<{}>", arg["name"].as_str().unwrap_or_default()),
+                        .filter(|arg| arg["global"] != true)
+                        .map(|arg| {
+                            arg["flag"].as_str().map_or_else(
+                                || format!("<{}>", arg["name"].as_str().unwrap_or_default()),
+                                str::to_owned,
+                            )
                         })
-                        .collect()
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 })
                 .unwrap_or_default();
             let _ = writeln!(
-                human,
-                "  {:<12} {}\n  {:<12} {}",
-                sub["name"].as_str().unwrap_or_default(),
-                sub["about"].as_str().unwrap_or_default(),
-                "",
-                flags.join(" ")
+                out,
+                "  {path:<24} {}\n  {:<24} {flags}",
+                command["about"].as_str().unwrap_or_default(),
+                ""
             );
+            describe_human(command, &format!("{path} "), out);
         }
     }
-    Reply::new(&tree, human)
 }
 
 pub fn completions(shell: Shell) -> Reply {

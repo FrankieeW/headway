@@ -105,15 +105,26 @@ pub fn token_check(status: &TokenStatus) -> DoctorCheck {
         .map(|rate| format!(" ({}/{} requests left)", rate.remaining, rate.limit))
         .unwrap_or_default();
     if let Some(err) = &status.error {
+        let rejected = err.code == "auth_failed";
         return DoctorCheck {
             name: "github".to_owned(),
             status: CheckStatus::Error,
             message: format!(
-                "the {} token was rejected: {}",
+                "{} for {}: {}",
+                if rejected {
+                    "token rejected"
+                } else {
+                    "token verification unavailable"
+                },
                 source_label(status.source),
                 err.message
             ),
-            hint: Some("set a new token with `headway token set`".to_owned()),
+            hint: Some(if rejected {
+                "set a valid, fine-grained read-only token with `headway token set`".to_owned()
+            } else {
+                "keep the configured token; check the network/rate limit and retry verification"
+                    .to_owned()
+            }),
         };
     }
     match &status.login {
@@ -281,6 +292,40 @@ mod tests {
         assert!(found.message.contains("cargo") || found.status == CheckStatus::Ok);
         let report = DoctorReport::new(vec![found]);
         assert!(report.ok, "warnings do not fail the report");
+    }
+
+    #[test]
+    fn network_failure_does_not_claim_the_token_was_rejected() {
+        let status = TokenStatus {
+            source: TokenSource::HeadwayEnv,
+            masked: Some("ghp_…0000".into()),
+            login: None,
+            rate: None,
+            error: Some(crate::ErrorInfo::from(&Error::Network("offline".into()))),
+        };
+        let diagnostic = token_check(&status);
+        assert!(diagnostic.message.contains("verification unavailable"));
+        assert!(!diagnostic.message.contains("rejected"));
+        assert!(
+            diagnostic
+                .hint
+                .unwrap()
+                .contains("keep the configured token")
+        );
+    }
+
+    #[test]
+    fn rejected_token_recommends_least_privilege() {
+        let status = TokenStatus {
+            source: TokenSource::Keychain,
+            masked: Some("ghp_…0000".into()),
+            login: None,
+            rate: None,
+            error: Some(crate::ErrorInfo::from(&Error::Auth("HTTP 401".into()))),
+        };
+        let diagnostic = token_check(&status);
+        assert!(diagnostic.message.contains("rejected"));
+        assert!(diagnostic.hint.unwrap().contains("fine-grained read-only"));
     }
 
     #[test]

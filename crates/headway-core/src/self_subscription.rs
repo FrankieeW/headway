@@ -97,6 +97,9 @@ impl Headway {
         let bundle = crate::cli_link::bundle(self, None).await?.ok_or_else(|| {
             Error::InvalidInput("no installed Headway desktop app was found".into())
         })?;
+        // Probe the installed build before touching config: a rejected/garbled probe must not
+        // leave a half-registered subscription behind, and the result is reused below.
+        let status = self.self_update_status().await?;
         let dest = bundle.display().to_string();
         let observed = self.store().state()?;
         let (id, created) = self.store().update_config(|mut config| {
@@ -122,7 +125,7 @@ impl Headway {
             Ok((config, (id, created)))
         })?;
         // Use the same lock as update/restore, then observe the exact managed target.
-        let lock = crate::lock::AppLock::acquire(&self.paths().app_lock(&id), &id)?;
+        let lock = crate::lock::AppLock::acquire_app(self.paths(), &id)?;
         let config = self.store().config()?;
         let app = config.app(&id)?;
         let Some(github) = app
@@ -141,7 +144,6 @@ impl Headway {
             drop(lock);
             return self.get(&id);
         }
-        let status = self.self_update_status().await?;
         if let Some(installed) = status.installed {
             self.sync_self_baseline(&id, created, &dest, &installed)?;
         }
@@ -149,3 +151,7 @@ impl Headway {
         self.get(&id)
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "self_subscription_metadata_tests.rs"]
+mod metadata_missing_tests;

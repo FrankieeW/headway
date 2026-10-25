@@ -80,3 +80,19 @@ fn cargo_workspace_membership_requires_positive_manifest_evidence() {
         assert!(!cargo_workspace_contains(manifest, "src-tauri"));
     }
 }
+
+#[test]
+fn workspace_member_and_exclude_globs_are_respected() {
+    assert!(cargo_workspace_contains(
+        "[workspace]\nmembers = ['crates/*']",
+        "crates/desktop"
+    ));
+    assert!(!cargo_workspace_contains(
+        "[workspace]\nmembers = ['crates/*']\nexclude = ['crates/desk*']",
+        "crates/desktop"
+    ));
+    assert!(cargo_workspace_contains(
+        "[workspace]\nmembers = ['./src-*']",
+        "src-tauri"
+    ));
+}

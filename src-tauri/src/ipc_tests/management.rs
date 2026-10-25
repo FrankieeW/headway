@@ -95,3 +95,22 @@ fn importing_a_cask_preserves_the_reported_location_in_the_ipc_contract() {
         path
     );
 }
+
+#[test]
+fn backups_are_listed_for_a_new_source_app_and_unknown_ids_are_not_found() {
+    let harness = super::support::harness("http://127.0.0.1:9");
+    let dest = harness.home.path().join("bin/tool");
+    super::support::ok(
+        &harness,
+        "add_app",
+        json!({"app": super::support::tool_app("file:///nowhere", &dest)}),
+    );
+    assert_eq!(
+        super::support::ok(&harness, "list_backups", json!({"id":"tool"})),
+        json!([])
+    );
+    assert_eq!(
+        super::support::call(&harness, "list_backups", json!({"id":"missing"})).unwrap_err()["code"],
+        "app_not_found"
+    );
+}

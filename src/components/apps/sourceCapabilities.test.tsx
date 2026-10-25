@@ -52,7 +52,7 @@ it.each(sources)("exposes only supported operations for $source", (app) => {
         onUpdateLatest={vi.fn()}
         onUpdateNext={vi.fn()}
         onCancel={vi.fn()}
-        onToggleAutoUpdate={vi.fn()}
+        onToggleAutoUpdate={vi.fn(async () => undefined)}
       />
       <PendingList
         app={view}
@@ -119,7 +119,7 @@ it.each(["github", "script"] as const)(
           onUpdateLatest={vi.fn()}
           onUpdateNext={vi.fn()}
           onCancel={vi.fn()}
-          onToggleAutoUpdate={vi.fn()}
+          onToggleAutoUpdate={vi.fn(async () => undefined)}
         />
         <PendingList
           app={view}

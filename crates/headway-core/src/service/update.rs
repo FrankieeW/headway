@@ -13,9 +13,10 @@ impl Headway {
             return Err(Error::Cancelled);
         }
         self.store.config()?.app(id)?;
-        let _lock = AppLock::acquire(&self.paths().app_lock(id), id)?;
+        let _lock = AppLock::acquire_app_async(self.paths(), id).await?;
         let config = self.store.config()?;
         let app = config.app(id)?.clone();
+        crate::recovery::reconcile(self.paths(), &app)?;
         let settings = config.settings;
         if app.source.detects_installed() {
             self.refresh_for_update(&app, target, cancel).await?;
@@ -42,8 +43,7 @@ impl Headway {
         let log_path = Some(log.path().display().to_string());
         match result {
             Ok(Some(to)) => {
-                let changed = !app.source.detects_installed()
-                    || to.id == crate::script::LATEST
+                let changed = to.id == crate::script::LATEST
                     || installed.as_ref().is_none_or(|from| from.id != to.id);
                 let entry = HistoryEntry {
                     at: Utc::now(),
@@ -62,6 +62,7 @@ impl Headway {
                     });
                     Ok((next, ()))
                 })?;
+                crate::recovery::commit(self.paths(), &app)?;
                 log.stage(Stage::Done, format!("Installed {}", ref_label(&to)));
                 if app.source.detects_installed() {
                     if let Err(err) = self.check_unlocked(&app, cancel).await {
@@ -82,6 +83,7 @@ impl Headway {
                     to,
                     log_path,
                     duration_ms,
+                    warnings: log.warnings(),
                 })
             }
             Ok(None) => {
@@ -102,6 +104,7 @@ impl Headway {
                     to: current,
                     log_path: None,
                     duration_ms,
+                    warnings: log.warnings(),
                 })
             }
             Err(err) => {
@@ -111,7 +114,11 @@ impl Headway {
                     Target::Latest => "latest".into(),
                     Target::Next => "next".into(),
                 });
-                self.record_failure(&attempt, to, &err, duration_ms)?;
+                if let Err(record_error) = self.record_failure(&attempt, to, &err, duration_ms) {
+                    log.info(&format!(
+                        "Could not record the update failure: {record_error}"
+                    ));
+                }
                 Err(err)
             }
         }
@@ -156,7 +163,8 @@ impl Headway {
                 Ok((next, ()))
             })?;
         }
-        let already = installed.is_some_and(|installed| ids_match(&installed.id, &candidate.id));
+        let already =
+            installed.is_some_and(|installed| target_matches(app, &installed.id, &candidate.id));
         if (already || current)
             && !matches!(target, Target::Ref(_))
             && candidate.id != crate::script::LATEST
@@ -218,7 +226,11 @@ impl Headway {
         self.store.update_state(|state| {
             let next = state.with_app(&attempt.app.id, |app_state| {
                 let app_state = AppState {
-                    last_check: None,
+                    last_check: if matches!(err, Error::Cancelled) {
+                        app_state.last_check.clone()
+                    } else {
+                        None
+                    },
                     ..app_state.record(entry)
                 };
                 if matches!(err, Error::Cancelled) {
