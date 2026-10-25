@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::{Install, Track};
 use crate::error::{Error, Result};
 use crate::repo::RepoId;
+mod brew_config;
+pub(crate) use brew_config::absolute_install_path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
@@ -113,11 +115,7 @@ impl Source {
                 }
                 Ok(())
             }
-            Self::Brew(brew) if is_brew_name(&brew.package) => Ok(()),
-            Self::Brew(brew) => Err(format!(
-                "`{}` is not a Homebrew name (use `name` or `user/tap/name`)",
-                brew.package
-            )),
+            Self::Brew(brew) => brew_config::validate(brew),
             Self::Script(script) if script.update_command.trim().is_empty() => {
                 Err("update_command is empty".to_owned())
             }
@@ -191,6 +189,9 @@ pub struct BrewSource {
     pub package: String,
     #[serde(default)]
     pub cask: bool,
+    /// Absolute location reported by Homebrew, when unambiguous; never guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

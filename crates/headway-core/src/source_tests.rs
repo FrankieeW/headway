@@ -85,6 +85,7 @@ fn labels_and_links() {
         Some("https://www.npmjs.com/package/@openai/codex")
     );
     let cask = Source::Brew(BrewSource {
+        install_path: None,
         package: "zed".into(),
         cask: true,
     });
@@ -93,6 +94,7 @@ fn labels_and_links() {
         Some("https://formulae.brew.sh/cask/zed")
     );
     let tap = Source::Brew(BrewSource {
+        install_path: None,
         package: "frankieew/tap/headway".into(),
         cask: false,
     });

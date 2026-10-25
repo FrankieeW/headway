@@ -49,6 +49,7 @@ fn package_apps() -> Vec<TrackedApp> {
             "vscode",
             AppKind::App,
             Source::Brew(BrewSource {
+                install_path: None,
                 package: "visual-studio-code".into(),
                 cask: true,
             }),
@@ -231,6 +232,7 @@ fn package_sources_are_validated() {
         dist_tag: "latest".into(),
     });
     broken[1].source = Source::Brew(BrewSource {
+        install_path: None,
         package: "user/only".into(),
         cask: false,
     });

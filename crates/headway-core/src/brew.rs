@@ -226,6 +226,7 @@ pub async fn lookup(
     cask: bool,
 ) -> Result<PackageLookup> {
     let source = BrewSource {
+        install_path: None,
         package: package.to_owned(),
         cask,
     };
@@ -280,6 +281,7 @@ mod tests {
 
     fn ripgrep() -> BrewSource {
         BrewSource {
+            install_path: None,
             package: "ripgrep".into(),
             cask: false,
         }
@@ -324,6 +326,7 @@ mod tests {
         let info = r#"{"formulae":[],"casks":[{"token":"zed","name":["Zed"],"desc":"Editor","version":"0.200.1","installed":"0.199.0","outdated":true}]}"#;
         let tools = fake_brew(info);
         let source = BrewSource {
+            install_path: None,
             package: "zed".into(),
             cask: true,
         };
@@ -346,6 +349,7 @@ mod tests {
             "echo 'Error: No available formula with the name \"nope\".' >&2; exit 1",
         );
         let source = BrewSource {
+            install_path: None,
             package: "nope".into(),
             cask: false,
         };
@@ -359,6 +363,7 @@ mod tests {
     fn update_commands() {
         let env = ShellEnv::from_vars([]);
         let cask = BrewSource {
+            install_path: None,
             package: "zed".into(),
             cask: true,
         };

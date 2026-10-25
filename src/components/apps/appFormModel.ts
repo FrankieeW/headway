@@ -18,6 +18,7 @@ export interface AppFormState {
   package: string;
   distTag: string;
   cask: boolean;
+  installPath: string;
   updateCommand: string;
   versionCommand: string;
   latestCommand: string;
@@ -60,6 +61,7 @@ export function emptyForm(): AppFormState {
     package: "",
     distTag: "latest",
     cask: false,
+    installPath: "",
     updateCommand: "",
     versionCommand: "",
     latestCommand: "",
@@ -109,7 +111,12 @@ export function formFromApp(app: TrackedApp): AppFormState {
     case "npm":
       return { ...common, package: app.package, distTag: app.dist_tag };
     case "brew":
-      return { ...common, package: app.package, cask: app.cask };
+      return {
+        ...common,
+        package: app.package,
+        cask: app.cask,
+        installPath: app.install_path ?? "",
+      };
     case "script":
       return {
         ...common,
@@ -186,6 +193,7 @@ export function appFromForm(form: AppFormState): TrackedApp {
         source: "brew",
         package: form.package.trim(),
         cask: form.cask,
+        ...(form.installPath ? { install_path: form.installPath } : {}),
       };
     case "script":
       return {

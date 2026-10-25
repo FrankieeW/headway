@@ -88,11 +88,19 @@ pub fn apply(source: Source, f: &AppFields) -> Source {
             Source::Npm(npm)
         }
         Source::Brew(mut brew) => {
+            let changed = f
+                .package
+                .as_ref()
+                .is_some_and(|package| package != &brew.package)
+                || f.cask.is_some_and(|cask| cask != brew.cask);
             if let Some(package) = &f.package {
                 brew.package.clone_from(package);
             }
             if let Some(cask) = f.cask {
                 brew.cask = cask;
+            }
+            if changed {
+                brew.install_path = None;
             }
             Source::Brew(brew)
         }
@@ -104,5 +112,50 @@ pub fn apply(source: Source, f: &AppFields) -> Source {
             script.latest_command = optional(f.latest_command.as_ref(), script.latest_command);
             Source::Script(script)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unrelated_edits_keep_reported_cask_metadata() {
+        // Given an imported cask.
+        let source = Source::Brew(headway_core::BrewSource {
+            package: "editor".into(),
+            cask: true,
+            install_path: Some("/Apps/Editor.app".into()),
+        });
+        // When only the display name changes.
+        let saved = apply(
+            source.clone(),
+            &AppFields {
+                name: Some("My editor".into()),
+                ..AppFields::default()
+            },
+        );
+        // Then its package metadata is unchanged.
+        assert_eq!(saved, source);
+    }
+    #[test]
+    fn source_identity_edits_clear_reported_cask_metadata() {
+        // Given a path belonging to the old cask identity.
+        let source = Source::Brew(headway_core::BrewSource {
+            package: "editor".into(),
+            cask: true,
+            install_path: Some("/Apps/Editor.app".into()),
+        });
+        // When the package becomes a formula.
+        let saved = apply(
+            source,
+            &AppFields {
+                cask: Some(false),
+                ..AppFields::default()
+            },
+        );
+        // Then that old path is not attached to the new source.
+        assert!(
+            matches!(saved,Source::Brew(source) if source.install_path.is_none()&&!source.cask)
+        );
     }
 }

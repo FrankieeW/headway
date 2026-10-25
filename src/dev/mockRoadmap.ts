@@ -96,6 +96,7 @@ const inventoryApps: TrackedApp[] = [
     source: "brew",
     package: "zed",
     cask: true,
+    install_path: "/Applications/Homebrew Casks/Zed.app",
     kind: "app",
     auto_update: false,
   },
@@ -107,6 +108,16 @@ const inventoryApps: TrackedApp[] = [
     dist_tag: "latest",
     kind: "cli",
     auto_update: false,
+  },
+  {
+    id: "firefox-import",
+    name: "Firefox",
+    source: "brew",
+    package: "firefox",
+    cask: true,
+    kind: "app",
+    auto_update: false,
+    install_path: "/Applications/Homebrew Casks/Firefox.app",
   },
 ];
 let cli: CliStatus = {

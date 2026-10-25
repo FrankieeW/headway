@@ -128,6 +128,13 @@ export function ConfigSummary({ app, onEdit }: ConfigSummaryProps) {
       mono: true,
     });
   } else if (app.source === "npm" || app.source === "brew") {
+    if (app.source === "brew" && app.install_path) {
+      rows.push({
+        label: t("form.installPath"),
+        value: app.install_path,
+        mono: true,
+      });
+    }
     rows.push({ label: t("form.package"), value: app.package });
     rows.push(
       app.source === "npm"

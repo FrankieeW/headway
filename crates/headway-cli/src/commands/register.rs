@@ -146,6 +146,7 @@ fn bare_app(spec: &SourceSpec) -> TrackedApp {
         SourceSpec::Brew { package, cask } => (
             package.clone(),
             Source::Brew(BrewSource {
+                install_path: None,
                 package: package.clone(),
                 cask: *cask,
             }),

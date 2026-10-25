@@ -232,7 +232,8 @@
     "latestCommand": "最新版本命令或 URL（可选）",
     "scriptHelp": "填写软件官方提供的更新命令。未配置最新版本探测时，更新状态显示为未知。",
     "packageRequired": "请输入软件包名称。",
-    "updateRequired": "请输入更新命令。"
+    "updateRequired": "请输入更新命令。",
+    "installPath": "Homebrew 报告的安装位置"
   },
   "settings": {
     "title": "设置",
@@ -374,7 +375,23 @@
       "manifest": "项目清单",
       "preset": "预设"
     },
-    "restartFailed": "重启确认失败"
+    "restartFailed": "重启确认失败",
+    "inventoryCask": "Homebrew Cask",
+    "inventoryFormula": "Homebrew Formula",
+    "inventorySearch": "搜索已安装软件",
+    "inventorySearchPlaceholder": "搜索名称、包名或安装位置",
+    "inventoryFilter": "按来源筛选已安装软件",
+    "inventoryAll": "全部",
+    "inventoryClearFilters": "清空筛选",
+    "inventoryCount": "显示 {{shown}} / {{total}} 项",
+    "inventorySelectMatching": "选择当前结果",
+    "inventoryClearSelection": "清空选择",
+    "inventoryNoMatches": "没有匹配的软件，请调整关键词或来源分类。",
+    "inventoryResults": "已安装软件列表",
+    "inventoryHiddenSelection": "另有 {{count}} 个已选项目不在当前结果中。",
+    "inventoryFilterCask": "Cask",
+    "inventoryFilterFormula": "Formula",
+    "inventoryFilterNpm": "npm"
   },
   "commitMetadata": {
     "label": "提交元信息",

@@ -64,6 +64,8 @@ export type Source =
       readonly source: "brew";
       readonly package: string;
       readonly cask: boolean;
+      /** Absolute installation location reported by Homebrew during discovery. */
+      readonly install_path?: string | null;
     }
   | {
       readonly source: "script";

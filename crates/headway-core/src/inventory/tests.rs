@@ -157,3 +157,66 @@ fn ambiguous_kegs_are_not_guessed_and_cask_taps_are_preserved() {
     assert!(items[0].installed_version.is_none());
     assert_eq!(items[1].key, "brew cask acme/apps/editor");
 }
+
+#[test]
+fn casks_keep_only_unambiguous_reported_locations_without_blocking_suites() {
+    // Given Homebrew targets from custom locations, nested metadata and a multi-app cask.
+    let input = r#"{"formulae":[{"name":"editor","installed":[{"version":"1"}]}],"casks":[
+      {"token":"editor","installed":"2","artifacts":[{"app":["Editor.app"],"target":"/Applications/Custom Apps/Editor.app"}]},
+      {"token":"nested","installed":"2","artifacts":[{"app":["Nested.app",{"target":"/Custom/Nested.app"}]}]},
+      {"token":"suite","installed":"2","artifacts":[{"app":["A.app"],"target":"/Apps/A.app"},{"app":["B.app"],"target":"/Apps/B.app"}]},
+      {"token":"pkg","installed":"2","artifacts":[{"pkg":["setup.pkg"]}]},
+      {"token":"unsafe","installed":"2","artifacts":[{"app":["Unsafe.app"],"target":"/Apps/../Unsafe.app"}]}]}"#;
+    // When parsing the real provider shape.
+    let candidates = parse::brew(input).unwrap();
+    let path = |id: &str, cask: bool| {
+        candidates
+            .iter()
+            .find_map(|candidate| match &candidate.app.source {
+                Source::Brew(source) if source.package == id && source.cask == cask => {
+                    Some(source.install_path.as_deref())
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    // Then valid absolute targets survive; ambiguous/missing locations do not invent paths or conflicts.
+    assert_eq!(
+        path("editor", true),
+        Some("/Applications/Custom Apps/Editor.app")
+    );
+    assert_eq!(path("nested", true), Some("/Custom/Nested.app"));
+    for id in ["suite", "pkg", "unsafe"] {
+        assert_eq!(path(id, true), None);
+    }
+    assert_eq!(path("editor", false), None);
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| candidate.conflicts.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn cask_import_preserves_reported_location_and_does_not_invent_installed_state() {
+    // Given one installed cask in a custom directory.
+    let tools=FakeTools::new().tool("brew",r#"printf '%s\n' '{"formulae":[],"casks":[{"token":"editor","installed":"2","artifacts":[{"app":["Editor.app"],"target":"/Applications/Custom Apps/Editor.app"}]}]}'"#);
+    let root = tempfile::tempdir().unwrap();
+    let hw = crate::Headway::builder()
+        .paths(crate::paths::Paths::under(root.path()))
+        .env(tools.env())
+        .build()
+        .unwrap();
+    let report = hw.discover_apps(&["brew".into()]).await.unwrap();
+    assert!(!hw.paths().config_file().exists());
+    // When the candidate is explicitly imported.
+    let imported = hw
+        .import_apps(vec![report.candidates[0].app.clone()])
+        .unwrap();
+    // Then its source retains the reported path and ownership, while version detection remains a check operation.
+    assert!(
+        matches!(&imported[0].app.source,Source::Brew(source) if source.cask&&source.install_path.as_deref()==Some("/Applications/Custom Apps/Editor.app"))
+    );
+    assert!(!imported[0].app.auto_update);
+    assert!(imported[0].installed.is_none());
+}

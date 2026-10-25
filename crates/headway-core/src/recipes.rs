@@ -23,6 +23,7 @@ pub fn recipes() -> Vec<AppRecipe> {
             "Track the Homebrew ripgrep formula.",
             AppKind::Cli,
             Source::Brew(BrewSource {
+                install_path: None,
                 package: "ripgrep".into(),
                 cask: false,
             }),
@@ -33,6 +34,7 @@ pub fn recipes() -> Vec<AppRecipe> {
             "Track the Homebrew jq formula.",
             AppKind::Cli,
             Source::Brew(BrewSource {
+                install_path: None,
                 package: "jq".into(),
                 cask: false,
             }),

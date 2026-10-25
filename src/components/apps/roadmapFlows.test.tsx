@@ -92,10 +92,14 @@ it("imports only eligible checked packages with automation disabled", async () =
     screen.getByRole("button", { name: "Import installed software" }),
   );
   expect(
-    await screen.findByRole("checkbox", { name: "Tracked" }),
+    await screen.findByRole("checkbox", { name: "Tracked · Homebrew Formula" }),
   ).toBeDisabled();
-  expect(screen.getByRole("checkbox", { name: "Conflict" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("checkbox", { name: "jq" }));
+  expect(
+    screen.getByRole("checkbox", { name: "Conflict · Homebrew Formula" }),
+  ).toBeDisabled();
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "jq · Homebrew Formula" }),
+  );
   // When explicitly importing the checked eligible item.
   fireEvent.click(screen.getByRole("button", { name: "Import selected (1)" }));
   // Then no updater is started and unsafe imported automation is reset.

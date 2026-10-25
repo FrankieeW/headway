@@ -73,3 +73,25 @@ fn unsupported_restore_releases_run_admission_and_metadata_is_github_only() {
         "invalid_input"
     );
 }
+
+#[test]
+fn importing_a_cask_preserves_the_reported_location_in_the_ipc_contract() {
+    // Given the registered handler and a cask found in a custom application directory.
+    let harness = package_harness();
+    let path = "/Applications/Custom Apps/Editor.app";
+    // When the inventory selection is explicitly imported.
+    let imported = ok(
+        &harness,
+        "import_apps",
+        json!({"apps":[{"id":"editor","name":"Editor","kind":"app","source":"brew","package":"editor","cask":true,"auto_update":true,"install_path":path}]}),
+    );
+    // Then both cask ownership and its metadata are retained without inventing an installed ref.
+    assert_eq!(imported[0]["app"]["install_path"], path);
+    assert_eq!(imported[0]["app"]["cask"], true);
+    assert_eq!(imported[0]["app"]["auto_update"], false);
+    assert!(imported[0]["installed"].is_null());
+    assert_eq!(
+        ok(&harness, "get_app", json!({"id":"editor"}))["app"]["install_path"],
+        path
+    );
+}

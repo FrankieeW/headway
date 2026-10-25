@@ -87,6 +87,11 @@ export function AppFormSourceSection({
           >
             {t(inspecting ? "form.inspecting" : "form.inspect")}
           </Button>
+          {form.source === "brew" && form.installPath ? (
+            <p className="break-all text-caption text-fg-3">
+              {t("form.installPath")}: {form.installPath}
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className="text-caption text-danger-text">
               {error}

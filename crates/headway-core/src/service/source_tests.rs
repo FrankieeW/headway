@@ -310,6 +310,7 @@ async fn brew_and_script_version_picks_are_rejected_before_installing() {
     let gh = GitHub::new("http://127.0.0.1:9", None).unwrap();
     for source in [
         Source::Brew(BrewSource {
+            install_path: None,
             package: "tool".into(),
             cask: false,
         }),

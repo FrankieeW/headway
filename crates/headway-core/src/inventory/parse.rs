@@ -32,6 +32,8 @@ struct Cask {
     #[serde(default)]
     name: Vec<String>,
     installed: Option<String>,
+    #[serde(default)]
+    artifacts: Vec<super::cask_path::Artifact>,
 }
 
 pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
@@ -52,6 +54,7 @@ pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
             Source::Brew(BrewSource {
                 package: formula.full_name.unwrap_or_else(|| formula.name.clone()),
                 cask: false,
+                install_path: None,
             }),
             formula.name,
             version,
@@ -74,6 +77,7 @@ pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
         let Some(version) = cask.installed.filter(|version| !version.is_empty()) else {
             continue;
         };
+        let install_path = super::cask_path::locate(&cask.token, &cask.artifacts);
         let package = cask
             .full_token
             .unwrap_or_else(|| match cask.tap.as_deref() {
@@ -84,6 +88,7 @@ pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
             Source::Brew(BrewSource {
                 package,
                 cask: true,
+                install_path,
             }),
             cask.name.first().cloned().unwrap_or(cask.token),
             Some(version),

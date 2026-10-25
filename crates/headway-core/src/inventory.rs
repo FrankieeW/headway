@@ -9,6 +9,7 @@ use crate::shell::ShellEnv;
 use crate::source::Source;
 use crate::{CancellationToken, probe};
 
+mod cask_path;
 mod parse;
 #[cfg(test)]
 mod tests;

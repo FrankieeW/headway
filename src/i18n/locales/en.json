@@ -232,7 +232,8 @@
     "latestCommand": "Latest version command or URL (optional)",
     "scriptHelp": "Use the update command provided by the software publisher. Without a latest-version probe, update status remains unknown.",
     "packageRequired": "Enter a package name.",
-    "updateRequired": "Enter an update command."
+    "updateRequired": "Enter an update command.",
+    "installPath": "Installation location reported by Homebrew"
   },
   "settings": {
     "title": "Settings",
@@ -374,7 +375,23 @@
       "manifest": "Manifest",
       "preset": "Preset"
     },
-    "restartFailed": "Restart confirmation failed"
+    "restartFailed": "Restart confirmation failed",
+    "inventoryCask": "Homebrew Cask",
+    "inventoryFormula": "Homebrew Formula",
+    "inventorySearch": "Search installed software",
+    "inventorySearchPlaceholder": "Name, package or install location",
+    "inventoryFilter": "Filter installed software by source",
+    "inventoryAll": "All",
+    "inventoryClearFilters": "Clear filters",
+    "inventoryCount": "Showing {{shown}} of {{total}}",
+    "inventorySelectMatching": "Select matching",
+    "inventoryClearSelection": "Clear selection",
+    "inventoryNoMatches": "No software matches your search or source filter.",
+    "inventoryResults": "Installed software results",
+    "inventoryHiddenSelection": "{{count}} selected items are outside the current results.",
+    "inventoryFilterCask": "Cask",
+    "inventoryFilterFormula": "Formula",
+    "inventoryFilterNpm": "npm"
   },
   "commitMetadata": {
     "label": "Commit metadata",

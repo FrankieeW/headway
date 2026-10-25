@@ -92,7 +92,15 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         setInspectionError(null);
         setInspecting(false);
       }
-      setForm((current) => {
+      const dropPath =
+        (key === "source" && value !== currentForm.current.source) ||
+        (key === "package" && value !== currentForm.current.package) ||
+        (key === "cask" && value !== currentForm.current.cask);
+      if (dropPath) {
+        edits.current = { ...edits.current, installPath: "" };
+      }
+      setForm((previous) => {
+        const current = dropPath ? { ...previous, installPath: "" } : previous;
         if (
           key === "installMethod" &&
           (value === "source" || value === "asset")

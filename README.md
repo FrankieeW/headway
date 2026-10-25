@@ -144,7 +144,14 @@ headway --json resume-auto-update ripgrep
 ```
 
 Imports validate the entire batch, reject duplicate sources/IDs and start with automatic updates
-off. Recipes remain editable. Automatic modes are `notify`, `next` and `latest`; `next` supports
+off. The desktop import panel distinguishes Homebrew Casks, Formulae and npm packages. Filter by
+type or search names, package identifiers and reported installation locations. Selections survive
+filter changes; the import count includes selected entries outside the current results.
+Homebrew cask locations come only from unambiguous absolute artifact targets reported by Homebrew;
+unknown locations stay unset and do not prevent import. Editing a package name or switching between
+Cask and Formula clears the old location. Recipes remain editable.
+
+Automatic modes are `notify`, `next` and `latest`; `next` supports
 1–20 steps per cycle, and failures can pause later cycles until resumed. Mode, source and step
 budget changes take effect before another step. Manual `update --all` keeps its explicit behavior.
 
@@ -362,6 +369,8 @@ Headway 是一个 macOS 菜单栏应用 + 命令行工具：跟踪 GitHub 仓库
 
 支持 npm、Homebrew 和自定义官方升级脚本；可发现并导入已安装的软件。添加应用时可从 README 和源码清单
 识别构建命令，再手动修改。自动更新支持仅通知、逐版本和最新版本；安装后可校验并保留两份历史产物供恢复。
+导入列表区分 Cask、Formula 和 npm，支持按名称、包名或安装位置搜索；切换筛选保留勾选，导入前显示完整所选数量。
+安装位置仅采用 Homebrew 明确报告的路径，不猜测目录，也不因多应用 Cask 的位置不唯一而阻止导入。
 每个 commit 可显示版本、CI 和 Release 标记。Headway 自身作为首个订阅，支持空闲后重启，以及移动 App 后修复 CLI 链接。
 
 ## License

@@ -239,6 +239,7 @@ fn external_and_self_installing_providers_are_unsupported() {
             dist_tag: "latest".into(),
         }),
         crate::Source::Brew(crate::BrewSource {
+            install_path: None,
             package: "tool".into(),
             cask: false,
         }),

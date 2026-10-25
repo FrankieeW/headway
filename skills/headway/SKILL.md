@@ -128,7 +128,13 @@ headway --ai resume-auto-update <id>
 ```
 
 Discovery is read-only and reports partial provider errors. Import validates all selected entries
-before writing and disables auto-update. Recipe entries can be edited after import. Saved
+before writing and disables auto-update. Homebrew candidates distinguish `cask: true` from Formulae;
+optional `install_path` is read-only metadata from an unambiguous absolute Homebrew artifact target,
+never a guessed destination. Missing or ambiguous locations do not block import. Changing a saved
+package name or Cask/Formula type clears this metadata. The desktop import panel filters Cask,
+Formula and npm entries and searches names, package identifiers and reported paths locally;
+selection persists across filters, including entries outside the visible results.
+Recipe entries can be edited after import. Saved
 `update_policy` has `mode: notify|next|latest`, `max_steps: 1..20`, `pause_on_failure: bool`.
 Notify never installs; next applies a bounded sequence; latest installs once. Paused apps remain
 paused until resumed. `auto-update [ids...]` runs one saved-policy cycle (empty means all);
