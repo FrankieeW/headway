@@ -68,6 +68,7 @@ headway --ai update <id> --dry-run
 headway --ai update <id>              # latest
 headway --ai update <id> --next       # one step: the commit/release right after the installed one
 headway --ai update --all             # everything that is behind
+headway --ai update <id> --method asset  # install that revision from its release asset
 ```
 
 4. When something fails:
@@ -182,8 +183,21 @@ configured retained location, while disabled retention builds use a temporary ch
 Only Headway-owned checkout directories can be reused/purged; the base and siblings remain.
 
 `headway --ai commits <id> --page 1 --per-page 20` returns a `CommitPage` with `repo`, `branch`,
-immutable `anchor`, `page`, `per_page`, `commits`, `has_more`, `next_page`. Later pages require
-`--anchor <returned-sha>`. Read only requested pages; restart at page 1 without an anchor to refresh.
+immutable `anchor`, `page`, `per_page`, `commits`, `has_more`, `next_page`, `filter` and
+`filtered_out`. Later pages require `--anchor <returned-sha>`. Read only requested pages; restart at
+page 1 without an anchor to refresh.
+
+Every commit of a page names the release it published: `commits[].release_tag`, `release_url`,
+`tags` and `can_download` (the release has an asset for this Mac). Narrow the page with
+`--release` (only commits with a published release), `--tag '<regex>'` (only commits carrying a
+matching tag) and `--ci success|failure|pending|not-run|unknown` (only commits with that CI state).
+The filters combine, `filtered_out` counts the commits they removed, and the `next` hint repeats
+them so the following page keeps the same narrowing. `--ci` reads the check runs of every commit of
+the page that survives the release/tag filters; the other filters cost one repository scan.
+The scan covers the newest 100 tags/releases and is cached for five minutes. `notes` reports
+incomplete or unavailable metadata; missing annotations in that case do not prove a commit has
+no release. CI lookup warnings identify their commit even when the filter removes that row.
+A filtered page can be empty while `next_page` still points to more history.
 
 `headway --ai repo list <id>` lists current and saved origins. `repo add <id> <owner/repo>
 --label 'My fork' --branch work [--git-url ...]` saves an alternative. `repo use <id> <owner/repo>`
@@ -203,6 +217,13 @@ path evidence). `baseline_matches` indicates whether a recorded revision applies
 `recorded` retains the previous origin after a repository switch and is not a new baseline.
 This is a presence check, not a checksum or version probe. It never invents a revision from
 the upstream head. `show` and the desktop expose the same `installation` evidence.
+
+`headway --ai update <id> --method configured|source|asset` decides how that one run installs.
+`configured` (the default) uses the app's saved recipe, `source` builds the selected commit and
+`asset` downloads the release that published it. The method never rewrites the saved recipe, so a
+commit-tracked app can be updated from its release without switching to release tracking. With
+`--method asset` the run fails when the resolved commit has no published release or no installable
+asset; it never falls back to a build. `--dry-run` shows the same plan.
 
 ## Exact revisions and independent installations
 

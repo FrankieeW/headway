@@ -10,6 +10,7 @@ import {
   type AppView,
   type Target,
   type TrackedApp,
+  type UpdateMethod,
 } from "@/lib/api";
 import { normalizeCheckSummary } from "@/lib/checkSummary";
 import { queryKeys } from "@/lib/query/keys";
@@ -109,9 +110,7 @@ export function useCheckAll() {
         const details = normalized.failures
           .slice(0, 3)
           .map((failure) =>
-            failure.message
-              ? `${failure.id}: ${failure.message}`
-              : failure.id,
+            failure.message ? `${failure.id}: ${failure.message}` : failure.id,
           )
           .join("\n");
         toast.error(
@@ -134,8 +133,15 @@ export function useStartUpdate() {
   const invalidate = useInvalidateApps();
 
   return useMutation({
-    mutationFn: ({ id, target }: { id: string; target: Target }) =>
-      opsApi.startUpdate(id, target),
+    mutationFn: ({
+      id,
+      target,
+      method,
+    }: {
+      id: string;
+      target: Target;
+      method?: UpdateMethod;
+    }) => opsApi.startUpdate(id, target, method),
     onMutate: ({ id }) => {
       // show the progress block right away, before the first event arrives
       markRunStarted(id);

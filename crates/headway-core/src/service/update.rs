@@ -1,4 +1,8 @@
+use super::update_method::run_recipe;
 use super::*;
+
+use crate::revision_install::RevisionMethod;
+use crate::update::UpdateRequest;
 
 impl Headway {
     /// Builds or downloads `target` and installs it, streaming progress to `sink`.
@@ -9,6 +13,31 @@ impl Headway {
         sink: &dyn EventSink,
         cancel: &CancellationToken,
     ) -> Result<UpdateOutcome> {
+        self.update_with(
+            id,
+            &UpdateRequest {
+                target: target.clone(),
+                method: RevisionMethod::Configured,
+            },
+            sink,
+            cancel,
+        )
+        .await
+    }
+
+    /// Builds or downloads the requested target and installs it.
+    ///
+    /// `request.method` forces the install method for this run only: a
+    /// commit-tracked app can be updated from the release that published the
+    /// commit, or built from source, without changing its saved recipe.
+    pub async fn update_with(
+        &self,
+        id: &str,
+        request: &UpdateRequest,
+        sink: &dyn EventSink,
+        cancel: &CancellationToken,
+    ) -> Result<UpdateOutcome> {
+        let target = &request.target;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -17,6 +46,9 @@ impl Headway {
         let config = self.store.config()?;
         let app = config.app(id)?.clone();
         crate::recovery::reconcile(self.paths(), &app)?;
+        // A forced method is checked before anything is resolved, logged or recorded.
+        let baseline = super::presence::retained(&app, self.store.state()?.app(id).installed)?;
+        let recipe = run_recipe(&app, request.method, baseline.as_ref())?;
         let settings = config.settings;
         if app.source.detects_installed() {
             self.refresh_for_update(&app, target, cancel).await?;
@@ -31,6 +63,7 @@ impl Headway {
 
         let attempt = Attempt {
             app: &app,
+            recipe: &recipe,
             settings: &settings,
             installed: installed.as_ref(),
             target,
@@ -62,7 +95,9 @@ impl Headway {
                     });
                     Ok((next, ()))
                 })?;
-                crate::recovery::commit(self.paths(), &app)?;
+                // The journal names the recipe's destination, so it is committed
+                // against the recipe the run installed with.
+                crate::recovery::commit(self.paths(), &recipe)?;
                 log.stage(Stage::Done, format!("Installed {}", ref_label(&to)));
                 if app.source.detects_installed() {
                     if let Err(err) = self.check_unlocked(&app, cancel).await {
@@ -133,6 +168,7 @@ impl Headway {
     ) -> Result<Option<InstalledRef>> {
         let Attempt {
             app,
+            recipe,
             settings,
             installed,
             target,
@@ -180,7 +216,7 @@ impl Headway {
 
         let env = self.env().await;
         let job = Job {
-            app,
+            app: recipe,
             settings,
             paths: self.paths(),
             gh: &gh,

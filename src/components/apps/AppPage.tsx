@@ -5,7 +5,11 @@ import { SourceStorageSection } from "./SourceStorageSection";
 import { VariantSection } from "./VariantSection";
 import { RecoverySection } from "./RecoverySection";
 import { AutoUpdatePaused } from "./AutoUpdatePaused";
-import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
+import {
+  DEFAULT_UPDATE_POLICY,
+  type Target,
+  type UpdateMethod,
+} from "@/lib/api";
 import { supportsRefs } from "@/lib/sources";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -66,6 +70,9 @@ export function AppPage({
 
   const [editOpen, setEditOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // How the next update installs: the app's recipe, a build, or a release
+  // asset. Only this run uses it; the app's own recipe stays untouched.
+  const [updateMethod, setUpdateMethod] = useState<UpdateMethod>("configured");
   const [revisionReference, setRevisionReference] = useState<string | null>(
     null,
   );
@@ -106,6 +113,15 @@ export function AppPage({
 
   const latest = view.last_check?.latest ?? null;
   const installing = startUpdate.isPending || view.busy;
+  const startTarget = (target: Target) =>
+    startUpdate.mutate(
+      {
+        id: view.app.id,
+        target,
+        method: view.app.source === "github" ? updateMethod : "configured",
+      },
+      { onSuccess: () => setUpdateMethod("configured") },
+    );
 
   const handleAutoUpdate = (value: boolean): Promise<unknown> =>
     saveApp.mutateAsync({
@@ -148,12 +164,10 @@ export function AppPage({
           run={run}
           starting={installing}
           cancelling={cancelUpdate.isPending}
-          onUpdateLatest={() =>
-            startUpdate.mutate({ id: view.app.id, target: "latest" })
-          }
-          onUpdateNext={() =>
-            startUpdate.mutate({ id: view.app.id, target: "next" })
-          }
+          updateMethod={updateMethod}
+          onUpdateMethodChange={setUpdateMethod}
+          onUpdateLatest={() => startTarget("latest")}
+          onUpdateNext={() => startTarget("next")}
           onCancel={() => cancelUpdate.mutate(view.app.id)}
           onToggleAutoUpdate={handleAutoUpdate}
         />
@@ -191,10 +205,7 @@ export function AppPage({
               app={view}
               installing={installing}
               onInstall={(ref) =>
-                startUpdate.mutate({
-                  id: view.app.id,
-                  target: supportsRefs(view.app) ? { ref } : "latest",
-                })
+                startTarget(supportsRefs(view.app) ? { ref } : "latest")
               }
               onMarkInstalled={(ref) =>
                 markInstalled.mutate({ id: view.app.id, reference: ref })
@@ -215,9 +226,7 @@ export function AppPage({
               canReinstall={supportsRefs(view.app)}
               entries={history}
               loading={historyLoading}
-              onReinstall={(ref) =>
-                startUpdate.mutate({ id: view.app.id, target: { ref } })
-              }
+              onReinstall={(ref) => startTarget({ ref })}
             />
           ) : null}
 

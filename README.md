@@ -191,6 +191,9 @@ headway --json source-storage headway
 headway edit headway --keep-source false
 headway --json commits headway --page 1 --per-page 20
 headway --json commits headway --page 2 --per-page 20 --anchor <sha-from-page-1>
+headway --json commits headway --release
+headway --json commits headway --tag '^v1\.'
+headway --json commits headway --ci success
 ```
 
 Source builds keep their checkout and build cache by default. A custom root contains a managed
@@ -202,6 +205,30 @@ Headway refuses to reuse or purge an unowned directory; purge leaves the custom 
 The app's **Commits** tab browses history one page at a time, including commits older than the
 pending-update window. Pages reuse the first page's SHA anchor, so new commits arriving upstream
 do not shift the history while you browse. Refresh begins a new snapshot.
+
+Every commit of a page names the release it published (`release_tag`, `release_url`, `can_download`).
+The listing can be narrowed with `--release` (only commits with a published release), `--tag
+'<regex>'` (only commits carrying a matching tag) and `--ci success|failure|pending|not-run|unknown`
+(only commits with that CI state); the filters combine and `filtered_out` counts what they removed.
+In the app the same narrowing is a switch, a tag field and a CI dropdown next to the history.
+Filters apply to each requested page, so an empty page can still have a next page. Tag and release
+annotations scan the newest 100 entries and are cached for five minutes; `notes` reports incomplete
+or unavailable metadata, which can omit matches. CI is fetched only when the CI filter is set.
+
+## Install a commit from its release
+
+```sh
+headway --json update headway --method asset --dry-run
+headway --json update headway --method asset
+headway --json update headway --method source --dry-run
+```
+
+`update --method` decides how that one run installs: `configured` (the default) uses the app's saved
+recipe, `source` builds the selected commit and `asset` downloads the release that published it.
+The method never rewrites the saved recipe, so a commit-tracked app can be updated from its release
+without switching to release tracking. With `--method asset` the run fails when the commit has no
+published release or no installable asset; it never falls back to a build. The app offers the same
+choice next to its update buttons.
 
 ## Choose a commit, recipe or independent version
 
@@ -432,7 +459,8 @@ Headway 是一个 macOS 菜单栏应用 + 命令行工具：跟踪 GitHub 仓库
 识别构建命令，再手动修改。自动更新支持仅通知、逐版本和最新版本；安装后可校验并保留两份历史产物供恢复。
 导入列表区分 Cask、Formula 和 npm，支持按名称、包名或安装位置搜索；切换筛选保留勾选，导入前显示完整所选数量。
 安装位置仅采用 Homebrew 明确报告的路径，不猜测目录，也不因多应用 Cask 的位置不唯一而阻止导入。
-每个 commit 可显示版本、CI 和 Release 标记。Headway 自身作为首个订阅，支持空闲后重启，以及移动 App 后修复 CLI 链接。
+每个 commit 可显示版本、CI 和 Release 标记；提交列表可按 Release、标签或 CI 状态筛选。更新时可指定
+本次安装方式（沿用当前配方、从源码构建或下载对应 Release 资源），不会改写应用的保存配方。Headway 自身作为首个订阅，支持空闲后重启，以及移动 App 后修复 CLI 链接。
 
 ## License
 

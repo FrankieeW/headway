@@ -1,9 +1,19 @@
+use super::update_method::run_recipe;
 use super::*;
+
+use crate::revision_install::RevisionMethod;
+use crate::update::UpdateRequest;
 
 impl Headway {
     /// What `update` would do, without doing it.
     pub async fn plan(&self, id: &str, target: &Target) -> Result<UpdatePlan> {
         self.plan_with_cancel(id, target, &CancellationToken::new())
+            .await
+    }
+
+    /// What `update` would do with a forced install method, without doing it.
+    pub async fn plan_with(&self, id: &str, request: &UpdateRequest) -> Result<UpdatePlan> {
+        self.plan_request(id, request, &CancellationToken::new())
             .await
     }
 
@@ -13,18 +23,37 @@ impl Headway {
         target: &Target,
         cancel: &CancellationToken,
     ) -> Result<UpdatePlan> {
+        self.plan_request(
+            id,
+            &UpdateRequest {
+                target: target.clone(),
+                method: RevisionMethod::Configured,
+            },
+            cancel,
+        )
+        .await
+    }
+
+    async fn plan_request(
+        &self,
+        id: &str,
+        request: &UpdateRequest,
+        cancel: &CancellationToken,
+    ) -> Result<UpdatePlan> {
+        let target = &request.target;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
         let config = self.store.config()?;
         let app = config.app(id)?.clone();
-        let gh = self.github_for(&app).await?;
         let pending = crate::recovery::pending(self.paths(), &app);
         let mut installed = if pending {
             None
         } else {
             super::presence::retained(&app, self.store.state()?.app(id).installed)?
         };
+        let recipe = run_recipe(&app, request.method, installed.as_ref())?;
+        let gh = self.github_for(&app).await?;
         if let (Source::Npm(source), Target::Ref(_)) = (&app.source, target) {
             let version =
                 crate::npm::installed_version(cancel, &self.env().await, &source.package).await?;
@@ -58,9 +87,10 @@ impl Headway {
                 .as_ref()
                 .is_some_and(|checked| checked.result.status == UpdateStatus::UpToDate));
         let explicit = matches!(target, Target::Ref(_));
-        let asset = match app.github().map(|github| &github.install) {
+        // A forced method decides how the run installs, not what it installs.
+        let asset = match recipe.github().map(|github| &github.install) {
             Some(crate::config::Install::Asset(spec)) => {
-                let release = update::release_for_target(&gh, &app, &candidate).await?;
+                let release = update::release_for_target(&gh, &recipe, &candidate).await?;
                 crate::asset::select(
                     &release.assets,
                     app.kind,
@@ -72,7 +102,7 @@ impl Headway {
             Some(crate::config::Install::Source(_)) | None => None,
         };
         let mut steps = update::plan_steps(
-            &app,
+            &recipe,
             &config.settings,
             self.paths(),
             &candidate,
@@ -88,7 +118,7 @@ impl Headway {
             reinstall: already && explicit,
             from: installed,
             to: candidate,
-            method: app.source.method(),
+            method: recipe.source.method(),
             steps,
             asset: asset.map(|asset| update::AssetChoice {
                 name: asset.name,

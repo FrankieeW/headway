@@ -1,8 +1,8 @@
 use crate::output::{Printer, Reply};
 use crate::revision_args::{RepositoryCommand, RevisionArgs};
 use headway_core::{
-    CancellationToken, Error, Headway, Install, RepositoryOption, Result, RevisionRequest, Source,
-    VariantRequest,
+    CancellationToken, CommitCiState, CommitFilter, Error, Headway, Install, RepositoryOption,
+    Result, RevisionRequest, Source, VariantRequest,
 };
 use std::fmt::Write as _;
 
@@ -12,27 +12,81 @@ pub async fn commits(
     page: u32,
     per_page: u32,
     anchor: Option<&str>,
+    filter: CommitFilter,
 ) -> Result<Reply> {
-    let found = hw.list_commits(id, page, per_page, anchor).await?;
+    let found = hw
+        .list_commits_filtered(id, page, per_page, anchor, &filter)
+        .await?;
     let mut human = String::new();
     for commit in &found.commits {
+        let tag = commit.release_tag.as_deref().unwrap_or_default();
+        let ci = commit
+            .ci_state
+            .map(|state| format!("{} ", ci_arg(state)))
+            .unwrap_or_default();
+        let asset = if commit.can_download {
+            "  · release asset"
+        } else {
+            ""
+        };
         let _ = writeln!(
             human,
-            "{}  {}",
-            headway_core::update::short(&commit.id),
-            commit.title
+            "{}  {tag:<16}  {ci}{}{asset}",
+            headway_core::update::short(&commit.candidate.id),
+            commit.candidate.title
         );
+    }
+    if found.filtered_out > 0 {
+        let _ = writeln!(
+            human,
+            "{} of {} commits on this page were filtered out",
+            found.filtered_out,
+            found.filtered_out + u32::try_from(found.commits.len()).unwrap_or(u32::MAX)
+        );
+    }
+    let extra = filter_args(&found.filter);
+    for note in &found.notes {
+        let _ = writeln!(human, "{note}");
     }
     let next = found
         .next_page
         .map(|next| {
             vec![format!(
-                "headway commits {id} --page {next} --per-page {per_page} --anchor {}",
+                "headway commits {id} --page {next} --per-page {per_page} --anchor {}{extra}",
                 found.anchor
             )]
         })
         .unwrap_or_default();
     Ok(Reply::new(&found, human).next(next))
+}
+
+/// The filter flags as they are written on the command line.
+fn filter_args(filter: &CommitFilter) -> String {
+    let mut args = Vec::new();
+    if filter.releases_only {
+        args.push("--release".to_owned());
+    }
+    if let Some(tag) = &filter.tag {
+        args.push(format!("--tag {}", headway_core::process::shell_quote(tag)));
+    }
+    if let Some(ci) = filter.ci {
+        args.push(format!("--ci {}", ci_arg(ci)));
+    }
+    if args.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", args.join(" "))
+    }
+}
+
+fn ci_arg(state: CommitCiState) -> &'static str {
+    match state {
+        CommitCiState::Success => "success",
+        CommitCiState::Failure => "failure",
+        CommitCiState::Pending => "pending",
+        CommitCiState::NotRun => "not-run",
+        CommitCiState::Unknown => "unknown",
+    }
 }
 
 pub fn source_storage(hw: &Headway, id: &str) -> Result<Reply> {

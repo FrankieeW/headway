@@ -53,6 +53,8 @@ it.each(sources)("exposes only supported operations for $source", (app) => {
         onUpdateNext={vi.fn()}
         onCancel={vi.fn()}
         onToggleAutoUpdate={vi.fn(async () => undefined)}
+        updateMethod="configured"
+        onUpdateMethodChange={vi.fn()}
       />
       <PendingList
         app={view}
@@ -120,6 +122,8 @@ it.each(["github", "script"] as const)(
           onUpdateNext={vi.fn()}
           onCancel={vi.fn()}
           onToggleAutoUpdate={vi.fn(async () => undefined)}
+          updateMethod="configured"
+          onUpdateMethodChange={vi.fn()}
         />
         <PendingList
           app={view}

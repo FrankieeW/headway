@@ -1,3 +1,4 @@
+import type { CiState } from "./commitMetadata";
 import type {
   AssetInstall,
   Candidate,
@@ -70,15 +71,34 @@ export interface VariantInfo {
   readonly release_tag?: string | null;
   readonly branch?: string | null;
 }
+/** Narrows a page of history by release, tag or CI state. */
+export interface CommitFilter {
+  readonly releases_only?: boolean;
+  readonly tag?: string | null;
+  readonly ci?: CiState | null;
+}
+/** One commit of a history page, with the release it published. */
+export interface CommitEntry extends Candidate {
+  readonly tags?: readonly string[];
+  readonly release_tag?: string | null;
+  readonly release_url?: string | null;
+  /** the release publishes an asset this machine can install */
+  readonly can_download?: boolean;
+  readonly ci_state?: CiState | null;
+}
 export interface CommitPage {
   readonly repo: string;
   readonly branch: string;
   readonly anchor: string;
   readonly page: number;
   readonly per_page: number;
-  readonly commits: Candidate[];
+  readonly commits: CommitEntry[];
   readonly has_more: boolean;
   readonly next_page: number | null;
+  readonly filter?: CommitFilter;
+  /** commits of this page the filter removed */
+  readonly filtered_out?: number;
+  readonly notes?: readonly string[];
 }
 export interface RevisionOptions {
   readonly pull_request?: PullRequest | null;

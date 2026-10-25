@@ -35,7 +35,10 @@ function view(autoUpdate: boolean): AppView {
   };
 }
 
-function render(app: AppView, onToggleAutoUpdate: (value: boolean) => Promise<unknown>) {
+function render(
+  app: AppView,
+  onToggleAutoUpdate: (value: boolean) => Promise<unknown>,
+) {
   return renderWithProviders(
     <AppSummary
       app={app}
@@ -46,6 +49,8 @@ function render(app: AppView, onToggleAutoUpdate: (value: boolean) => Promise<un
       onUpdateNext={() => {}}
       onCancel={() => {}}
       onToggleAutoUpdate={onToggleAutoUpdate}
+      updateMethod="configured"
+      onUpdateMethodChange={vi.fn()}
     />,
   );
 }
@@ -75,7 +80,9 @@ describe("auto-update switch", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith(true));
     // …and is rolled back after the rejection instead of lying about the
     // persisted value.
-    await waitFor(() => expect(toggle).toHaveAttribute("data-state", "unchecked"));
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("data-state", "unchecked"),
+    );
     expect(toggle).not.toBeDisabled();
   });
 
@@ -89,6 +96,8 @@ describe("auto-update switch", () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
-    await waitFor(() => expect(toggle).toHaveAttribute("data-state", "checked"));
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("data-state", "checked"),
+    );
   });
 });

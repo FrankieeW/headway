@@ -9,11 +9,18 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { AppView } from "@/lib/api";
+import type { AppView, UpdateMethod } from "@/lib/api";
 import { firstLine, shortSha, timeAgo } from "@/lib/format";
 import type { UpdateRun } from "@/lib/updateRuns";
 import { supportsRefs } from "@/lib/sources";
@@ -28,6 +35,9 @@ export interface AppSummaryProps {
   onUpdateLatest: () => void;
   onUpdateNext: () => void;
   onCancel: () => void;
+  /** How the next update installs; only that run uses it. */
+  updateMethod: UpdateMethod;
+  onUpdateMethodChange: (method: UpdateMethod) => void;
   /**
    * Persist the auto-update switch. Must return a promise that rejects when
    * the backend rejected the change, so the switch can roll back.
@@ -77,6 +87,8 @@ export function AppSummary({
   onUpdateLatest,
   onUpdateNext,
   onCancel,
+  updateMethod,
+  onUpdateMethodChange,
   onToggleAutoUpdate,
 }: AppSummaryProps) {
   const { t, i18n } = useTranslation();
@@ -264,6 +276,48 @@ export function AppSummary({
             ) : null}
           </div>
         )}
+
+        {app.app.source === "github" ? (
+          <div className="space-y-1 border-t border-border pt-3">
+            <label
+              className="block text-caption text-fg-2"
+              htmlFor="update-method"
+            >
+              {t("appPage.installMethod")}
+            </label>
+            <Select
+              value={updateMethod}
+              disabled={starting || busy}
+              onValueChange={(value) => {
+                if (
+                  value === "configured" ||
+                  value === "source" ||
+                  value === "asset"
+                )
+                  onUpdateMethodChange(value);
+              }}
+            >
+              <SelectTrigger
+                id="update-method"
+                className="w-full"
+                aria-label={t("appPage.installMethod")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="configured">
+                  {t("appPage.methodConfigured")}
+                </SelectItem>
+                <SelectItem value="source">
+                  {t("appPage.methodSource")}
+                </SelectItem>
+                <SelectItem value="asset">
+                  {t("appPage.methodAsset")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
         <label className="flex items-center justify-between gap-3 border-t border-border pt-3">
           <span className="text-caption text-fg-2">

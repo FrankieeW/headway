@@ -65,6 +65,29 @@ impl Cache {
 }
 
 impl RepositoryCache {
+    /// The cached tag and release snapshot, refreshed when it is stale.
+    pub(crate) async fn snapshot(
+        &self,
+        gh: &crate::github::GitHub,
+        repo: &crate::repo::RepoId,
+        refresh: bool,
+    ) -> super::repository::RepositorySnapshot {
+        let mut guard = self.snapshot.lock().await;
+        if refresh
+            || !guard
+                .as_ref()
+                .is_some_and(|entry| entry.fresh(REPOSITORY_TTL))
+        {
+            *guard = Some(Timed::new(
+                super::repository::RepositorySnapshot::fetch(gh, repo).await,
+            ));
+        }
+        guard
+            .as_ref()
+            .map(|entry| entry.value.clone())
+            .unwrap_or_default()
+    }
+
     pub async fn manifest_version(
         &self,
         gh: &crate::github::GitHub,

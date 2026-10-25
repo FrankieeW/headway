@@ -1,6 +1,9 @@
 //! Checks, updates and baselines.
 
-use headway_core::{AppView, CheckSummary, Error, ErrorInfo, LogFile, Target, UpdatePlan};
+use headway_core::{
+    AppView, CheckSummary, Error, ErrorInfo, LogFile, RevisionMethod, Target, UpdatePlan,
+    UpdateRequest,
+};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::runner::{self, Origin};
@@ -30,13 +33,25 @@ pub async fn check_all<R: Runtime>(
     Ok(summary)
 }
 
+/// Plans an update. `method` forces the install method for this run only.
 #[tauri::command]
 pub async fn plan_update(
     state: State<'_, AppState>,
     id: String,
     target: Target,
+    method: Option<RevisionMethod>,
 ) -> CmdResult<UpdatePlan> {
-    state.hw.plan(&id, &target).await.cmd()
+    state
+        .hw
+        .plan_with(
+            &id,
+            &UpdateRequest {
+                target,
+                method: method.unwrap_or(RevisionMethod::Configured),
+            },
+        )
+        .await
+        .cmd()
 }
 
 /// Starts an update in the background; progress arrives as events.
@@ -44,17 +59,25 @@ pub async fn plan_update(
 /// The run is admitted synchronously: a refused start (another process updating,
 /// the app quitting, or a restart already admitted) is reported here instead of
 /// leaving the window with a run that never emits events.
+/// `method` forces the install method for this run only.
 #[tauri::command]
 pub async fn start_update<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
     id: String,
     target: Target,
+    method: Option<RevisionMethod>,
 ) -> CmdResult<()> {
     if state.hw.get(&id).cmd()?.busy {
         return Err(ErrorInfo::from(&Error::Busy(id)));
     }
-    runner::spawn_update(&app, id, target, Origin::User)
+    runner::spawn_update(
+        &app,
+        id,
+        target,
+        method.unwrap_or(RevisionMethod::Configured),
+        Origin::User,
+    )
 }
 
 #[tauri::command]

@@ -3,7 +3,9 @@ import type {
   AppView,
   InstallationDetection,
   PullRequestPage,
+  CommitFilter,
   CommitPage,
+  UpdateMethod,
   RevisionOptions,
   RevisionRequest,
   VariantRequest,
@@ -94,12 +96,19 @@ export const appsApi = {
     invoke<PullRequestPage>("list_pull_requests", { id, page, perPage }),
   sourceStorageStatus: (id: string) =>
     invoke<SourceStorageStatus>("source_storage_status", { id }),
-  listCommits: (id: string, page: number, perPage = 20, anchor?: string) =>
+  listCommits: (
+    id: string,
+    page: number,
+    perPage = 20,
+    anchor?: string,
+    filter?: CommitFilter,
+  ) =>
     invoke<CommitPage>("list_commits", {
       id,
       page,
       perPage,
       anchor: anchor ?? null,
+      filter: filter ?? null,
     }),
   planRevision: (id: string, request: RevisionRequest) =>
     invoke<UpdatePlan>("plan_revision", { id, request }),
@@ -148,11 +157,11 @@ export const opsApi = {
     invoke<RestoreOutcome>("restore_backup", { id, backupId }),
   check: (id: string) => invoke<AppView>("check_app", { id }),
   checkAll: () => invoke<CheckAllSummary>("check_all"),
-  plan: (id: string, target: Target) =>
-    invoke<UpdatePlan>("plan_update", { id, target }),
+  plan: (id: string, target: Target, method?: UpdateMethod) =>
+    invoke<UpdatePlan>("plan_update", { id, target, method: method ?? null }),
   /** Starts in the background; follow EVENTS.updateEvent / updateFinished. */
-  startUpdate: (id: string, target: Target) =>
-    invoke<void>("start_update", { id, target }),
+  startUpdate: (id: string, target: Target, method?: UpdateMethod) =>
+    invoke<void>("start_update", { id, target, method: method ?? null }),
   cancel: (id: string) => invoke<boolean>("cancel_update", { id }),
   /** `reference`: "latest", a commit SHA, or a tag */
   markInstalled: (id: string, reference: string) =>

@@ -58,6 +58,7 @@ async fn background_run_update_reports_a_refused_admission() {
         harness.app.handle(),
         "tool",
         &headway_core::Target::Latest,
+        headway_core::RevisionMethod::Configured,
         Origin::User,
     )
     .await;

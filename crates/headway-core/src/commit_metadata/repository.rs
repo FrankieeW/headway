@@ -4,8 +4,8 @@ use crate::version::compare_tags;
 
 use super::{CommitMetadata, CommitVersionSource};
 
-#[derive(Clone)]
-pub(super) struct RepositorySnapshot {
+#[derive(Clone, Default)]
+pub(crate) struct RepositorySnapshot {
     tags: Vec<Tag>,
     releases: Vec<Release>,
     complete: bool,
@@ -13,6 +13,10 @@ pub(super) struct RepositorySnapshot {
 }
 
 impl RepositorySnapshot {
+    pub(crate) fn notes(&self) -> &[String] {
+        &self.notes
+    }
+
     pub async fn fetch(gh: &GitHub, repo: &RepoId) -> Self {
         let (tags, releases) = tokio::join!(gh.tags(repo), gh.releases(repo));
         let mut notes = Vec::new();
@@ -49,17 +53,35 @@ impl RepositorySnapshot {
         }
     }
 
+    /// Tags pointing at a commit, newest first.
+    pub(crate) fn tags_for(&self, sha: &str) -> Vec<String> {
+        let mut tags: Vec<String> = self
+            .tags
+            .iter()
+            .filter(|tag| tag.commit.sha.eq_ignore_ascii_case(sha))
+            .map(|tag| tag.name.clone())
+            .collect();
+        tags.sort_by(|a, b| compare_tags(b, a));
+        tags.dedup();
+        tags
+    }
+
+    /// The published release a commit carries, if any.
+    ///
+    /// A tag only counts when the repository's tag list points it at this commit:
+    /// a release's `target_commitish` is never trusted.
+    pub(crate) fn release_for(&self, sha: &str) -> Option<&Release> {
+        self.tags_for(sha).iter().find_map(|tag| {
+            self.releases
+                .iter()
+                .find(|release| &release.tag_name == tag)
+        })
+    }
+
     pub fn apply(&self, metadata: &mut CommitMetadata) {
         // GitHub's repository-tags endpoint exposes the peeled commit SHA, not the
         // annotated tag object's SHA. Release target_commitish is never consulted.
-        metadata.tags = self
-            .tags
-            .iter()
-            .filter(|tag| tag.commit.sha.eq_ignore_ascii_case(&metadata.sha))
-            .map(|tag| tag.name.clone())
-            .collect();
-        metadata.tags.sort_by(|a, b| compare_tags(b, a));
-        metadata.tags.dedup();
+        metadata.tags = self.tags_for(&metadata.sha);
         metadata.version = metadata
             .tags
             .iter()

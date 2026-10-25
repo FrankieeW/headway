@@ -60,7 +60,7 @@ pub use error::{Error, ErrorInfo, Result};
 pub use events::{EventSink, LogStream, NullSink, Stage, UpdateEvent};
 pub use github::PullRequest;
 pub use policy::{AutoUpdateMode, UpdatePolicy};
-pub use revision_history::CommitPage;
+pub use revision_history::{CommitEntry, CommitFilter, CommitPage};
 pub use revision_install::{
     LaunchOutcome, RevisionMethod, RevisionOptions, RevisionRequest, VariantRequest,
 };
@@ -73,7 +73,7 @@ pub use source::{BrewSource, GithubSource, NpmSource, ScriptSource, Source, Sour
 pub use source_options::{GithubOptions, RepositoryOption, RepositorySettings, VariantInfo};
 pub use state::{Candidate, CheckResult, HistoryEntry, InstalledRef, UpdateStatus};
 pub use tokio_util::sync::CancellationToken;
-pub use update::{Target, UpdateOutcome, UpdatePlan};
+pub use update::{Target, UpdateOutcome, UpdatePlan, UpdateRequest};
 
 pub use recovery::{BackupEntry, RestoreOutcome};
 

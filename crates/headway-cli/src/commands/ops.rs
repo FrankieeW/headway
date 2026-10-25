@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use headway_core::update::short;
-use headway_core::{CancellationToken, Error, ErrorInfo, Headway, Result, Target};
+use headway_core::{CancellationToken, Error, ErrorInfo, Headway, Result, Target, UpdateRequest};
 use serde_json::{Value, json};
 
 use super::{next_for, without_dry_run};
@@ -66,9 +66,17 @@ fn target(args: &UpdateArgs) -> Target {
     }
 }
 
+/// What to install and how: the method only changes this run.
+fn request(args: &UpdateArgs) -> UpdateRequest {
+    UpdateRequest {
+        target: target(args),
+        method: args.method.into(),
+    }
+}
+
 pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Result<Reply> {
     let p = printer.palette;
-    let target = target(args);
+    let request = request(args);
     let mut preflight_failures = Vec::new();
     let ids: Vec<String> = if args.all && args.dry_run {
         // Planning must not call check_many: it persists observations and may recover
@@ -109,7 +117,7 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
     }
 
     if args.dry_run {
-        return plan_updates(hw, &ids, &target, args.all, p).await;
+        return plan_updates(hw, &ids, &request, args.all, p).await;
     }
 
     let sink = TerminalSink::new(printer.log_level(), printer.stderr_color);
@@ -129,7 +137,10 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
             outcomes.push((id.clone(), Err(Error::Cancelled)));
             continue;
         }
-        outcomes.push((id.clone(), hw.update(id, &target, &sink, &cancel).await));
+        outcomes.push((
+            id.clone(),
+            hw.update_with(id, &request, &sink, &cancel).await,
+        ));
     }
     watcher.abort();
 
@@ -176,7 +187,7 @@ pub async fn update(hw: &Headway, args: &UpdateArgs, printer: &Printer) -> Resul
 async fn plan_updates(
     hw: &Headway,
     ids: &[String],
-    target: &Target,
+    request: &UpdateRequest,
     all: bool,
     p: Palette,
 ) -> Result<Reply> {
@@ -186,7 +197,7 @@ async fn plan_updates(
     let mut exit = 0;
     let mut next = Vec::new();
     for id in ids {
-        match hw.plan(id, target).await {
+        match hw.plan_with(id, request).await {
             Ok(plan) => {
                 results.push(json!({"app_id":id,"ok":true,"up_to_date":plan.up_to_date}));
                 if !all || !plan.up_to_date {

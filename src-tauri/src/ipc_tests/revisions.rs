@@ -153,3 +153,89 @@ fn launch_variant_refuses_apps_without_an_independent_bundle() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commit_listing_carries_releases_and_the_update_carries_a_method() {
+    // Given a repository whose newest commit published a release.
+    let server = MockServer::start().await;
+    let released = "b".repeat(40);
+    let untagged = "c".repeat(40);
+    Mock::given(path("/repos/octo/tool")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"full_name":"octo/tool","default_branch":"main","html_url":"https://github.com/octo/tool"}))).mount(&server).await;
+    Mock::given(path("/repos/octo/tool/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(commit_json(&released)))
+        .mount(&server)
+        .await;
+    Mock::given(path(format!("/repos/octo/tool/commits/{released}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(commit_json(&released)))
+        .mount(&server)
+        .await;
+    Mock::given(path("/repos/octo/tool/commits"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([commit_json(&released), commit_json(&untagged)])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/repos/octo/tool/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"v1.2.3","commit":{"sha":released}}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(path("/repos/octo/tool/releases"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "id":7,"tag_name":"v1.2.3","draft":false,"prerelease":false,
+            "html_url":"https://github.com/octo/tool/releases/tag/v1.2.3",
+            "assets":[{"id":9,"name":"tool-v1.2.3.tar.gz","size":10}]
+        }])))
+        .mount(&server)
+        .await;
+    let harness = harness(&server.uri());
+    let dest = harness.home.path().join("bin/tool");
+    ok(
+        &harness,
+        "add_app",
+        json!({"app":tool_app("file:///fixture",&dest)}),
+    );
+    // When the frontend asks for the commits that published a release.
+    let page = ok(
+        &harness,
+        "list_commits",
+        json!({"id":"tool","page":1,"perPage":20,"filter":{"releases_only":true}}),
+    );
+    // Then only that commit is listed and it names its release.
+    assert_eq!(page["commits"].as_array().unwrap().len(), 1);
+    assert_eq!(page["commits"][0]["id"], released);
+    assert_eq!(page["commits"][0]["release_tag"], "v1.2.3");
+    assert_eq!(page["filtered_out"], 1);
+    // And an update plan can force the install method for that run.
+    let plan = ok(
+        &harness,
+        "plan_update",
+        json!({"id":"tool","target":{"ref":released},"method":"source"}),
+    );
+    assert_eq!(plan["method"], "source");
+    assert_eq!(plan["to"]["id"], released);
+    Mock::given(path("/repos/octo/tool/releases/tags/v1.2.3"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id":7,"tag_name":"v1.2.3",
+            "assets":[{"id":9,"name":"tool-v1.2.3.tar.gz","size":10}]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(path("/repos/octo/tool/commits/refs/tags/v1.2.3"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(commit_json(&released)))
+        .mount(&server)
+        .await;
+    let downloaded = ok(
+        &harness,
+        "plan_update",
+        json!({"id":"tool","target":{"ref":released},"method":"asset"}),
+    );
+    assert_eq!(downloaded["method"], "asset");
+    assert_eq!(downloaded["asset"]["name"], "tool-v1.2.3.tar.gz");
+    assert_eq!(
+        ok(&harness, "get_app", json!({"id":"tool"}))["app"]["install"]["method"],
+        "source"
+    );
+}

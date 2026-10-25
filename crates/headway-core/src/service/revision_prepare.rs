@@ -78,14 +78,8 @@ impl Headway {
                 Err(error) => return Err(error),
             }
         }
-        let source_build = match &github.install {
-            Install::Source(source) => Some(source.clone()),
-            Install::Asset(_) => github.options.source_build.clone(),
-        };
-        let release_asset = match &github.install {
-            Install::Asset(asset) => asset.clone(),
-            Install::Source(_) => github.options.release_asset.clone().unwrap_or_default(),
-        };
+        let source_build = github.source_recipe();
+        let release_asset = github.asset_recipe();
         let can_download = release.as_ref().is_some_and(|release| {
             crate::asset::select(
                 &release.assets,
@@ -119,11 +113,7 @@ impl Headway {
         let (mut options, known_tag) = self.revision_options_for(&app, &request.reference).await?;
         let installed = self.store().state()?.app(&app.id).installed;
         let github = app.require_github("commit installation")?;
-        let destination = match &github.install {
-            Install::Source(s) => s.dest.clone(),
-            Install::Asset(s) => s.dest.clone(),
-        }
-        .or_else(|| installed.and_then(|i| i.path));
+        let destination = github.one_off_destination(installed.as_ref());
         let method = match request.method {
             RevisionMethod::Configured if options.pull_request.is_some() => RevisionMethod::Source,
             RevisionMethod::Configured => match github.install {
@@ -157,34 +147,31 @@ impl Headway {
             options.release_tag = Some(release.tag_name);
             options.release_url = release.html_url;
         }
-        let mut job_target = options.candidate.clone();
-        let install = match method {
-            RevisionMethod::Source => {
-                let mut source=request.source_build.clone().or_else(||options.source_build.clone())
-                    .ok_or_else(||Error::InvalidInput("configure a source build command and artifact before building this revision".into()))?;
-                source.dest = destination;
-                Install::Source(source)
-            }
-            RevisionMethod::Asset => {
-                job_target.id = options.release_tag.clone().ok_or_else(|| {
+        let job_target = if method == RevisionMethod::Asset {
+            crate::Candidate {
+                id: options.release_tag.clone().ok_or_else(|| {
                     Error::InvalidInput(
                         "this commit has no verified published release; choose a source build"
                             .into(),
                     )
-                })?;
-                let mut asset = request
-                    .release_asset
-                    .clone()
-                    .or_else(|| options.release_asset.clone())
-                    .unwrap_or_default();
-                asset.dest = destination;
-                Install::Asset(asset)
+                })?,
+                ..options.candidate.clone()
             }
-            RevisionMethod::Configured => {
-                return Err(Error::InvalidInput("unresolved install method".into()));
-            }
+        } else {
+            options.candidate.clone()
         };
-        crate::config::validate_install(&install).map_err(Error::InvalidInput)?;
+        let install = method.recipe(
+            request
+                .source_build
+                .clone()
+                .or_else(|| options.source_build.clone()),
+            request
+                .release_asset
+                .clone()
+                .or_else(|| options.release_asset.clone())
+                .unwrap_or_default(),
+            destination,
+        )?;
         let installed_id = if github.options.variant.is_some() {
             options.commit.clone()
         } else {

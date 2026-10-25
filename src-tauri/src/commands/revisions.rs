@@ -1,8 +1,8 @@
 use crate::revision_runner::RevisionTask;
 use crate::state::{AppState, CmdResult, IntoCmd as _, apps_changed};
 use headway_core::{
-    AppView, CommitPage, LaunchOutcome, RepositoryOption, RevisionOptions, RevisionRequest,
-    SourceStorageStatus, UpdatePlan, VariantRequest,
+    AppView, CommitFilter, CommitPage, LaunchOutcome, RepositoryOption, RevisionOptions,
+    RevisionRequest, SourceStorageStatus, UpdatePlan, VariantRequest,
 };
 use tauri::{AppHandle, Runtime, State};
 
@@ -42,6 +42,7 @@ pub async fn source_storage_status(
 ) -> CmdResult<SourceStorageStatus> {
     state.hw.source_storage_status(&id).cmd()
 }
+/// Lists one page of history. `filter` narrows it by release, tag or CI state.
 #[tauri::command]
 pub async fn list_commits(
     state: State<'_, AppState>,
@@ -49,10 +50,17 @@ pub async fn list_commits(
     page: u32,
     per_page: u32,
     anchor: Option<String>,
+    filter: Option<CommitFilter>,
 ) -> CmdResult<CommitPage> {
     state
         .hw
-        .list_commits(&id, page, per_page, anchor.as_deref())
+        .list_commits_filtered(
+            &id,
+            page,
+            per_page,
+            anchor.as_deref(),
+            &filter.unwrap_or_default(),
+        )
         .await
         .cmd()
 }

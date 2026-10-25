@@ -116,7 +116,11 @@
     },
     "nextVersion": "Next version",
     "detectedAt": "detected {{when}}",
-    "installationFound": "Local installation found"
+    "installationFound": "Local installation found",
+    "installMethod": "Install method for this update",
+    "methodConfigured": "Saved recipe",
+    "methodSource": "Build from source",
+    "methodAsset": "Download the release"
   },
   "pending": {
     "preRelease": "pre",
@@ -498,7 +502,19 @@
     "cliCommand": "CLI command",
     "discoverForks": "Discover fork origins",
     "forkOf": "Fork of {{repo}}",
-    "rootRepository": "Root repository {{repo}}"
+    "rootRepository": "Root repository {{repo}}",
+    "releasesOnly": "Only releases",
+    "tagFilter": "Tag pattern",
+    "applyFilter": "Apply filter",
+    "correctTag": "Correct the tag pattern and apply it again, or clear the tag filter.",
+    "clearTag": "Clear tag filter",
+    "noMatches": "No matches on this page. Try the next page or change the filters.",
+    "tagFilterPlaceholder": "Tag pattern (regular expression)",
+    "ciFilter": "CI state",
+    "ciAny": "Any CI state",
+    "filteredOut": "{{count}} commits of this page were filtered out.",
+    "releaseTag": "Release {{tag}}",
+    "releaseAssetReady": "Release {{tag}} has an installable asset"
   },
   "installation": {
     "present": "Installed payload found",

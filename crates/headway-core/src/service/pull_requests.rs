@@ -1,4 +1,4 @@
-use crate::{Error, Headway, Install, Result, RevisionOptions, TrackedApp, github::PullRequest};
+use crate::{Error, Headway, Result, RevisionOptions, TrackedApp, github::PullRequest};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,10 +84,7 @@ impl Headway {
                 "PR head did not resolve to the selected commit".into(),
             ));
         }
-        let source_build = match &source.install {
-            Install::Source(build) => Some(build.clone()),
-            Install::Asset(_) => source.options.source_build.clone(),
-        };
+        let source_build = source.source_recipe();
         Ok(RevisionOptions {
             reference: format!("pr:{number}@{}", pull.head.sha),
             commit: pull.head.sha.clone(),

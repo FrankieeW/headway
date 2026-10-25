@@ -323,3 +323,6 @@ async fn app_lock_rejects_revision_install_before_network_or_state_changes() {
 
 #[path = "revision_install_release_tag_tests.rs"]
 mod release_tags;
+
+#[path = "update_method_install_tests.rs"]
+mod update_methods;

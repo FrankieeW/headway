@@ -1,4 +1,5 @@
 import { run } from "./mockRevisionRun";
+import { filterCommitPage } from "./mockCommitPage";
 import { emit } from "@tauri-apps/api/event";
 import { pullOptions } from "./mockPulls";
 import {
@@ -93,20 +94,23 @@ export function handleRevisions(
                 );
               },
             );
-      return {
-        repo: view?.app.source === "github" ? view.app.repo : "owner/tool",
-        branch:
-          view?.app.source === "github" && view.app.track.mode === "commit"
-            ? view.app.track.branch || "main"
-            : "main",
-        anchor: typeof args?.anchor === "string" ? args.anchor : anchor,
-        page,
-        per_page: perPage,
-        commits,
-        has_more: commits.length > 0 && start + commits.length < 45,
-        next_page:
-          commits.length > 0 && start + commits.length < 45 ? page + 1 : null,
-      } satisfies CommitPage;
+      return filterCommitPage(
+        {
+          repo: view?.app.source === "github" ? view.app.repo : "owner/tool",
+          branch:
+            view?.app.source === "github" && view.app.track.mode === "commit"
+              ? view.app.track.branch || "main"
+              : "main",
+          anchor: typeof args?.anchor === "string" ? args.anchor : anchor,
+          page,
+          per_page: perPage,
+          commits,
+          has_more: commits.length > 0 && start + commits.length < 45,
+          next_page:
+            commits.length > 0 && start + commits.length < 45 ? page + 1 : null,
+        } satisfies CommitPage,
+        args?.filter,
+      );
     }
     case "revision_options": {
       const reference =

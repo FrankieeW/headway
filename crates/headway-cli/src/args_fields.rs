@@ -115,3 +115,25 @@ pub enum MethodArg {
     Source,
     Asset,
 }
+
+/// The CI state a commit is filtered by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CiStateArg {
+    Success,
+    Failure,
+    Pending,
+    NotRun,
+    Unknown,
+}
+
+impl From<CiStateArg> for headway_core::CommitCiState {
+    fn from(value: CiStateArg) -> Self {
+        match value {
+            CiStateArg::Success => Self::Success,
+            CiStateArg::Failure => Self::Failure,
+            CiStateArg::Pending => Self::Pending,
+            CiStateArg::NotRun => Self::NotRun,
+            CiStateArg::Unknown => Self::Unknown,
+        }
+    }
+}

@@ -26,15 +26,29 @@ use log::{log_files, prune_logs};
 pub(crate) use release_target::release_for_target;
 
 /// What to install.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Target {
     /// The newest commit on the branch / the newest release or tag.
+    #[default]
     Latest,
     /// The candidate right after the installed one (one commit or version at a time).
     Next,
     /// A specific commit SHA, branch or tag.
     Ref(String),
+}
+
+/// What to install and how to get it there.
+///
+/// The method only changes this one run: it never rewrites the app's saved
+/// recipe, so a commit-tracked app can be updated from the release that
+/// published the commit without switching to release tracking.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateRequest {
+    pub target: Target,
+    /// The app's saved method, a source build, or a release asset.
+    #[serde(default)]
+    pub method: crate::revision_install::RevisionMethod,
 }
 
 impl Target {

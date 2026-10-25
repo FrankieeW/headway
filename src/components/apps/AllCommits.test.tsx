@@ -36,6 +36,7 @@ const page = (number: number): CommitPage => ({
   has_more: number === 1,
   next_page: number === 1 ? 2 : null,
 });
+const noFilter = { releases_only: false, tag: null, ci: null };
 beforeEach(async () => {
   vi.restoreAllMocks();
   vi.stubGlobal("IntersectionObserver", undefined);
@@ -71,8 +72,8 @@ it("requests one bounded page and preserves its exact anchor on next and previou
   fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
   // Then both page changes use the original immutable anchor.
   await screen.findByText("Snapshot page 1");
-  expect(list).toHaveBeenNthCalledWith(2, "tool", 2, 20, anchor);
-  expect(list).toHaveBeenNthCalledWith(3, "tool", 1, 20, anchor);
+  expect(list).toHaveBeenNthCalledWith(2, "tool", 2, 20, anchor, noFilter);
+  expect(list).toHaveBeenNthCalledWith(3, "tool", 1, 20, anchor, noFilter);
 });
 
 it("can return to the prior anchored page after a later page fails", async () => {
@@ -103,7 +104,93 @@ it("refreshes the branch tip only after an explicit restart of browsing", async 
   );
   // Then the new first-page request deliberately omits the old anchor.
   await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-  expect(list).toHaveBeenLastCalledWith("tool", 1, 20, undefined);
+  expect(list).toHaveBeenLastCalledWith("tool", 1, 20, undefined, noFilter);
+});
+
+it("asks only for the commits that published a release", async () => {
+  // Given the history browser.
+  const list = vi.spyOn(appsApi, "listCommits").mockResolvedValue(page(1));
+  renderWithProviders(<AllCommits view={view} onChoose={() => {}} />);
+  await screen.findByText("Snapshot page 1");
+  // When the user narrows the history to published releases.
+  fireEvent.click(screen.getByRole("switch", { name: "Only releases" }));
+  // Then the request carries the release filter.
+  await waitFor(() =>
+    expect(list).toHaveBeenLastCalledWith("tool", 1, 20, anchor, {
+      releases_only: true,
+      tag: null,
+      ci: null,
+    }),
+  );
+});
+
+it("shows the release a commit published", async () => {
+  // Given a page whose commit published a release with an installable asset.
+  const released = page(1);
+  vi.spyOn(appsApi, "listCommits").mockResolvedValue({
+    ...released,
+    commits: [
+      {
+        ...released.commits[0],
+        release_tag: "v1.2.3",
+        release_url: "https://example.test/releases/v1.2.3",
+        can_download: true,
+      },
+    ],
+  });
+  renderWithProviders(<AllCommits view={view} onChoose={() => {}} />);
+  // Then the tag is visible right away, without a metadata request.
+  expect(await screen.findByText("v1.2.3 ↓")).toBeVisible();
+  expect(
+    screen.getByTitle("Release v1.2.3 has an installable asset"),
+  ).toBeVisible();
+});
+
+it("applies a tag pattern without dropping the anchor or other filters", async () => {
+  // Given page two of an anchored history listing.
+  const list = vi
+    .spyOn(appsApi, "listCommits")
+    .mockImplementation(async (_id, number) => page(number));
+  renderWithProviders(<AllCommits view={view} onChoose={() => {}} />);
+  await screen.findByText("Snapshot page 1");
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  await screen.findByText("Snapshot page 2");
+  fireEvent.click(screen.getByRole("switch", { name: "Only releases" }));
+  await screen.findByText("Snapshot page 1");
+  fireEvent.change(screen.getByRole("textbox", { name: "Tag pattern" }), {
+    target: { value: "^v1\\." },
+  });
+
+  // When applying a new pattern.
+  fireEvent.click(screen.getByRole("button", { name: "Apply filter" }));
+
+  // Then the combined filter starts at page one of the same snapshot.
+  await waitFor(() =>
+    expect(list).toHaveBeenLastCalledWith("tool", 1, 20, anchor, {
+      releases_only: true,
+      tag: "^v1\\.",
+      ci: null,
+    }),
+  );
+});
+
+it("keeps next-page navigation usable when filtering removes every row", async () => {
+  // Given a filtered page with more history and incomplete metadata.
+  vi.spyOn(appsApi, "listCommits").mockResolvedValue({
+    ...page(1),
+    commits: [],
+    filtered_out: 20,
+    notes: ["Release metadata unavailable"],
+  });
+  renderWithProviders(<AllCommits view={view} onChoose={() => {}} />);
+  await screen.findByText("Release metadata unavailable");
+
+  // When enabling release filtering.
+  fireEvent.click(screen.getByRole("switch", { name: "Only releases" }));
+
+  // Then no-match feedback and a usable next-page action remain visible.
+  expect(await screen.findByText(/No matches on this page/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
 });
 
 it("resolves arbitrary references without triggering an installation", async () => {
@@ -121,4 +208,34 @@ it("resolves arbitrary references without triggering an installation", async () 
   // Then only the explicit preview route opens.
   expect(choose).toHaveBeenCalledWith("old-tag");
   expect(install).not.toHaveBeenCalled();
+});
+
+it("recovers from an invalid tag pattern by clearing it on the same anchored page", async () => {
+  // Given an otherwise readable history whose tag filter is invalid.
+  const list = vi
+    .spyOn(appsApi, "listCommits")
+    .mockImplementation(async (_id, number, _size, _anchor, filter) => {
+      if (filter?.tag === "[")
+        throw { code: "invalid_input", message: "Invalid tag pattern" };
+      return page(number);
+    });
+  renderWithProviders(<AllCommits view={view} onChoose={() => {}} />);
+  await screen.findByText("Snapshot page 1");
+  fireEvent.change(screen.getByRole("textbox", { name: "Tag pattern" }), {
+    target: { value: "[" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Apply filter" }));
+  await screen.findByRole("alert");
+  expect(
+    screen.queryByRole("button", { name: "Retry" }),
+  ).not.toBeInTheDocument();
+
+  // When clearing the invalid filter using the adjacent recovery action.
+  fireEvent.click(screen.getByRole("button", { name: "Clear tag filter" }));
+
+  // Then history is readable again without re-resolving a moving branch tip.
+  expect(await screen.findByText("Snapshot page 1")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Tag pattern" })).toHaveValue("");
+  expect(list).toHaveBeenLastCalledWith("tool", 1, 20, anchor, noFilter);
 });

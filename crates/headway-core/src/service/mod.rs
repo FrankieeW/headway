@@ -118,6 +118,8 @@ mod check_summary;
 mod checks;
 mod commits;
 #[cfg(test)]
+mod commits_release_tests;
+#[cfg(test)]
 mod engine_recovery_tests;
 #[cfg(test)]
 mod engine_regressions;
@@ -144,6 +146,9 @@ mod revision_prepare;
 mod source_tests;
 #[cfg(test)]
 mod tests;
+mod update_method;
+#[cfg(test)]
+mod update_method_tests;
 mod variant_launch;
 mod variant_prepare;
 mod variants;
@@ -303,6 +308,8 @@ struct Attempt<'a> {
     settings: &'a Settings,
     installed: Option<&'a InstalledRef>,
     target: &'a Target,
+    /// The recipe used for this run without changing the saved tracking policy.
+    recipe: &'a TrackedApp,
     log: &'a RunLog<'a>,
     cancel: &'a CancellationToken,
 }

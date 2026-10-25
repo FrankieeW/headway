@@ -118,13 +118,16 @@ async fn branch_advancing_between_pages_keeps_anchor_and_fetches_only_requested_
         first
             .commits
             .iter()
-            .map(|item| item.id.as_str())
+            .map(|item| item.candidate.id.as_str())
             .collect::<Vec<_>>(),
         [ANCHOR, SECOND]
     );
-    assert_eq!(first.commits[0].title, "First");
-    assert_eq!(first.commits[0].body.as_deref(), Some("Details"));
-    assert_eq!(first.commits[0].author.as_deref(), Some("Builder"));
+    assert_eq!(first.commits[0].candidate.title, "First");
+    assert_eq!(first.commits[0].candidate.body.as_deref(), Some("Details"));
+    assert_eq!(
+        first.commits[0].candidate.author.as_deref(),
+        Some("Builder")
+    );
     assert_eq!(first.next_page, Some(2));
     assert!(first.has_more);
     assert_eq!(second.anchor, ANCHOR);
@@ -134,11 +137,11 @@ async fn branch_advancing_between_pages_keeps_anchor_and_fetches_only_requested_
         second
             .commits
             .iter()
-            .map(|item| item.id.as_str())
+            .map(|item| item.candidate.id.as_str())
             .collect::<Vec<_>>(),
         [THIRD, FOURTH]
     );
-    assert_eq!(second.commits[0].sha.as_deref(), Some(THIRD));
+    assert_eq!(second.commits[0].candidate.sha.as_deref(), Some(THIRD));
     assert_eq!(second.next_page, None);
     assert!(!second.has_more);
     let requests: Vec<_> = server
@@ -150,8 +153,8 @@ async fn branch_advancing_between_pages_keeps_anchor_and_fetches_only_requested_
         .collect();
     assert_eq!(
         requests.len(),
-        3,
-        "one tip resolution plus one list request per requested page"
+        5,
+        "one tip resolution, one list request per page and one cached tag/release scan"
     );
     evidence("page-1.json", &first);
     evidence("page-2.json", &second);
@@ -245,9 +248,9 @@ async fn explicit_anchor_is_normalized_and_does_not_resolve_branch_tip() {
         .list_commits("selected-app", 1, 2, Some(&ANCHOR.to_ascii_uppercase()))
         .await
         .unwrap();
-    // Then one request suffices and the anchor is canonical lowercase.
+    // Then no branch-tip request is made and the anchor is canonical lowercase.
     assert_eq!(found.anchor, ANCHOR);
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
 }
 
 #[path = "commits_error_tests.rs"]

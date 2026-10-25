@@ -51,6 +51,8 @@ const summary = (app: AppView) => (
     onUpdateNext={() => {}}
     onCancel={() => {}}
     onToggleAutoUpdate={async () => undefined}
+    updateMethod="configured"
+    onUpdateMethodChange={vi.fn()}
   />
 );
 beforeEach(async () => {

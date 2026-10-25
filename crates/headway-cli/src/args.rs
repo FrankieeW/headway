@@ -1,8 +1,10 @@
 //! Command-line grammar.
 
-pub use crate::args_fields::{AppFields, KindArg, MethodArg, TrackArg, UpdateModeArg};
+pub use crate::args_fields::{AppFields, CiStateArg, KindArg, MethodArg, TrackArg, UpdateModeArg};
 use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
+
+use crate::revision_args::RevisionMethodArg;
 
 use crate::output::Format;
 
@@ -101,6 +103,15 @@ pub enum Command {
         per_page: u32,
         #[arg(long)]
         anchor: Option<String>,
+        /// Only commits that published a release
+        #[arg(long)]
+        release: bool,
+        /// Only commits carrying a tag that matches this regular expression
+        #[arg(long, value_name = "REGEX")]
+        tag: Option<String>,
+        /// Only commits whose CI state matches
+        #[arg(long, value_enum)]
+        ci: Option<CiStateArg>,
     },
     /// Inspect source retention and its configured checkout location
     SourceStorage { id: String },
@@ -288,6 +299,9 @@ pub struct UpdateArgs {
     /// Install a GitHub ref or npm version (also older ones, to roll back)
     #[arg(long, value_name = "REF", conflicts_with = "all")]
     pub to: Option<String>,
+    /// Install with the app's saved recipe, a source build, or a release asset
+    #[arg(long, value_enum, default_value_t = RevisionMethodArg::Configured)]
+    pub method: RevisionMethodArg,
     /// Print the plan without building or installing anything
     #[arg(long)]
     pub dry_run: bool,

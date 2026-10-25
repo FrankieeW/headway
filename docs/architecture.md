@@ -47,6 +47,11 @@ reconcile the two; it must not mark uncertain bytes as a successfully installed 
   installed/check state. They do not reserve a path or freeze upstream state.
 - IPC tests exercise the real handler; a separate binding check compares renderer invoke names and
   argument keys against registered Rust commands. Runtime tests still cover serialization and errors.
+- A commit page names the release every commit published (`release_tag`, `release_url`, `can_download`)
+  and may be narrowed by release, tag or CI state (`filter`, `filtered_out`). The narrowing is part of
+  the page request, never a client-side guess.
+- An update's install method (`configured`, `source`, `asset`) belongs to that one run. It never
+  rewrites the app's saved recipe, and a forced asset install fails instead of falling back to a build.
 
 ## External code and credentials
 

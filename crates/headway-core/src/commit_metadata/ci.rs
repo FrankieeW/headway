@@ -3,21 +3,26 @@ use crate::repo::RepoId;
 
 use super::{CommitCiState, CommitMetadata};
 
-pub(super) async fn populate(gh: &GitHub, repo: &RepoId, metadata: &mut CommitMetadata) {
-    let (runs, legacy) = tokio::join!(
-        gh.check_runs(repo, &metadata.sha),
-        gh.combined_status(repo, &metadata.sha)
-    );
+/// What the CI checks of one commit say.
+pub(crate) struct CiSummary {
+    pub state: CommitCiState,
+    pub checks_count: u32,
+    pub url: Option<String>,
+    pub notes: Vec<String>,
+}
+
+pub(crate) async fn summarize(gh: &GitHub, repo: &RepoId, sha: &str) -> CiSummary {
+    let (runs, legacy) = tokio::join!(gh.check_runs(repo, sha), gh.combined_status(repo, sha));
     let mut states = Vec::new();
     let mut incomplete = false;
+    let mut notes = Vec::new();
+    let mut checks_count = 0;
     match runs {
         Ok(runs) => {
-            metadata.checks_count = runs.total_count;
+            checks_count = runs.total_count;
             if usize::try_from(runs.total_count).unwrap_or(usize::MAX) > runs.check_runs.len() {
                 incomplete = true;
-                metadata
-                    .notes
-                    .push("Check-run scan is incomplete (maximum 100 runs).".into());
+                notes.push("Check-run scan is incomplete (maximum 100 runs).".into());
             }
             states.extend(runs.check_runs.iter().take(100).map(|run| {
                 (
@@ -28,14 +33,12 @@ pub(super) async fn populate(gh: &GitHub, repo: &RepoId, metadata: &mut CommitMe
         }
         Err(error) => {
             incomplete = true;
-            metadata
-                .notes
-                .push(format!("Check runs unavailable: {error}"));
+            notes.push(format!("Check runs unavailable: {error}"));
         }
     }
     match legacy {
         Ok(combined) => {
-            metadata.checks_count = metadata.checks_count.saturating_add(combined.total_count);
+            checks_count = checks_count.saturating_add(combined.total_count);
             if combined.total_count > 0 {
                 let state = status_state(&combined.state);
                 let url = combined
@@ -49,12 +52,10 @@ pub(super) async fn populate(gh: &GitHub, repo: &RepoId, metadata: &mut CommitMe
         }
         Err(error) => {
             incomplete = true;
-            metadata
-                .notes
-                .push(format!("Legacy status unavailable: {error}"));
+            notes.push(format!("Legacy status unavailable: {error}"));
         }
     }
-    metadata.ci_state = if incomplete {
+    let ci_state = if incomplete {
         CommitCiState::Unknown
     } else {
         states
@@ -63,11 +64,25 @@ pub(super) async fn populate(gh: &GitHub, repo: &RepoId, metadata: &mut CommitMe
             .max_by_key(|state| priority(*state))
             .unwrap_or(CommitCiState::NotRun)
     };
-    metadata.ci_url = states
+    let url = states
         .iter()
-        .find(|(state, url)| *state == metadata.ci_state && url.is_some())
+        .find(|(state, url)| *state == ci_state && url.is_some())
         .or_else(|| states.iter().find(|(_, url)| url.is_some()))
         .and_then(|(_, url)| url.clone());
+    CiSummary {
+        state: ci_state,
+        checks_count,
+        url,
+        notes,
+    }
+}
+
+pub(super) async fn populate(gh: &GitHub, repo: &RepoId, metadata: &mut CommitMetadata) {
+    let summary = summarize(gh, repo, &metadata.sha).await;
+    metadata.ci_state = summary.state;
+    metadata.ci_url = summary.url;
+    metadata.checks_count = summary.checks_count;
+    metadata.notes.extend(summary.notes);
 }
 
 fn priority(state: CommitCiState) -> u8 {

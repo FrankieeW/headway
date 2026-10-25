@@ -1,6 +1,8 @@
 //! Running updates in the background and reporting them to the window.
 
-use headway_core::{ErrorInfo, EventSink, Target, UpdateEvent, UpdateOutcome};
+use headway_core::{
+    ErrorInfo, EventSink, RevisionMethod, Target, UpdateEvent, UpdateOutcome, UpdateRequest,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 use tauri_plugin_notification::NotificationExt as _;
@@ -61,13 +63,14 @@ pub async fn run_update<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
     target: &Target,
+    method: RevisionMethod,
     origin: Origin,
 ) -> bool {
     let state = app.state::<AppState>();
     let Ok(cancel) = admit_run(&state, id) else {
         return false;
     };
-    run_admitted(app, id, target, origin, cancel).await;
+    run_admitted(app, id, target, method, origin, cancel).await;
     true
 }
 
@@ -80,12 +83,13 @@ pub fn spawn_update<R: Runtime>(
     app: &AppHandle<R>,
     id: String,
     target: Target,
+    method: RevisionMethod,
     origin: Origin,
 ) -> CmdResult<()> {
     let cancel = admit_run(&app.state::<AppState>(), &id)?;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        run_admitted(&app, &id, &target, origin, cancel).await;
+        run_admitted(&app, &id, &target, method, origin, cancel).await;
     });
     Ok(())
 }
@@ -130,7 +134,14 @@ pub fn spawn_auto_updates<R: Runtime>(app: &AppHandle<R>, ids: Vec<String>) {
 /// directly so their assertions are deterministic.
 pub(crate) async fn run_updates<R: Runtime>(app: &AppHandle<R>, ids: Vec<String>, origin: Origin) {
     for id in ids {
-        run_update(app, &id, &Target::Latest, origin).await;
+        run_update(
+            app,
+            &id,
+            &Target::Latest,
+            RevisionMethod::Configured,
+            origin,
+        )
+        .await;
     }
 }
 
@@ -139,6 +150,7 @@ async fn run_admitted<R: Runtime>(
     app: &AppHandle<R>,
     id: &str,
     target: &Target,
+    method: RevisionMethod,
     origin: Origin,
     cancel: headway_core::CancellationToken,
 ) {
@@ -148,7 +160,19 @@ async fn run_admitted<R: Runtime>(
     apps_changed(app);
     let sink = WindowSink { app: app.clone() };
     let finished = match origin {
-        Origin::User => match state.hw.update(id, target, &sink, &cancel).await {
+        Origin::User => match state
+            .hw
+            .update_with(
+                id,
+                &UpdateRequest {
+                    target: target.clone(),
+                    method,
+                },
+                &sink,
+                &cancel,
+            )
+            .await
+        {
             Ok(outcome) => Finished {
                 ok: true,
                 outcome: Some(outcome),

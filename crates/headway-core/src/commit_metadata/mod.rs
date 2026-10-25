@@ -1,7 +1,7 @@
 //! Lazy commit-row annotations, separate from install/update candidates.
 mod cache;
-mod ci;
-mod repository;
+pub(crate) mod ci;
+pub(crate) mod repository;
 mod version;
 
 use chrono::{DateTime, Utc};
@@ -44,6 +44,24 @@ pub struct CommitMetadata {
     pub checks_count: u32,
     pub checked_at: DateTime<Utc>,
     pub notes: Vec<String>,
+}
+
+impl Headway {
+    /// The repository's cached tag and release snapshot.
+    ///
+    /// One snapshot answers for every commit of the repository for five minutes,
+    /// so a page of commits costs two API calls instead of two per commit.
+    pub(crate) async fn repository_snapshot(
+        &self,
+        gh: &crate::github::GitHub,
+        repo: &crate::repo::RepoId,
+    ) -> repository::RepositorySnapshot {
+        let cache = self
+            .commit_metadata_cache
+            .repository(&repo.full_name().to_ascii_lowercase())
+            .await;
+        cache.snapshot(gh, repo, false).await
+    }
 }
 
 impl Headway {

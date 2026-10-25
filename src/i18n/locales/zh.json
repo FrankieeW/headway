@@ -116,7 +116,11 @@
     },
     "nextVersion": "下一个版本",
     "detectedAt": "检测于 {{when}}",
-    "installationFound": "已发现本地安装"
+    "installationFound": "已发现本地安装",
+    "installMethod": "本次更新的安装方式",
+    "methodConfigured": "沿用当前配方",
+    "methodSource": "从源码构建",
+    "methodAsset": "下载发行版"
   },
   "pending": {
     "preRelease": "预发布",
@@ -498,7 +502,19 @@
     "cliCommand": "CLI 命令",
     "discoverForks": "识别 fork 关系",
     "forkOf": "Fork 自 {{repo}}",
-    "rootRepository": "根仓库 {{repo}}"
+    "rootRepository": "根仓库 {{repo}}",
+    "releasesOnly": "仅发行版",
+    "applyFilter": "应用筛选",
+    "correctTag": "请修正标签表达式后重新应用，或清除标签筛选。",
+    "clearTag": "清除标签筛选",
+    "noMatches": "本页没有匹配的提交。请查看下一页或调整筛选条件。",
+    "tagFilter": "标签匹配",
+    "tagFilterPlaceholder": "标签匹配（正则表达式）",
+    "ciFilter": "CI 状态",
+    "ciAny": "任意 CI 状态",
+    "filteredOut": "本页有 {{count}} 个提交被筛选掉。",
+    "releaseTag": "发行版 {{tag}}",
+    "releaseAssetReady": "发行版 {{tag}} 含有可安装的资源"
   },
   "installation": {
     "present": "已发现可用的安装文件",

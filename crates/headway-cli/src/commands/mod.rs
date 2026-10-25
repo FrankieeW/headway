@@ -28,7 +28,17 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
             page,
             per_page,
             anchor,
-        } => revisions::commits(&hw, &id, page, per_page, anchor.as_deref()).await,
+            release,
+            tag,
+            ci,
+        } => {
+            let filter = headway_core::CommitFilter {
+                releases_only: release,
+                tag,
+                ci: ci.map(Into::into),
+            };
+            revisions::commits(&hw, &id, page, per_page, anchor.as_deref(), filter).await
+        }
         Command::SourceStorage { id } => revisions::source_storage(&hw, &id),
         Command::CommitOptions { id, reference } => revisions::options(&hw, &id, &reference).await,
         Command::InstallCommit(args) => revisions::install(&hw, &args, printer).await,

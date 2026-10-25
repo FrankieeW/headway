@@ -23,6 +23,9 @@ export interface BuildInfo {
 
 export type AppKind = "cli" | "app";
 
+/** The install recipe for a single update; the saved recipe is unchanged. */
+export type UpdateMethod = import("./revisions").RevisionRequest["method"];
+
 export type Track =
   | { mode: "commit"; branch?: string | null }
   | { mode: "release"; prerelease: boolean; tag_filter?: string | null }
