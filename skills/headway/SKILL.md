@@ -174,7 +174,37 @@ explicitly activates a configured origin and forgets foreign revision certainty 
 the actual installed payload. `repo remove <id> <owner/repo>` removes an inactive choice. Do not
 report the old source's SHA as the newly selected repository's installed revision.
 
+Repository inspection (`inspect`, or `add` without `--no-inspect`) reads GitHub's fork,
+parent and root source metadata and includes those origins in the suggested config.
+`repo refresh <id>` adds parent/root choices to an existing subscription without activating
+them or replacing saved custom choices. Switching saves each origin's branch/tracking mode
+and build/download recipes, preserves the current destination, and turns off auto-update.
+
+`headway --ai installation <id>` reads filesystem evidence without executing the payload.
+`presence` is `present`, `missing`, `invalid` (wrong type/permissions), or `unknown` (no literal
+path evidence). `baseline_matches` indicates whether a recorded revision applies at that path;
+`recorded` retains the previous origin after a repository switch and is not a new baseline.
+This is a presence check, not a checksum or version probe. It never invents a revision from
+the upstream head. `show` and the desktop expose the same `installation` evidence.
+
 ## Exact revisions and independent installations
+
+PR builds use the same revision engine:
+
+```sh
+headway --ai prs <id> --page 1 --per-page 20
+headway --ai commit-options <id> pr:123
+headway --ai install-pr <id> 123@<head-sha> --as <test-id> --dry-run
+headway --ai install-pr <id> 123@<head-sha> --as <test-id>
+```
+
+`prs` lists open PRs; resolving an explicit number also supports closed PRs and deleted forks.
+Use the returned `reference` (`pr:<number>@<40-character-sha>`) for reviewed operations.
+The PR head is rechecked before installation; a moved/force-pushed head is rejected without
+installing a different revision. PR versions require a source recipe and never use ordinary
+release assets. `--as` keeps the parent payload; omit it for an in-place install. Successful
+installs expose `pull_request` in `show` and history records the PR. Automatic updates are
+disabled, and independent installs remain pinned. Application data still remains shared.
 
 ```sh
 headway --ai commit-options <id> <sha-or-tag>

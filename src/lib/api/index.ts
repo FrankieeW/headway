@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppView,
+  InstallationDetection,
+  PullRequestPage,
   CommitPage,
   RevisionOptions,
   RevisionRequest,
@@ -83,6 +85,12 @@ export const EVENTS = {
 } as const;
 
 export const appsApi = {
+  detectInstallation: (id: string) =>
+    invoke<InstallationDetection>("detect_installation", { id }),
+  refreshRepositories: (id: string) =>
+    invoke<AppView>("refresh_repositories", { id }),
+  listPullRequests: (id: string, page = 1, perPage = 20) =>
+    invoke<PullRequestPage>("list_pull_requests", { id, page, perPage }),
   sourceStorageStatus: (id: string) =>
     invoke<SourceStorageStatus>("source_storage_status", { id }),
   listCommits: (id: string, page: number, perPage = 20, anchor?: string) =>

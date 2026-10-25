@@ -33,7 +33,20 @@ pub async fn run(command: Command, printer: &Printer) -> Result<Reply> {
         Command::CommitOptions { id, reference } => revisions::options(&hw, &id, &reference).await,
         Command::InstallCommit(args) => revisions::install(&hw, &args, printer).await,
         Command::LaunchVariant { id } => revisions::launch(&hw, &id).await,
-        Command::Repo(command) => revisions::repositories(&hw, command),
+        Command::Repo(command) => revisions::repositories(&hw, command).await,
+        Command::Installation { id } => revisions::installation(&hw, &id),
+        Command::Prs { id, page, per_page } => {
+            revisions::pull_requests(&hw, &id, page, per_page).await
+        }
+        Command::InstallPr(mut args) => {
+            args.reference = format!(
+                "pr:{}",
+                args.reference
+                    .strip_prefix("pr:")
+                    .unwrap_or(&args.reference)
+            );
+            revisions::install(&hw, &args, printer).await
+        }
         Command::Version => Ok(version()),
         Command::List => apps::list(&hw, p),
         Command::Show { id } => apps::show(&hw, &id, p),

@@ -1,4 +1,11 @@
-import type { RepositoryOption, SourceStorage, VariantInfo } from "./revisions";
+import type {
+  RepositoryOption,
+  SourceStorage,
+  VariantInfo,
+  InstallationDetection,
+  PullRequest,
+  RelatedRepository,
+} from "./revisions";
 export * from "./revisions";
 export * from "./commitMetadata";
 import type { BuildCandidate, UpdatePolicy } from "./roadmapTypes";
@@ -155,6 +162,8 @@ export type AppStatus =
   | "busy";
 
 export interface AppView {
+  readonly installation?: InstallationDetection | null;
+  readonly pull_request?: PullRequest | null;
   auto_update_paused?: boolean;
   app: TrackedApp;
   installed?: InstalledRef | null;
@@ -275,6 +284,9 @@ export interface ReleaseSummary {
 }
 
 export interface RepoInspection {
+  readonly fork?: boolean;
+  readonly parent?: RelatedRepository | null;
+  readonly source?: RelatedRepository | null;
   build_candidates?: BuildCandidate[];
   repo: string;
   description?: string | null;

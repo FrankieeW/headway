@@ -2,6 +2,7 @@
 //! TypeScript layer (`src/lib/api/index.ts`) sends, through the real handler.
 
 mod build_info;
+mod installation_origins;
 mod management;
 mod operations;
 pub(crate) mod packages;

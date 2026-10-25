@@ -25,6 +25,15 @@ export function RepositorySelector({ view }: { readonly view: AppView }) {
     view.app.source === "github" ? view.app.repo : "",
   );
   const [confirming, setConfirming] = useState(false);
+  const discover = useMutation({
+    mutationFn: () => appsApi.refreshRepositories(view.app.id),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.apps }),
+        client.invalidateQueries({ queryKey: queryKeys.app(view.app.id) }),
+      ]);
+    },
+  });
   const activate = useMutation({
     mutationFn: () => appsApi.selectRepository(view.app.id, selected),
     onSuccess: async () => {
@@ -56,7 +65,16 @@ export function RepositorySelector({ view }: { readonly view: AppView }) {
   );
   return (
     <section className="space-y-2 rounded-panel border border-border bg-surface p-4">
-      <h2 className="text-section">{t("versions.activeRepository")}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-section">{t("versions.activeRepository")}</h2>
+        <Button
+          variant="ghost"
+          disabled={view.busy || discover.isPending || activate.isPending}
+          onClick={() => discover.mutate()}
+        >
+          {t("versions.discoverForks")}
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-2">
         <div className="min-w-0 flex-1">
           <Select
@@ -80,13 +98,23 @@ export function RepositorySelector({ view }: { readonly view: AppView }) {
         </div>
         <Button
           variant="neutral"
-          disabled={view.busy || selected === app.repo || activate.isPending}
+          disabled={
+            view.busy ||
+            selected.toLowerCase() === app.repo.toLowerCase() ||
+            activate.isPending ||
+            discover.isPending
+          }
           onClick={() => setConfirming(true)}
         >
           {t("versions.activateRepository")}
         </Button>
       </div>
       <p className="text-caption text-fg-3">{t("versions.activationHint")}</p>
+      {discover.error ? (
+        <p role="alert" className="break-words text-caption text-danger-text">
+          {errorMessage(discover.error)}
+        </p>
+      ) : null}
       {activate.error ? (
         <p role="alert" className="break-words text-caption text-danger-text">
           {errorMessage(activate.error)}

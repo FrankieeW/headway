@@ -1,4 +1,46 @@
-import type { AssetInstall, Candidate, SourceInstall } from "./types";
+import type {
+  AssetInstall,
+  Candidate,
+  SourceInstall,
+  Install,
+  Track,
+  InstalledRef,
+} from "./types";
+
+export interface RelatedRepository {
+  readonly full_name: string;
+  readonly default_branch: string;
+}
+export interface PullHead {
+  readonly ref: string;
+  readonly sha: string;
+  readonly repo: { readonly full_name: string } | null;
+}
+export interface PullRequest {
+  readonly number: number;
+  readonly title: string;
+  readonly html_url: string;
+  readonly state: string;
+  readonly draft: boolean;
+  readonly head: PullHead;
+  readonly base: PullHead;
+}
+export interface PullRequestPage {
+  readonly repo: string;
+  readonly page: number;
+  readonly per_page: number;
+  readonly pull_requests: readonly PullRequest[];
+  readonly has_more: boolean;
+}
+export interface InstallationDetection {
+  readonly presence: "unknown" | "present" | "missing" | "invalid";
+  readonly path?: string | null;
+  readonly baseline_matches: boolean;
+  readonly recorded?: {
+    readonly repo: string;
+    readonly installed: InstalledRef;
+  } | null;
+}
 
 export interface SourceStorage {
   readonly keep: boolean;
@@ -15,6 +57,12 @@ export interface RepositoryOption {
   readonly label: string;
   readonly git_url?: string | null;
   readonly branch?: string | null;
+  readonly settings?: {
+    readonly track: Track;
+    readonly install: Install;
+    readonly source_build?: SourceInstall | null;
+    readonly release_asset?: AssetInstall | null;
+  } | null;
 }
 export interface VariantInfo {
   readonly parent_id: string;
@@ -33,6 +81,7 @@ export interface CommitPage {
   readonly next_page: number | null;
 }
 export interface RevisionOptions {
+  readonly pull_request?: PullRequest | null;
   readonly reference: string;
   readonly commit: string;
   readonly candidate: Candidate;

@@ -11,6 +11,49 @@ fn command(root: &std::path::Path) -> Command {
         .env("NO_COLOR", "1");
     command
 }
+
+#[test]
+fn installation_evidence_is_one_machine_document_and_never_executes_payload() {
+    use std::os::unix::fs::PermissionsExt as _;
+    // Given an executable at an explicitly configured destination without a baseline.
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("fixture");
+    std::fs::write(&path, "#!/bin/sh\nexit 99\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    document(
+        root.path(),
+        &[
+            "add",
+            "owner/tool",
+            "--no-inspect",
+            "--kind",
+            "cli",
+            "--build",
+            "true",
+            "--dest",
+            path.to_str().unwrap(),
+        ],
+    );
+    // When querying the detection command in JSON and XML modes.
+    let output = document(root.path(), &["installation", "tool"]);
+    let xml = command(root.path())
+        .args(["--ai", "installation", "tool"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    // Then both formats expose evidence while leaving revision certainty unset.
+    assert_eq!(output["data"]["presence"], "present");
+    assert_eq!(output["data"]["baseline_matches"], false);
+    assert_eq!(
+        roxmltree::Document::parse(std::str::from_utf8(&xml).unwrap())
+            .unwrap()
+            .root_element()
+            .attribute("command"),
+        Some("installation")
+    );
+}
 fn document(root: &std::path::Path, args: &[&str]) -> Value {
     let output = command(root)
         .arg("--json")
@@ -20,6 +63,86 @@ fn document(root: &std::path::Path, args: &[&str]) -> Value {
         .get_output()
         .clone();
     serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pr_cli_plans_the_reviewed_head_without_installing_and_rejects_bad_pins() {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+    // Given a tracked source and a PR served at the HTTP boundary.
+    let root = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+    let sha = "c".repeat(40);
+    let pull = json!({"number":7,"title":"Fork contribution","html_url":"https://github.com/owner/tool/pull/7","state":"open",
+        "head":{"ref":"feature","sha":sha,"repo":{"full_name":"fork/tool"}},"base":{"ref":"main","sha":"a".repeat(40),"repo":{"full_name":"owner/tool"}}});
+    for (endpoint, body) in [
+        ("/pulls".to_owned(), json!([pull.clone()])),
+        ("/pulls/7".to_owned(), pull),
+        (
+            format!("/commits/{sha}"),
+            json!({"sha":sha,"commit":{"message":"Fork contribution"}}),
+        ),
+    ] {
+        Mock::given(path(format!("/repos/owner/tool{endpoint}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+    }
+    document(
+        root.path(),
+        &[
+            "add",
+            "owner/tool",
+            "--no-inspect",
+            "--kind",
+            "cli",
+            "--build",
+            "make",
+            "--artifact",
+            "tool",
+        ],
+    );
+    let config = std::fs::read(root.path().join("config/config.toml")).unwrap();
+    let pinned = format!("7@{sha}");
+    // When using the new install-pr command in dry-run mode.
+    let output = command(root.path())
+        .env("HEADWAY_API_URL", server.uri())
+        .env("HEADWAY_GITHUB_TOKEN", "fixture-token")
+        .args(["--json", "install-pr", "tool", &pinned, "--dry-run"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    // Then the CLI routes to the exact PR head with source installation and no writes.
+    let result: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(result["data"]["to"]["sha"], sha);
+    assert_eq!(result["data"]["method"], "source");
+    assert_eq!(
+        std::fs::read(root.path().join("config/config.toml")).unwrap(),
+        config
+    );
+    let listing = command(root.path())
+        .env("HEADWAY_API_URL", server.uri())
+        .env("HEADWAY_GITHUB_TOKEN", "fixture-token")
+        .args(["--ai", "prs", "tool"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(
+        roxmltree::Document::parse(std::str::from_utf8(&listing).unwrap())
+            .unwrap()
+            .root_element()
+            .attribute("command"),
+        Some("prs")
+    );
+    command(root.path())
+        .env("HEADWAY_API_URL", server.uri())
+        .env("HEADWAY_GITHUB_TOKEN", "fixture-token")
+        .args(["--json", "install-pr", "tool", "7@invalid", "--dry-run"])
+        .assert()
+        .failure();
 }
 
 #[test]

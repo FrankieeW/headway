@@ -54,7 +54,11 @@ pub async fn options(hw: &Headway, id: &str, reference: &str) -> Result<Reply> {
     );
     Ok(Reply::new(&options, human).next(vec![format!(
         "headway install-commit {id} {} --dry-run",
-        options.commit
+        if options.pull_request.is_some() {
+            &options.reference
+        } else {
+            &options.commit
+        }
     )]))
 }
 
@@ -178,8 +182,15 @@ pub async fn launch(hw: &Headway, id: &str) -> Result<Reply> {
     ))
 }
 
-pub fn repositories(hw: &Headway, command: RepositoryCommand) -> Result<Reply> {
+pub async fn repositories(hw: &Headway, command: RepositoryCommand) -> Result<Reply> {
     match command {
+        RepositoryCommand::Refresh { id } => {
+            let view = hw.refresh_repositories(&id).await?;
+            Ok(
+                Reply::new(&view, format!("Discovered repository choices for {id}"))
+                    .next(vec![format!("headway repo list {id}")]),
+            )
+        }
         RepositoryCommand::List { id } => {
             let entries = hw.repositories(&id)?;
             let human = entries
@@ -202,6 +213,7 @@ pub fn repositories(hw: &Headway, command: RepositoryCommand) -> Result<Reply> {
         } => {
             let mut entries = hw.repositories(&id)?;
             entries.push(RepositoryOption {
+                settings: None,
                 label: label.unwrap_or_else(|| repo.clone()),
                 repo,
                 branch,
@@ -228,6 +240,52 @@ pub fn repositories(hw: &Headway, command: RepositoryCommand) -> Result<Reply> {
             save_repositories(hw, &id, entries)
         }
     }
+}
+
+pub fn installation(hw: &Headway, id: &str) -> Result<Reply> {
+    let detection = hw.detect_installation(id)?;
+    Ok(Reply::new(
+        &detection,
+        format!(
+            "{:?}  {}  baseline_matches={}",
+            detection.presence,
+            detection.path.as_deref().unwrap_or("unknown path"),
+            detection.baseline_matches
+        ),
+    )
+    .next(vec![
+        format!("headway show {id}"),
+        format!("headway check {id}"),
+    ]))
+}
+
+pub async fn pull_requests(hw: &Headway, id: &str, page: u32, per_page: u32) -> Result<Reply> {
+    let result = hw.list_pull_requests(id, page, per_page).await?;
+    let human = result
+        .pull_requests
+        .iter()
+        .map(|pull| format!("#{}  {}  {}", pull.number, pull.head.sha, pull.title))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut next: Vec<_> = result
+        .pull_requests
+        .first()
+        .map(|pull| {
+            format!(
+                "headway install-pr {id} {}@{} --dry-run",
+                pull.number, pull.head.sha
+            )
+        })
+        .into_iter()
+        .collect();
+    if result.has_more
+        && let Some(page) = page.checked_add(1)
+    {
+        next.push(format!(
+            "headway prs {id} --page {page} --per-page {per_page}"
+        ));
+    }
+    Ok(Reply::new(&result, human).next(next))
 }
 
 fn save_repositories(hw: &Headway, id: &str, entries: Vec<RepositoryOption>) -> Result<Reply> {

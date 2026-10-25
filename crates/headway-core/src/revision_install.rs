@@ -35,6 +35,8 @@ pub struct RevisionOptions {
     pub can_download: bool,
     pub source_build: Option<SourceInstall>,
     pub release_asset: Option<AssetInstall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<crate::github::PullRequest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

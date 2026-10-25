@@ -108,3 +108,56 @@ fn absent_path_evidence_preserves_legacy_baselines() {
     // Then lack of path evidence does not falsely prove an uninstall.
     assert_eq!(result, Some(installed));
 }
+
+#[test]
+fn non_executable_payload_invalidates_a_recorded_revision() {
+    // Given a previously installed executable whose executable bit was removed.
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("tool");
+    std::fs::write(&path, "#!/bin/sh\nexit 99\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let app = configured(&path);
+    let installed = InstalledRef {
+        id: "a".repeat(40),
+        sha: Some("a".repeat(40)),
+        version: None,
+        installed_at: Utc::now(),
+        path: Some(path.display().to_string()),
+    };
+    // When reading the public view.
+    let view = AppView::new(
+        app,
+        AppState {
+            installed: Some(installed),
+            ..Default::default()
+        },
+        false,
+    );
+    // Then the payload is classified as invalid and cannot claim that SHA is installed.
+    assert_eq!(view.status, AppStatus::Unknown);
+    assert!(view.installed.is_none());
+    assert_eq!(view.installation.unwrap().presence, Presence::Invalid);
+}
+
+#[test]
+fn destination_change_does_not_assign_the_previous_files_revision_to_another_file() {
+    // Given two executable files at different paths and an old baseline for the first.
+    let root = tempfile::tempdir().unwrap();
+    let old = root.path().join("old");
+    let new = root.path().join("new");
+    for path in [&old, &new] {
+        std::fs::write(path, "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let installed = InstalledRef {
+        id: "a".repeat(40),
+        sha: Some("a".repeat(40)),
+        version: None,
+        installed_at: Utc::now(),
+        path: Some(old.display().to_string()),
+    };
+    // When the configured destination points at the other file.
+    let baseline = retained(&configured(&new), Some(installed)).unwrap();
+    // Then planning cannot skip installation using the old path's revision.
+    assert!(baseline.is_none());
+}

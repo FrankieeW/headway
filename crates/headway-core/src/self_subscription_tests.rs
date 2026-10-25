@@ -40,6 +40,7 @@ async fn switching_from_a_fork_to_official_never_adopts_the_forks_clean_stamp() 
     };
     github.repo = "my-fork/headway".into();
     github.options.repositories.push(crate::RepositoryOption {
+        settings: None,
         repo: "FrankieeW/headway".into(),
         label: "Official".into(),
         git_url: None,

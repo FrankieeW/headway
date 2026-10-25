@@ -49,6 +49,11 @@ pub struct ReleaseSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoInspection {
     pub repo: String,
+    pub fork: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<crate::github::RelatedRepo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::github::RelatedRepo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub default_branch: String,
@@ -85,8 +90,13 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
             Vec::new()
         }
     };
-    let known_self_layout = repo.owner.eq_ignore_ascii_case("FrankieeW")
-        && repo.name.eq_ignore_ascii_case("headway")
+    let headway_family = repo.full_name().eq_ignore_ascii_case("FrankieeW/headway")
+        || info
+            .parent
+            .iter()
+            .chain(&info.source)
+            .any(|related| related.full_name.eq_ignore_ascii_case("FrankieeW/headway"));
+    let known_self_layout = headway_family
         && ["scripts", "src-tauri"].iter().all(|name| {
             entries
                 .iter()
@@ -231,6 +241,9 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
         notes.push("Build commands were found, but their install outputs are unknown. Select a candidate and set its artifact path; no build-only command was selected as self-installing.".into());
     }
     notes.extend(discovery.notes);
+    if let Source::Github(github) = &mut suggestion.source {
+        github.options.repositories = crate::repository_family::choices(&info)?;
+    }
     let build_system = preset.map(|preset| preset.id.to_owned()).or_else(|| {
         build_candidates.iter().find_map(|candidate| {
             if candidate.file.ends_with("Cargo.toml") {
@@ -253,6 +266,9 @@ pub async fn inspect(gh: &GitHub, input: &str) -> Result<RepoInspection> {
     });
     Ok(RepoInspection {
         repo: repo.full_name(),
+        fork: info.fork,
+        parent: info.parent,
+        source: info.source,
         description: info.description.filter(|text| !text.trim().is_empty()),
         default_branch: info.default_branch,
         private: info.private,

@@ -1,4 +1,5 @@
 import { CommitBadges } from "./CommitBadges";
+import { InstallationDetails } from "./InstallationDetails";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -194,6 +195,7 @@ export function AppSummary({
           {text}
         </p>
 
+        <InstallationDetails view={app} />
         {app.last_error ? (
           <Alert className="border-danger/40 bg-danger-soft text-danger-text">
             <AlertDescription className="text-caption text-danger-text">

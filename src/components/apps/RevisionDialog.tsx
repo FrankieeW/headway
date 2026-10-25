@@ -100,7 +100,11 @@ export function RevisionDialog({
       setError(t("versions.variantArtifactRequired"));
       return;
     }
-    const revision = requestFromDraft(draft, result.commit, result.release_tag);
+    const revision = requestFromDraft(
+      draft,
+      result.pull_request ? result.reference : result.commit,
+      result.release_tag,
+    );
     const job: RevisionJob = draft.separate
       ? {
           parentId: view.app.id,
@@ -142,6 +146,19 @@ export function RevisionDialog({
           <DialogTitle>{t("versions.installRevision")}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-2">
+          {result?.pull_request ? (
+            <div className="space-y-1 text-caption text-fg-2">
+              <p className="break-words">
+                #{result.pull_request.number} · {result.pull_request.title}
+              </p>
+              <p className="break-all">
+                {result.pull_request.head.repo?.full_name ??
+                  t("pulls.deletedFork")}{" "}
+                · {result.pull_request.head.ref}
+              </p>
+              <p>{t("pulls.installHint")}</p>
+            </div>
+          ) : null}
           <p className="break-all font-mono text-caption text-fg-3">
             {reference}
           </p>

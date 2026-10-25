@@ -7,29 +7,36 @@ use crate::check::{Checked, Probe};
 use crate::config::{AppKind, Install, Track, TrackedApp};
 use crate::error::{Error, Result};
 use crate::state::{InstalledRef, UpdateStatus};
+use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Presence {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Presence {
     Unknown,
     Present,
     Missing,
+    Invalid,
 }
 
-pub(super) fn observe(app: &TrackedApp, installed: Option<&InstalledRef>) -> Result<Presence> {
-    let Some(github) = app.github() else {
-        return Ok(Presence::Unknown);
-    };
+pub(super) fn location<'a>(
+    app: &'a TrackedApp,
+    installed: Option<&'a InstalledRef>,
+) -> Option<&'a str> {
+    let github = app.github()?;
     let configured = match &github.install {
         Install::Source(source) => source.dest.as_deref(),
         Install::Asset(asset) => asset.dest.as_deref(),
     };
     let literal = |path: &&str| !path.contains(['*', '?', '[', ']', '{', '}', '$']);
-    let path = configured.filter(literal).or_else(|| {
+    configured.filter(literal).or_else(|| {
         installed
             .and_then(|installed| installed.path.as_deref())
             .filter(literal)
-    });
-    let Some(path) = path else {
+    })
+}
+
+pub(super) fn observe(app: &TrackedApp, installed: Option<&InstalledRef>) -> Result<Presence> {
+    let Some(path) = location(app, installed) else {
         return Ok(Presence::Unknown);
     };
     let path = crate::paths::expand_tilde(path);
@@ -47,7 +54,7 @@ pub(super) fn observe(app: &TrackedApp, installed: Option<&InstalledRef>) -> Res
     Ok(if present {
         Presence::Present
     } else {
-        Presence::Unknown
+        Presence::Invalid
     })
 }
 
@@ -71,9 +78,24 @@ fn metadata_file(path: &Path) -> Result<bool> {
 }
 
 pub(super) fn has_baseline(app: &TrackedApp, installed: Option<&InstalledRef>) -> bool {
+    if !same_location(app, installed) {
+        return false;
+    }
     match app.github().map(|github| &github.track) {
         Some(Track::Commit { .. }) => installed.is_some_and(|installed| installed.sha.is_some()),
         Some(Track::Release { .. } | Track::Tag { .. }) | None => installed.is_some(),
+    }
+}
+
+fn same_location(app: &TrackedApp, installed: Option<&InstalledRef>) -> bool {
+    match (
+        location(app, installed),
+        installed.and_then(|value| value.path.as_deref()),
+    ) {
+        (Some(path), Some(recorded)) => {
+            crate::paths::expand_tilde(path) == crate::paths::expand_tilde(recorded)
+        }
+        _ => true,
     }
 }
 
@@ -82,8 +104,10 @@ pub(super) fn retained(
     installed: Option<InstalledRef>,
 ) -> Result<Option<InstalledRef>> {
     match observe(app, installed.as_ref())? {
-        Presence::Missing => Ok(None),
-        Presence::Present | Presence::Unknown => Ok(installed),
+        Presence::Missing | Presence::Invalid => Ok(None),
+        Presence::Present | Presence::Unknown => {
+            Ok(installed.filter(|value| same_location(app, Some(value))))
+        }
     }
 }
 
@@ -94,11 +118,13 @@ pub(super) async fn check(
 ) -> Result<Checked> {
     let presence = observe(app, installed)?;
     let baseline = match presence {
-        Presence::Missing => None,
-        Presence::Present | Presence::Unknown => installed,
+        Presence::Missing | Presence::Invalid => None,
+        Presence::Present | Presence::Unknown => {
+            installed.filter(|value| same_location(app, Some(value)))
+        }
     };
     let mut checked = crate::check::check(probe, app, baseline).await?;
-    if presence == Presence::Present && !has_baseline(app, baseline) {
+    if matches!(presence, Presence::Present | Presence::Invalid) && !has_baseline(app, baseline) {
         checked.result.status = UpdateStatus::Unknown;
         checked.result.pending_total = 0;
     }

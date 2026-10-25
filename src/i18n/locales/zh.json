@@ -436,7 +436,7 @@
     "activeRepository": "当前更新仓库",
     "repositoryChoice": "选择仓库",
     "activateRepository": "激活仓库",
-    "activationHint": "选择仅用于预览。激活会切换更新来源并清除未确认的版本基线，已安装文件保留在原处。",
+    "activationHint": "切换来源会保留安装文件和原来源记录，保存各仓库的分支与安装配置，并关闭自动更新。请检查目标版本后安装。",
     "activateConfirm": "将 {{repo}} 激活为更新仓库？已安装文件保留，版本基线需要重新确认。",
     "variant": "独立安装",
     "sharedData": "独立安装与其他版本共享同一份应用数据。",
@@ -477,6 +477,28 @@
     "startInstall": "开始安装",
     "currentRepository": "当前仓库",
     "waitingRegistration": "{{id}} 的安装任务已启动，等待订阅注册后显示。",
-    "cliCommand": "CLI 命令"
+    "cliCommand": "CLI 命令",
+    "discoverForks": "识别 fork 关系",
+    "forkOf": "Fork 自 {{repo}}",
+    "rootRepository": "根仓库 {{repo}}"
+  },
+  "installation": {
+    "present": "已发现可用的安装文件",
+    "missing": "安装文件不存在",
+    "invalid": "安装文件类型或执行权限异常",
+    "unknown": "尚无法确认安装路径",
+    "refresh": "重新检测",
+    "recorded": "上次记录：{{repo}} · {{version}}（不作为当前来源的版本依据）"
+  },
+  "pulls": {
+    "title": "PR 版本",
+    "back": "返回提交列表",
+    "number": "PR 编号",
+    "hint": "可输入已关闭的 PR 编号。选择后固定该 PR 的 head 提交。",
+    "empty": "没有开放的 PR，可在上方输入编号。",
+    "deletedFork": "来源 fork 已删除",
+    "draft": "草稿",
+    "installHint": "构建此 PR 的固定提交。默认另装测试版本，应用数据仍共享；自动更新关闭。",
+    "installed": "已安装 PR #{{number}} · {{sha}}"
   }
 }
