@@ -45,11 +45,76 @@ function inspectRepository() {
   fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
 }
 
+it("replaces recipe X identity when importing Zed through Use GitHub", async () => {
+  vi.spyOn(appsApi, "recipes").mockResolvedValue([
+    {
+      id: "recipe-x",
+      name: "Recipe X",
+      description: "A different recipe",
+      app: {
+        ...matchLookup.suggestion,
+        id: "recipe-x",
+        name: "Recipe X",
+        kind: "cli",
+      },
+    },
+  ]);
+  vi.spyOn(appsApi, "discover").mockResolvedValue({
+    candidates: [
+      {
+        ...matchInventory,
+        repositories: repositoryMatches.repositories.map((match) => ({
+          ...match,
+          repo: "zed-industries/zed",
+        })),
+      },
+    ],
+    errors: [],
+  });
+  vi.mocked(appsApi.inspect).mockResolvedValue({
+    ...matchInspection,
+    repo: "zed-industries/zed",
+    suggestion: {
+      source: "github",
+      repo: "zed-industries/zed",
+      id: "zed",
+      name: "Zed",
+      kind: "app",
+      auto_update: false,
+      track: { mode: "commit" },
+      install: { method: "source", build: "make zed" },
+    },
+  });
+  renderWithProviders(<AppFormDialog open onOpenChange={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Source recipes" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Edit this recipe" }),
+  );
+  expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Recipe X");
+  fireEvent.click(
+    screen.getByRole("button", { name: "Import installed software" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Use GitHub: zed-industries/zed",
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Zed"),
+  );
+  expect(screen.getByRole("textbox", { name: "Id" })).toHaveValue("zed");
+  expect(appsApi.inspect).toHaveBeenCalledWith("zed-industries/zed");
+});
+
 it("switches an inspected GitHub repository to the chosen Homebrew cask and immediately looks it up", async () => {
   renderWithProviders(<AppFormDialog open onOpenChange={vi.fn()} />);
   inspectRepository();
   // When the Homebrew suggestion is explicitly selected.
-  fireEvent.click(await screen.findByRole("button", { name: "Use Homebrew" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Use Homebrew: Cask · vendor/apps/editor",
+    }),
+  );
   // Then the new source, package and cask are used by lookup and the form.
   await waitFor(() =>
     expect(appsApi.lookup).toHaveBeenCalledWith("cask:vendor/apps/editor"),
@@ -72,7 +137,9 @@ it("switches a looked-up Homebrew cask to GitHub and immediately inspects it", a
   fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
   // When the repository suggestion is chosen.
   fireEvent.click(
-    await screen.findByRole("button", { name: "Track from GitHub" }),
+    await screen.findByRole("button", {
+      name: "Track from GitHub: acme/editor",
+    }),
   );
   // Then stale package results disappear and the repository is inspected.
   await waitFor(() =>
@@ -103,7 +170,9 @@ it("uses an imported GitHub repository without toggling its checkbox", async () 
   );
   const checkbox = await screen.findByRole("checkbox");
   // When choosing the repository action outside the checkbox label.
-  fireEvent.click(screen.getByRole("button", { name: "Use GitHub" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Use GitHub: acme/editor" }),
+  );
   expect(onUseRepository).toHaveBeenCalledWith("acme/editor");
   fireEvent.click(
     screen.getByRole("button", { name: "Import installed software" }),
@@ -122,7 +191,9 @@ it("closes inventory and inspects the selected GitHub repository in the add dial
   fireEvent.click(
     screen.getByRole("button", { name: "Import installed software" }),
   );
-  fireEvent.click(await screen.findByRole("button", { name: "Use GitHub" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Use GitHub: acme/editor" }),
+  );
   await waitFor(() =>
     expect(appsApi.inspect).toHaveBeenCalledWith("acme/editor"),
   );
@@ -159,14 +230,18 @@ it("keeps editing usable while matches load and discards suggestions after the i
   expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
     "Custom editor",
   );
-  expect(screen.queryByRole("button", { name: "Use Homebrew" })).toBeNull();
+  expect(
+    screen.queryByRole("button", {
+      name: "Use Homebrew: Cask · vendor/apps/editor",
+    }),
+  ).toBeNull();
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
 it("shows match failures inline without blocking the inspected form", async () => {
   mockIPC((cmd) => {
     if (cmd === "match_source")
-      throw { code: "tool_missing", message: "Homebrew is unavailable" };
+      throw { code: "command_failed", message: "Homebrew is unavailable" };
   });
   renderWithProviders(<AppFormDialog open onOpenChange={vi.fn()} />);
   inspectRepository();

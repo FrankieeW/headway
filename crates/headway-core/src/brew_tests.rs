@@ -94,6 +94,38 @@ async fn unknown_names_are_not_found() {
     ));
 }
 
+#[tokio::test]
+async fn real_homebrew_missing_package_errors_are_not_found() {
+    for (cask, stderr) in [
+        (
+            false,
+            "Error: No available formula with the name \"zz-typo\".",
+        ),
+        (
+            true,
+            "Error: Cask 'zz-typo' is unavailable: No Cask with this name exists.",
+        ),
+    ] {
+        let tools = FakeTools::new().tool(
+            "brew",
+            &format!(
+                "printf '%s\\n' {} >&2; exit 1",
+                process::shell_quote(stderr)
+            ),
+        );
+        let source = BrewSource {
+            package: "zz-typo".into(),
+            cask,
+            install_path: None,
+        };
+        let error = status(&CancellationToken::new(), &tools.env(), &source)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "remote_not_found", "{stderr}");
+        assert_eq!(error.exit_code(), 3);
+    }
+}
+
 #[test]
 fn update_commands() {
     let env = ShellEnv::from_vars([]);

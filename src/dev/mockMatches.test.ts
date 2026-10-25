@@ -1,9 +1,20 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { appsApi } from "@/lib/api";
 import { handleMockCommand } from "./mockBackend";
 
-afterEach(clearMocks);
+afterEach(() => {
+  clearMocks();
+  vi.unstubAllGlobals();
+});
+
+it("uses the command_failed machine error for the match-error scenario", async () => {
+  vi.stubGlobal("location", { search: "?scenario=match-error" });
+  mockIPC((cmd) => handleMockCommand(cmd, { input: "acme/editor" }));
+  await expect(appsApi.matchSource("acme/editor")).rejects.toMatchObject({
+    code: "command_failed",
+  });
+});
 
 it("binds matchSource to the exact command payload with default and explicit offline flags", async () => {
   const calls: unknown[] = [];

@@ -81,6 +81,9 @@ export function InventoryCandidateRow({
                   type="button"
                   variant="neutral"
                   className="min-h-11"
+                  aria-label={t("matches.useGithubTarget", {
+                    target: match.repo,
+                  })}
                   disabled={importing || match.tracked_by.length > 0}
                   onClick={() => onUseRepository(match.repo)}
                 >

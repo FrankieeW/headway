@@ -24,8 +24,7 @@ pub(super) async fn info(
     let cmd = command(env).args(["info", "--json=v2", flag]).args(names);
     let out = probe::capture(cancel, &cmd).await?;
     if !out.success() {
-        if out.stderr.contains("No available") || out.stderr.contains("No formulae or casks found")
-        {
+        if crate::brew::package_not_found(&out.stderr) {
             return Err(missing(&names.join(", "), cask));
         }
         return Err(probe::failed(&cmd, &out));

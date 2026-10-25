@@ -17,6 +17,91 @@ fn source(cask: bool) -> BrewSource {
 }
 
 #[tokio::test]
+async fn real_homebrew_missing_package_errors_are_not_found() {
+    for (cask, stderr) in [
+        (
+            false,
+            "Error: No available formula with the name \"zz-typo\".",
+        ),
+        (
+            true,
+            "Error: Cask 'zz-typo' is unavailable: No Cask with this name exists.",
+        ),
+    ] {
+        let tools = FakeTools::new().tool(
+            "brew",
+            &format!(
+                "printf '%s\\n' {} >&2; exit 1",
+                crate::process::shell_quote(stderr)
+            ),
+        );
+        let error = super::probe::info(
+            &CancellationToken::new(),
+            &tools.env(),
+            &["zz-typo".into()],
+            cask,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code(), "remote_not_found", "{stderr}");
+        assert_eq!(error.exit_code(), 3);
+    }
+}
+
+#[tokio::test]
+async fn renamed_repository_keeps_old_installed_urls_and_search_terms_online() {
+    let tools = FakeTools::new().tool("brew", r#"
+case "$*" in
+'info --installed --json=v2') echo '{"formulae":[{"name":"old-package","installed":[{"version":"1"}],"urls":{"stable":{"url":"https://github.com/old/tool-cli/archive/v1.tar.gz"}}}]}' ;;
+search*) printf '%s\n' "$3" >> "$SEARCH_LOG" ;;
+*) exit 99 ;;
+esac
+"#);
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("searches");
+    let env = tools.env().with_var("SEARCH_LOG", log.to_str().unwrap());
+    let server = MockServer::start().await;
+    Mock::given(path("/repos/old/tool-cli"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "full_name":"new/editor-app", "default_branch":"main",
+            "html_url":"https://github.com/new/editor-app"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let gh = GitHub::new(&server.uri(), None).unwrap();
+    let report = github_to_brew(
+        &CancellationToken::new(),
+        &env,
+        Some(&gh),
+        &RepoId::parse("old/tool-cli").unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(report.packages.len(), 1);
+    assert_eq!(report.packages[0].repo, "old/tool-cli");
+    assert_eq!(report.packages[0].installed.as_deref(), Some("1"));
+    let searches = std::fs::read_to_string(log).unwrap();
+    let mut terms: Vec<_> = searches.lines().collect();
+    terms.sort_unstable();
+    assert_eq!(
+        terms,
+        [
+            "editor",
+            "editor",
+            "editor-app",
+            "editor-app",
+            "tool",
+            "tool",
+            "tool-cli",
+            "tool-cli"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn brew_urls_skip_search_and_strip_tokens_from_process_environment() {
     let tools = FakeTools::new().tool(
         "brew",

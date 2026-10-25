@@ -9,7 +9,13 @@ use wiremock::{
 async fn search_results(first: Vec<Value>, second: Vec<Value>, homepage: &str) -> SourceMatches {
     let metadata =
         json!({"casks":[{"token":"github", "name":["GitHub Desktop"], "homepage":homepage}]});
-    let tools = FakeTools::new().tool("brew", &format!("echo '{metadata}'"));
+    let tools = FakeTools::new().tool(
+        "brew",
+        &format!(
+            "printf '%s\\n' {}",
+            crate::process::shell_quote(&metadata.to_string())
+        ),
+    );
     let server = MockServer::start().await;
     for (term, items) in [("github", first), ("GitHub Desktop", second)] {
         Mock::given(path("/search/repositories"))
@@ -38,6 +44,69 @@ async fn search_results(first: Vec<Value>, second: Vec<Value>, homepage: &str) -
 
 fn item(repo: &str, homepage: Option<&str>) -> Value {
     json!({"full_name":repo, "html_url":format!("https://github.com/{repo}"), "homepage":homepage})
+}
+
+#[tokio::test]
+async fn cask_display_search_terms_are_plain_bounded_distinct_phrases() {
+    for (display, second) in [
+        (
+            "Foo: user:evil repo:x/y".to_owned(),
+            Some("Foo user evil repo x y".to_owned()),
+        ),
+        (
+            "  Editor\t .-_+\nBeta  ".to_owned(),
+            Some("Editor .-_+ Beta".to_owned()),
+        ),
+        ("编輯器 : / \n".to_owned(), None),
+        (" G.I-T_H+U B ".to_owned(), None),
+        (format!("{} extra", "a".repeat(64)), Some("a".repeat(64))),
+        (format!("{} extra", "a".repeat(63)), Some("a".repeat(63))),
+    ] {
+        let metadata = json!({"casks":[{"token":"github", "name":[display]}]});
+        let tools = FakeTools::new().tool(
+            "brew",
+            &format!(
+                "printf '%s\\n' {}",
+                crate::process::shell_quote(&metadata.to_string())
+            ),
+        );
+        let server = MockServer::start().await;
+        Mock::given(path("/search/repositories"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items":[]})))
+            .mount(&server)
+            .await;
+        let gh = GitHub::new(&server.uri(), None).unwrap();
+        let report = brew_to_github(
+            &CancellationToken::new(),
+            &tools.env(),
+            Some(&gh),
+            &BrewSource {
+                package: "github".into(),
+                cask: true,
+                install_path: None,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(report.errors.is_empty());
+        let requests = server.received_requests().await.unwrap();
+        let queries: Vec<_> = requests
+            .iter()
+            .map(|request| {
+                request
+                    .url
+                    .query_pairs()
+                    .find(|(key, _)| key == "q")
+                    .unwrap()
+                    .1
+                    .into_owned()
+            })
+            .collect();
+        let mut expected = vec!["github".to_owned()];
+        expected.extend(second);
+        assert_eq!(queries, expected, "{display}");
+    }
 }
 
 #[tokio::test]

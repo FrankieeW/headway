@@ -30,30 +30,37 @@ impl Targets {
                     match RepoId::parse(&info.full_name) {
                         Ok(canonical) => {
                             targets.repo = canonical.clone();
-                            targets.repos = vec![canonical];
+                            targets.add_repo(canonical);
+                            for term in search::terms(&targets.repo.name) {
+                                if !targets.terms.contains(&term) {
+                                    targets.terms.push(term);
+                                }
+                            }
                         }
                         Err(error) => report.error("github", &error),
                     }
                     targets.homepage = info.homepage;
                     for related in info.parent.iter().chain(&info.source) {
                         match RepoId::parse(&related.full_name) {
-                            Ok(repo)
-                                if !targets.repos.iter().any(|r| {
-                                    r.full_name().eq_ignore_ascii_case(&repo.full_name())
-                                }) =>
-                            {
-                                targets.repos.push(repo);
-                            }
-                            Ok(_) => {}
+                            Ok(repo) => targets.add_repo(repo),
                             Err(error) => report.error("github", &error),
                         }
                     }
-                    targets.terms = search::terms(&targets.repo.name);
                 }
                 Err(error) => report.error("github", &error),
             }
         }
         targets
+    }
+
+    fn add_repo(&mut self, repo: RepoId) {
+        if !self
+            .repos
+            .iter()
+            .any(|target| target.full_name().eq_ignore_ascii_case(&repo.full_name()))
+        {
+            self.repos.push(repo);
+        }
     }
 
     pub(super) fn exact_name(&self, package: &str) -> bool {

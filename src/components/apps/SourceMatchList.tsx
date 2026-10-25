@@ -93,6 +93,12 @@ export function SourceMatchList({
                 type="button"
                 variant="neutral"
                 className="min-h-11"
+                aria-label={t(
+                  matches.from === "brew"
+                    ? "matches.trackGithubTarget"
+                    : "matches.useHomebrewTarget",
+                  { target: row.label },
+                )}
                 disabled={row.tracked_by.length > 0}
                 onClick={() => onSelect(row.selection)}
               >

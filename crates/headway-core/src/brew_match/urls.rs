@@ -4,14 +4,21 @@ use reqwest::Url;
 
 const RESERVED: &[&str] = &[
     "about",
+    "account",
+    "advisories",
     "apps",
+    "codespaces",
     "collections",
+    "customer-stories",
+    "dashboard",
     "enterprise",
     "events",
     "explore",
     "features",
     "issues",
+    "join",
     "login",
+    "logout",
     "marketplace",
     "new",
     "notifications",
@@ -19,13 +26,22 @@ const RESERVED: &[&str] = &[
     "organizations",
     "pricing",
     "pulls",
+    "readme",
+    "resources",
     "search",
+    "security",
     "settings",
+    "signup",
     "site",
+    "solutions",
     "sponsors",
+    "stars",
+    "team",
     "topics",
     "trending",
+    "user-attachments",
     "users",
+    "watching",
 ];
 
 fn parse_url(raw: &str) -> Option<Url> {
@@ -50,10 +66,17 @@ pub(super) fn github_repo_in_url(raw: &str) -> Option<RepoId> {
     if host == "api.github.com" && parts.next()? != "repos" {
         return None;
     }
-    let owner = parts.next()?;
-    let name = parts.next()?;
+    let mut owner = parts.next()?;
+    let mut name = parts.next()?;
     match host.as_str() {
         "github.com" | "www.github.com" => {
+            if owner.eq_ignore_ascii_case("downloads") {
+                owner = name;
+                name = parts.next()?;
+                if parts.next()?.is_empty() {
+                    return None;
+                }
+            }
             if RESERVED
                 .iter()
                 .any(|route| owner.eq_ignore_ascii_case(route))

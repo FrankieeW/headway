@@ -1,6 +1,44 @@
 use super::urls::{github_repo_in_url, normalize_homepage, sanitize_url};
 
 #[test]
+fn legacy_download_urls_extract_the_actual_repository() {
+    for (url, expected) in [
+        (
+            "https://github.com/downloads/Owner/Repo/file.zip",
+            Some("Owner/Repo"),
+        ),
+        (
+            "https://www.github.com/downloads/Owner/Repo/file.zip",
+            Some("Owner/Repo"),
+        ),
+        ("https://github.com/downloads/Owner", None),
+        ("https://github.com/downloads/Owner/Repo", None),
+        ("https://github.com/downloads//Repo/file.zip", None),
+        ("https://github.com/downloads/Owner/re%70o/file.zip", None),
+        (
+            "https://codeload.github.com/downloads/Repo/tar.gz/main",
+            Some("downloads/Repo"),
+        ),
+    ] {
+        assert_eq!(
+            github_repo_in_url(url).map(|r| r.full_name()).as_deref(),
+            expected,
+            "{url}"
+        );
+    }
+}
+
+#[test]
+fn non_repository_github_routes_are_rejected() {
+    for route in "account advisories codespaces customer-stories dashboard join logout readme resources security signup solutions stars team user-attachments watching".split_whitespace() {
+        for spelling in [route.to_owned(), route.to_uppercase()] {
+            let url = format!("https://github.com/{spelling}/repo");
+            assert!(github_repo_in_url(&url).is_none(), "{url}");
+        }
+    }
+}
+
+#[test]
 fn github_url_extraction_real_homebrew_examples() {
     for (url, repo) in [
         (

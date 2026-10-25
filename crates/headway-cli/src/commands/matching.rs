@@ -44,6 +44,9 @@ pub async fn matching(hw: &Headway, input: &str, offline: bool) -> Result<Reply>
     }
     if report.repositories.is_empty() && report.packages.is_empty() {
         lines.push("No match found.".into());
+        if offline {
+            next.push(format!("headway match {}", shell_quote(input)));
+        }
     }
     lines.extend(report.notes.iter().map(|note| clean(note)));
     lines.extend(

@@ -50,7 +50,11 @@ it("selects a formula without changing it into a cask", () => {
       onSelect={onSelect}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Use Homebrew" }));
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Use Homebrew: Formula · vendor/apps/editor",
+    }),
+  );
   // Then formula identity is preserved, including the tap-qualified package.
   expect(screen.getByText("Formula · vendor/apps/editor")).toBeVisible();
   expect(onSelect).toHaveBeenCalledWith({
@@ -89,7 +93,9 @@ it.each([
     expect(container.querySelector("img")).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
     // When explicitly choosing the suggestion, then its source is handed off.
-    fireEvent.click(screen.getByRole("button", { name: "Track from GitHub" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Track from GitHub: acme/editor" }),
+    );
     expect(onSelect).toHaveBeenCalledWith({
       source: "github",
       repo: "acme/editor",
@@ -119,7 +125,11 @@ it("disables tracked packages and shows installed versions and tracking ids", ()
   expect(row).toHaveTextContent("Cask · vendor/apps/editor");
   expect(row).toHaveTextContent("Installed: 2.0");
   expect(row).toHaveTextContent("editor-main, editor-beta");
-  fireEvent.click(within(row).getByRole("button", { name: "Use Homebrew" }));
+  fireEvent.click(
+    within(row).getByRole("button", {
+      name: "Use Homebrew: Cask · vendor/apps/editor",
+    }),
+  );
   expect(onSelect).not.toHaveBeenCalled();
 });
 
@@ -137,7 +147,7 @@ it("disables tracked repositories", () => {
     />,
   );
   expect(
-    screen.getByRole("button", { name: "Track from GitHub" }),
+    screen.getByRole("button", { name: "Track from GitHub: acme/editor" }),
   ).toBeDisabled();
   expect(screen.getByText("Tracked by: editor")).toBeVisible();
 });
@@ -164,7 +174,11 @@ it("keeps matches selectable alongside partial errors and notes", () => {
     "github: Try again later",
   );
   expect(screen.getByText("Search was limited.")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Use Homebrew" })).toBeEnabled();
+  expect(
+    screen.getByRole("button", {
+      name: "Use Homebrew: Cask · vendor/apps/editor",
+    }),
+  ).toBeEnabled();
 });
 
 it("shows the empty match state", () => {

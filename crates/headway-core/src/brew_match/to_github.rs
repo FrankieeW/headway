@@ -39,17 +39,15 @@ pub(crate) async fn brew_to_github(
 async fn search(gh: &GitHub, package: &PackageMeta, report: &mut SourceMatches) {
     let short = short_name(&package.package);
     let mut terms = vec![short.to_owned()];
+    let display = display_term(&package.name);
     let comparable = |name: &str| {
         name.chars()
-            .filter(|c| c.is_alphanumeric())
-            .flat_map(char::to_lowercase)
+            .filter(char::is_ascii_alphanumeric)
+            .map(|c| c.to_ascii_lowercase())
             .collect::<String>()
     };
-    if package.cask
-        && !package.name.trim().is_empty()
-        && comparable(short) != comparable(&package.name)
-    {
-        terms.push(package.name.clone());
+    if package.cask && !display.is_empty() && comparable(short) != comparable(&display) {
+        terms.push(display);
     }
     let mut results = Vec::new();
     for term in terms {
@@ -113,4 +111,20 @@ async fn search(gh: &GitHub, package: &PackageMeta, report: &mut SourceMatches) 
     } else {
         report.repositories.truncate(3);
     }
+}
+
+fn display_term(name: &str) -> String {
+    let plain: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || " .-_+".contains(c) {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    let mut term = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    term.truncate(64);
+    term.trim_end().to_owned()
 }

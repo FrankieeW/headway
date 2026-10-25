@@ -19,6 +19,7 @@ export function SourceMatchesSection({
     queryKey: queryKeys.sourceMatches(input),
     queryFn: () => appsApi.matchSource(input),
     retry: false,
+    staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
   return (

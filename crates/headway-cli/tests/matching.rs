@@ -21,6 +21,56 @@ esac
 }
 
 #[test]
+fn unknown_cask_returns_remote_not_found_exit_three() {
+    let s = sandbox();
+    s.tool("brew", r#"echo "Error: Cask 'zz-typo' is unavailable: No Cask with this name exists." >&2; exit 1"#);
+    let output = s
+        .command()
+        .args(["--json", "match", "cask:zz-typo"])
+        .output()
+        .unwrap();
+    let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(3), "{reply}");
+    assert_eq!(reply["ok"], false);
+    assert_eq!(reply["error"]["code"], "remote_not_found");
+    s.unchanged();
+}
+
+#[test]
+fn empty_offline_match_suggests_shell_quoted_online_retry() {
+    let s = sandbox();
+    let reply = s.ok(&["match", " cask:unknown ", "--offline"]);
+    assert_eq!(reply["data"]["repositories"], serde_json::json!([]));
+    assert_eq!(
+        reply["next"],
+        serde_json::json!(["headway --json match ' cask:unknown '"])
+    );
+    s.unchanged();
+}
+
+#[test]
+fn discover_human_output_lists_github_under_brew_candidate() {
+    let s = sandbox();
+    let output = s
+        .command()
+        .args(["discover", "--source", "brew"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(output.status.success(), "{stdout}");
+    let lines: Vec<_> = stdout.lines().collect();
+    let index = lines
+        .iter()
+        .position(|line| *line == "  github acme/tool")
+        .unwrap();
+    assert!(
+        lines[..index].iter().any(|line| line.contains("renamed")),
+        "{stdout}"
+    );
+    s.unchanged();
+}
+
+#[test]
 fn match_cask_offline_returns_download_evidence_and_add_hint() {
     let s = sandbox();
     let reply = s.ok(&["match", "cask:tool", "--offline"]);

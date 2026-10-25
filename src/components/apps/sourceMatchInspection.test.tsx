@@ -6,6 +6,52 @@ import { useAppForm } from "./useAppForm";
 
 afterEach(() => vi.restoreAllMocks());
 
+it("drops saved recipe identity after reset when switching to a matched repository", async () => {
+  vi.spyOn(appsApi, "inspect").mockResolvedValue(matchInspection);
+  const { result } = renderHook(() => useAppForm());
+  act(() => {
+    result.current.setName("Earlier edit");
+    result.current.setId("earlier-id");
+    result.current.update("kind", "app");
+    result.current.reset({
+      ...matchLookup.suggestion,
+      name: "Recipe X",
+      id: "recipe-x",
+    });
+  });
+  await act(async () =>
+    result.current.inspectSource({ source: "github", repo: "acme/editor" }),
+  );
+  expect(result.current.form).toMatchObject({
+    name: "Editor",
+    id: "editor",
+    kind: "cli",
+  });
+  expect(result.current.idEdited).toBe(false);
+});
+
+it("derives identity from a name typed after a recipe when switching sources", async () => {
+  vi.spyOn(appsApi, "inspect").mockResolvedValue(matchInspection);
+  const { result } = renderHook(() => useAppForm());
+  act(() => {
+    result.current.reset({
+      ...matchLookup.suggestion,
+      name: "Recipe X",
+      id: "recipe-x",
+    });
+    result.current.setName("My editor");
+  });
+  await act(async () =>
+    result.current.inspectSource({ source: "github", repo: "acme/editor" }),
+  );
+  expect(result.current.form).toMatchObject({
+    name: "My editor",
+    id: "my-editor",
+    kind: "cli",
+  });
+  expect(result.current.idEdited).toBe(false);
+});
+
 it("ignores a delayed old inspection after explicitly selecting a different source", async () => {
   // Given an in-flight GitHub inspection and a responsive Homebrew lookup.
   let resolve: ((inspection: RepoInspection) => void) | undefined;
@@ -52,6 +98,7 @@ it("drops old recipe edits while keeping explicit identity and automation on a m
   act(() => {
     result.current.setName("My editor");
     result.current.setId("custom-editor");
+    result.current.update("kind", "cli");
     result.current.update("build", "make custom");
     result.current.update("dest", "/tmp/old");
     result.current.update("installPath", "/Applications/Old.app");
@@ -73,7 +120,7 @@ it("drops old recipe edits while keeping explicit identity and automation on a m
   expect(result.current.form).toMatchObject({
     source: "brew",
     cask: true,
-    kind: "app",
+    kind: "cli",
     name: "My editor",
     id: "custom-editor",
     autoUpdate: true,

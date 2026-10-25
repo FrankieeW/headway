@@ -45,7 +45,7 @@ export function handleMatches(
   const scenario = new URLSearchParams(location.search).get("scenario");
   if (scenario === "match-error")
     throw {
-      code: "tool_missing",
+      code: "command_failed",
       message: "Homebrew is unavailable in this preview scenario",
     };
   return {

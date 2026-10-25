@@ -81,13 +81,19 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
   const requestId = useRef(0);
   const editedIdentity = useRef({ id: Boolean(app), kind: Boolean(app) });
   const edits = useRef<Partial<AppFormState>>(savedEdits(app));
+  const typedIdentity = useRef<
+    Partial<Pick<AppFormState, "name" | "id" | "kind">>
+  >({});
 
   const update = useCallback(
     <K extends keyof AppFormState>(key: K, value: AppFormState[K]) => {
       if (!["source", "repo", "package"].includes(key)) {
         edits.current = { ...edits.current, [key]: value };
       }
-      if (key === "kind") editedIdentity.current.kind = true;
+      if (key === "kind") {
+        editedIdentity.current.kind = true;
+        typedIdentity.current = { ...typedIdentity.current, [key]: value };
+      }
       if (["source", "repo", "package", "cask", "distTag"].includes(key)) {
         requestId.current += 1;
         setInspection(null);
@@ -150,6 +156,7 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
 
   const setName = useCallback(
     (value: string) => {
+      typedIdentity.current = { ...typedIdentity.current, name: value };
       edits.current = {
         ...edits.current,
         name: value,
@@ -166,6 +173,7 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
   );
 
   const setId = useCallback((value: string) => {
+    typedIdentity.current = { ...typedIdentity.current, id: value };
     edits.current = { ...edits.current, id: value };
     editedIdentity.current.id = true;
     setIdEdited(true);
@@ -238,13 +246,19 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
         source.source === "brew" && current.updatePolicy.mode === "next"
           ? { ...current.updatePolicy, mode: "latest" as const }
           : current.updatePolicy;
-      const { name, id, kind } = edits.current;
+      const { name, id } = typedIdentity.current;
       // Keep deliberate identity edits, but never reuse the previous source's recipe.
       edits.current = {
-        ...(name !== undefined ? { name } : {}),
-        ...(id !== undefined ? { id } : {}),
-        ...(kind !== undefined ? { kind } : {}),
+        ...typedIdentity.current,
+        ...(name !== undefined && id === undefined
+          ? { id: slugify(name) }
+          : {}),
       };
+      editedIdentity.current = {
+        id: id !== undefined,
+        kind: typedIdentity.current.kind !== undefined,
+      };
+      setIdEdited(id !== undefined);
       setForm({
         ...emptyForm(),
         ...edits.current,
@@ -265,6 +279,7 @@ export function useAppForm(app?: TrackedApp): UseAppFormResult {
     // a pending inspection must not fill the new form
     requestId.current += 1;
     edits.current = savedEdits(next);
+    typedIdentity.current = {};
     setForm(next ? formFromApp(next) : emptyForm());
     editedIdentity.current = { id: Boolean(next), kind: Boolean(next) };
     setIdEdited(Boolean(next));
