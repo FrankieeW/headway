@@ -2,7 +2,6 @@ import {
   AppWindow,
   Check,
   Copy,
-  Github,
   MoreHorizontal,
   Pencil,
   RefreshCw,
@@ -13,6 +12,7 @@ import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/apps/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { GitHubMark } from "@/components/ui/github-mark";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -105,7 +105,7 @@ export function AppHeader({
             style={NO_DRAG}
             className="inline-flex h-6 max-w-[160px] sm:max-w-[220px] items-center gap-1.5 rounded-full bg-subtle px-2 text-caption text-fg-2 transition-colors hover:bg-selected hover:text-fg-1"
           >
-            <Github className="h-3 w-3 shrink-0" strokeWidth={1.75} />
+            <GitHubMark className="h-3 w-3 shrink-0" />
             <span className="truncate">{app.app.repo}</span>
           </button>
         ) : (
@@ -158,10 +158,8 @@ export function AppHeader({
                   <Check className="h-3.5 w-3.5" strokeWidth={1.75} />
                   {t("appPage.markLatestInstalled")}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => openUrl(repoUrl)}
-                >
-                  <Github className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <DropdownMenuItem onSelect={() => openUrl(repoUrl)}>
+                  <GitHubMark className="h-3.5 w-3.5" />
                   {t("appPage.openOnGitHub")}
                 </DropdownMenuItem>
               </>
