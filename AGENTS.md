@@ -31,6 +31,14 @@ pnpm dev:renderer  →  http://localhost:1420/?mock   # UI preview with fixture 
 
 Use `HEADWAY_HOME=$(mktemp -d)` when running the CLI or app by hand so the real config is untouched.
 
+## Worktrees
+
+Create a linked worktree at `.worktree/<name>`. That directory is gitignored. Leave this checkout on `main`.
+
+```sh
+git worktree add -b <branch> .worktree/<name> HEAD
+```
+
 ## Self-hosting builds
 
 `./scripts/build-headway.sh app|cli` builds the exact checkout with locked dependencies and
