@@ -32,9 +32,11 @@ export default defineConfig({
   build: {
     outDir: "../dist",
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: vendorChunk,
+        codeSplitting: {
+          groups: [{ name: vendorChunk }],
+        },
       },
     },
   },
