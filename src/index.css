@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 loads the existing theme and animation plugin through @config. */
+@import "tailwindcss";
+@config "../tailwind.config.cjs";
 
 @layer base {
   /* shadcn 组件用的 HSL token（可以带 /50 这类透明度）+ v7 设计 token。
