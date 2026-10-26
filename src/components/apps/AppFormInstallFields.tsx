@@ -73,7 +73,9 @@ export function AppFormInstallFields({
             onUpdate("build", candidate.build);
             onUpdate("workdir", candidate.workdir ?? "");
             onUpdate("artifact", candidate.artifact ?? "");
-            onUpdate("kind", candidate.kind);
+            if (form.installMethod === "source") {
+              onUpdate("kind", candidate.kind);
+            }
             onUpdate("presetId", "");
           }}
         />

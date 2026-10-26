@@ -12,6 +12,70 @@ fn asset_default() -> TrackedApp {
     .unwrap()
 }
 
+/// A download-only app: no source build is saved beside it.
+fn asset_only(kind: AppKind) -> TrackedApp {
+    let Source::Github(github) = base().source else {
+        panic!("github");
+    };
+    TrackedApp {
+        kind,
+        source: Source::Github(GithubSource {
+            install: Install::Asset(AssetInstall {
+                pattern: Some("*.dmg".into()),
+                ..AssetInstall::default()
+            }),
+            ..github
+        }),
+        ..base()
+    }
+}
+
+#[test]
+fn a_preset_for_the_alternate_build_keeps_the_payload_kind() {
+    // Given a downloaded .app, when a CLI preset fills only the alternate build.
+    let fields = AppFields {
+        preset: Some("cargo".into()),
+        ..AppFields::default()
+    };
+    let edited = apply(asset_only(AppKind::App), &fields).unwrap();
+    // Then the download still installs an app bundle.
+    assert_eq!(edited.kind, AppKind::App);
+    assert_eq!(
+        edited.github().unwrap().install,
+        asset_only(AppKind::App).github().unwrap().install
+    );
+    // When the preset build becomes the default, its payload kind follows.
+    let built = apply(
+        asset_only(AppKind::App),
+        &AppFields {
+            method: Some(MethodArg::Source),
+            ..fields
+        },
+    )
+    .unwrap();
+    assert_eq!(built.kind, AppKind::Cli);
+}
+
+#[test]
+fn source_paths_without_a_build_are_rejected_instead_of_dropped() {
+    for fields in [
+        AppFields {
+            workdir: Some("cli".into()),
+            ..AppFields::default()
+        },
+        AppFields {
+            artifact: Some("out/tool".into()),
+            ..AppFields::default()
+        },
+    ] {
+        let error = apply(asset_only(AppKind::Cli), &fields).unwrap_err();
+        assert!(
+            matches!(&error, Error::InvalidInput(message) if message.contains("pass --build or --preset")),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn editing_source_recipe_fields_keeps_the_asset_default() {
     let cases = [

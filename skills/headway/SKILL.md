@@ -50,7 +50,8 @@ headway --ai token status
 ```
 
 2. Track a repository. `add` inspects it (build system, binary names, macOS release assets) and
-   picks commit + source build, or release + asset download; flags override the suggestion:
+   picks commit + source build, or release + asset download; flags override the suggestion.
+   Without `--method`, `add` builds when given `--build`, `--preset`, `--workdir` or `--artifact`:
 
 ```sh
 headway --ai inspect owner/repo
@@ -229,11 +230,13 @@ asset; it never falls back to a build. `--dry-run` shows the same plan.
 `edit` can store both GitHub install recipes at once. `--build`, `--preset`, `--workdir` and
 `--artifact` update the source recipe. `--pattern` and `--binary` update the release recipe.
 Recipe edits keep the current default; only `--method source|asset` changes which one ordinary
-updates use. With an asset default, `edit <id> --build ''` removes the optional source recipe;
-the active source recipe still requires a non-empty build command. `install` holds the active
-recipe, with only the opposite method retained in `source_build` or `release_asset`; saving
-does not retain a duplicate of the active recipe. One-off `update --method` does not rewrite
-either recipe.
+updates use. A preset sets the app kind only when the source build is (or becomes) the default.
+`--workdir`, `--artifact`, `--keep-source` and `--source-root` need a source recipe with a build
+command and are rejected otherwise. With an asset default, `edit <id> --build ''` removes the
+optional source recipe; the active source recipe still requires a non-empty build command.
+`install` holds the active recipe, with only the opposite method retained in `source_build` or
+`release_asset`; saving does not retain a duplicate of the active recipe. One-off
+`update --method` does not rewrite either recipe.
 
 ## Exact revisions and independent installations
 

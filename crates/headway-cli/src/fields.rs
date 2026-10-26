@@ -24,17 +24,23 @@ fn misuse(flag: &str, needs: &str) -> Error {
 }
 
 pub fn apply(base: TrackedApp, fields: &AppFields) -> Result<TrackedApp> {
+    // A preset fills the source build; it picks the payload kind only when that build is the default.
+    let preset_kind = fields
+        .preset
+        .as_deref()
+        .and_then(presets::find)
+        .map(|preset| preset.kind)
+        .filter(|_| {
+            base.github()
+                .is_some_and(|github| install_method(&github.install, fields) == MethodArg::Source)
+        });
     let kind = match fields.kind {
         Some(KindArg::Cli) => AppKind::Cli,
         Some(KindArg::App) => AppKind::App,
         None => match (&base.source, fields.cask) {
             (Source::Brew(_), Some(true)) => AppKind::App,
             (Source::Brew(_), Some(false)) => AppKind::Cli,
-            _ => fields
-                .preset
-                .as_deref()
-                .and_then(presets::find)
-                .map_or(base.kind, |preset| preset.kind),
+            _ => preset_kind.unwrap_or(base.kind),
         },
     };
     let name = fields.name.clone().unwrap_or(base.name);
@@ -174,23 +180,27 @@ fn github_recipes(
             ..SourceInstall::default()
         });
         source_recipe = Some(apply_source_fields(base, fields, &github.repo, name)?);
-    } else if method == MethodArg::Source && source_recipe.is_none() {
-        source_recipe = Some(SourceInstall {
-            dest: previous_dest.clone(),
-            ..SourceInstall::default()
-        });
     }
-    if (fields.keep_source.is_some() || fields.source_root.is_some())
-        && source_recipe
-            .as_ref()
-            .is_none_or(|source| source.build.trim().is_empty())
+    // Without a build command these settings would be dropped instead of saved.
+    let non_empty = |value: Option<&String>| value.is_some_and(|value| !value.trim().is_empty());
+    if source_recipe
+        .as_ref()
+        .is_none_or(|source| source.build.trim().is_empty())
+        && let Some((flag, _)) = [
+            ("--workdir", non_empty(fields.workdir.as_ref())),
+            ("--artifact", non_empty(fields.artifact.as_ref())),
+            ("--keep-source", fields.keep_source.is_some()),
+            ("--source-root", fields.source_root.is_some()),
+        ]
+        .into_iter()
+        .find(|(_, given)| *given)
     {
         return Err(misuse(
-            "--keep-source/--source-root",
-            "a GitHub source build",
+            flag,
+            "a GitHub source build; pass --build or --preset",
         ));
     }
-    if asset_flags || (method == MethodArg::Asset && asset_recipe.is_none()) {
+    if asset_flags {
         let base = asset_recipe.unwrap_or(AssetInstall {
             dest: previous_dest.clone(),
             ..AssetInstall::default()
@@ -203,12 +213,10 @@ fn github_recipes(
     };
     let install = match method {
         MethodArg::Source => {
-            let mut source = source_recipe.ok_or_else(|| {
-                Error::InvalidInput(
-                    "configure a source build with --build or --preset before using --method source"
-                        .into(),
-                )
-            })?;
+            let mut source = source_recipe.unwrap_or(SourceInstall {
+                dest: previous_dest.clone(),
+                ..SourceInstall::default()
+            });
             if switching {
                 source.dest.clone_from(&previous_dest);
             }

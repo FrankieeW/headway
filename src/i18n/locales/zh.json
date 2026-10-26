@@ -211,6 +211,7 @@
     "preset": "预设",
     "presetNone": "不使用预设",
     "buildCommand": "构建命令",
+    "sourceBuildRequired": "请为源码配方填写构建命令，或清空其他源码字段。",
     "workdir": "工作目录",
     "workdirPlaceholder": "留空表示仓库根目录",
     "artifact": "构建产物路径",

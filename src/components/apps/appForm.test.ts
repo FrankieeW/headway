@@ -7,6 +7,7 @@ import {
   emptyForm,
   formFromApp,
   inspectedBinary,
+  sourceRecipeNeedsBuild,
   withInstallMethod,
 } from "./useAppForm";
 import type { Preset, TrackedApp } from "@/lib/api";
@@ -326,6 +327,51 @@ describe("applyPreset", () => {
     });
 
     expect(form.artifact).toBe("");
+  });
+
+  it("keeps the kind when the preset fills only the alternate build", () => {
+    const form = applyPreset(formFromApp(releaseApp), preset, {
+      bin: "b",
+      name: "n",
+    });
+
+    expect(form.kind).toBe("app");
+    expect(form.installMethod).toBe("asset");
+    expect(form.build).toBe("cargo build --release");
+  });
+});
+
+describe("sourceRecipeNeedsBuild", () => {
+  it("flags source paths typed without a build beside a download default", () => {
+    const form = formFromApp(releaseApp);
+
+    expect(sourceRecipeNeedsBuild({ ...form, artifact: "out/tool" })).toBe(
+      true,
+    );
+    expect(sourceRecipeNeedsBuild({ ...form, storageKeep: false })).toBe(true);
+    expect(sourceRecipeNeedsBuild(form)).toBe(false);
+  });
+
+  it("treats clearing an existing alternate build as removal", () => {
+    const form = formFromApp({
+      ...releaseApp,
+      source_build: {
+        method: "source",
+        build: "make",
+        artifact: "out/tool",
+      },
+    });
+
+    expect(sourceRecipeNeedsBuild({ ...form, build: "" })).toBe(false);
+  });
+
+  it("leaves an empty active build to backend validation", () => {
+    expect(
+      sourceRecipeNeedsBuild({
+        ...formFromApp(cliApp),
+        build: "",
+      }),
+    ).toBe(false);
   });
 });
 

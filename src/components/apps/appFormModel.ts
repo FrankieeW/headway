@@ -343,6 +343,25 @@ export function withInstallMethod(
 }
 
 /**
+ * Source paths or storage typed without a build command are dropped when download is the
+ * default. Clearing an existing alternate's build command is removal, not this.
+ */
+export function sourceRecipeNeedsBuild(form: AppFormState): boolean {
+  return (
+    form.source === "github" &&
+    form.installMethod === "asset" &&
+    !form.sourceBuild &&
+    !form.build.trim() &&
+    Boolean(
+      form.workdir.trim() ||
+      form.artifact.trim() ||
+      form.storageRoot.trim() ||
+      !form.storageKeep,
+    )
+  );
+}
+
+/**
  * Quote a value for a POSIX shell unless it only has safe characters
  * (same rule as `shell_quote` in headway-core).
  */
@@ -374,7 +393,8 @@ export function applyPreset(
   return {
     ...form,
     presetId: preset.id,
-    kind: preset.kind,
+    // The preset fills the source build; it picks the kind only when that build is the default.
+    kind: form.installMethod === "source" ? preset.kind : form.kind,
     build: fill(preset.build, shellQuote),
     artifact: fill(preset.artifact, (part) => part),
   };
