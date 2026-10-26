@@ -110,7 +110,7 @@ fn adding_a_command_needs_a_contract_case() {
     // changing this number is a deliberate review action.
     assert_eq!(
         handlers().len(),
-        55,
+        56,
         "a command was added or removed without updating the IPC contract tests"
     );
 }

@@ -1,3 +1,4 @@
+import type { RepositoryMatch } from "./matchTypes";
 import type {
   AppKind,
   BuildInfo,
@@ -42,6 +43,7 @@ export interface RestoreOutcome {
   readonly restored_path: string;
 }
 export interface InventoryCandidate {
+  readonly repositories?: RepositoryMatch[];
   readonly key: string;
   readonly app: TrackedApp;
   readonly installed_version?: string | null;

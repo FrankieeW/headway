@@ -27,6 +27,8 @@ pub(super) struct RateLimitResponse {
 pub struct RepoInfo {
     pub full_name: String,
     #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
     pub description: Option<String>,
     pub default_branch: String,
     #[serde(default)]

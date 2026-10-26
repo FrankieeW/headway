@@ -21,6 +21,8 @@ pub struct InventoryCandidate {
     pub installed_version: Option<String>,
     pub already_tracked: bool,
     pub conflicts: Vec<String>,
+    #[serde(default)]
+    pub repositories: Vec<crate::RepositoryMatch>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ pub(crate) async fn discover(sources: &[String], env: &ShellEnv) -> Result<Inven
             "brew" => Cmd::new("brew", env)
                 .args(["info", "--installed", "--json=v2"])
                 .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                .env("HOMEBREW_NO_ENV_HINTS", "1")
                 .env("HOMEBREW_NO_ANALYTICS", "1"),
             "npm" => Cmd::new("npm", env).args(["ls", "--global", "--depth=0", "--json"]),
             _ => {
@@ -147,5 +150,6 @@ pub(crate) fn candidate(
         installed_version,
         already_tracked: false,
         conflicts: Vec::new(),
+        repositories: Vec::new(),
     }
 }

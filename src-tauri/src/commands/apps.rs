@@ -2,7 +2,7 @@
 
 use headway_core::inspect::{PackageLookup, RepoInspection};
 use headway_core::presets::{PRESETS, Preset};
-use headway_core::{AppView, HistoryEntry, RemovedApp, TrackedApp};
+use headway_core::{AppView, HistoryEntry, RemovedApp, SourceMatches, TrackedApp};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::state::{AppState, CmdResult, IntoCmd as _, apps_changed};
@@ -69,4 +69,17 @@ pub async fn lookup_source(state: State<'_, AppState>, input: String) -> CmdResu
 #[tauri::command]
 pub async fn list_presets() -> CmdResult<Vec<Preset>> {
     Ok(PRESETS.to_vec())
+}
+
+#[tauri::command]
+pub async fn match_source(
+    state: State<'_, AppState>,
+    input: String,
+    offline: Option<bool>,
+) -> CmdResult<SourceMatches> {
+    state
+        .hw
+        .match_source(&input, offline.unwrap_or(false))
+        .await
+        .cmd()
 }

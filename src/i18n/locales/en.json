@@ -534,5 +534,36 @@
     "draft": "Draft",
     "installHint": "Build this pinned PR commit. A separate test installation is selected by default; app data remains shared and automatic updates are off.",
     "installed": "Installed PR #{{number}} · {{sha}}"
+  },
+  "matches": {
+    "alsoHomebrew": "Also on Homebrew",
+    "githubRepository": "GitHub repository",
+    "useHomebrew": "Use Homebrew",
+    "trackGithub": "Track from GitHub",
+    "useGithub": "Use GitHub",
+    "useHomebrewTarget": "Use Homebrew: {{target}}",
+    "trackGithubTarget": "Track from GitHub: {{target}}",
+    "useGithubTarget": "Use GitHub: {{target}}",
+    "repository": "GitHub: {{repo}}",
+    "searching": "Searching for matches…",
+    "none": "No match found.",
+    "installed": "Installed: {{version}}",
+    "trackedBy": "Tracked by: {{ids}}",
+    "cask": "Cask",
+    "formula": "Formula",
+    "confidence": {
+      "high": "Verified",
+      "medium": "Likely",
+      "low": "Unconfirmed"
+    },
+    "evidence": {
+      "source_url": "Source URL",
+      "head_url": "HEAD URL",
+      "download_url": "Download URL",
+      "homepage": "Homepage",
+      "homepage_match": "Matching homepage",
+      "name": "Matching name",
+      "search": "Search result"
+    }
   }
 }

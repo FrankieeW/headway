@@ -18,6 +18,9 @@ pub async fn discover(hw: &Headway, sources: &[String]) -> Result<Reply> {
             candidate.installed_version.as_deref().unwrap_or("unknown"),
             candidate.conflicts.join("; ")
         );
+        for repository in &candidate.repositories {
+            let _ = writeln!(human, "  github {}", repository.repo);
+        }
         if let headway_core::Source::Brew(source) = &candidate.app.source
             && let Some(path) = &source.install_path
         {

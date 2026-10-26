@@ -34,6 +34,7 @@ fn invoke_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send
         commands::apps::remove_app,
         commands::apps::inspect_repo,
         commands::apps::lookup_source,
+        commands::apps::match_source,
         commands::apps::list_presets,
         commands::management::discover_apps,
         commands::management::import_apps,

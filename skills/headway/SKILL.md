@@ -123,6 +123,32 @@ remain editable after detection.
 SHA, and its version does not imply a Release. `ci_state` is `success`, `failure`, `pending`,
 `not_run` or `unknown`; API failure must not be described as a passing or absent check.
 
+## Homebrew ⇄ GitHub matching
+
+```sh
+headway --ai match brew:ripgrep
+headway --ai match cask:zed
+headway --ai match BurntSushi/ripgrep
+headway --ai match <app-id> --offline
+```
+
+Matching only suggests alternatives: it never installs, tracks, saves matches or switches a source.
+`--offline` skips GitHub repository details/search and token resolution; it still queries local
+Homebrew metadata and package names. Formulae.brew.sh URLs and tracked GitHub/Homebrew app IDs work
+too. npm and script sources are unsupported.
+
+Every suggestion includes ordered, deduplicated `evidence` and derived `confidence`: `high` means
+Homebrew's own source, HEAD, download or repository homepage URL names the repository; `medium`
+means normalized homepage equality with GitHub metadata; `low` means name/search hints only.
+GitHub Pages and documentation URLs do not prove repository identity. Confirm low-confidence
+suggestions with the user before switching sources. `tracked_by` lists existing app IDs, across
+all GitHub tracking modes or the same Homebrew package and Formula/Cask type.
+
+Results contain `query`, `from`, `repositories`, `packages`, `notes` and `errors`. Partial provider
+failures retain useful data with `ok: false` and exit 1; unreadable Homebrew input is a fatal error.
+`discover` also includes `repositories` from installed Homebrew metadata without GitHub requests,
+and reports a conflict for each repository already tracked by an app.
+
 ## Discovery and automatic policy
 
 ```sh
@@ -331,7 +357,7 @@ headway --ai edit zed --cask true
 | `keychain_error`, `io_error` | 1 | environment problem; see the message |
 
 `check`, multi-app `update` and `auto-update` report per-app results in `data` and exit with the
-first failure's code. `doctor` exits 1 when a diagnostic fails; `discover` exits 1 on provider errors.
+first failure's code. `doctor` exits 1 when a diagnostic fails; `discover` and `match` exit 1 on provider errors.
 `ok` is false in these cases even though the successful per-item data is retained.
 
 State schema versions are additive; unsupported future versions are rejected unchanged. Before a

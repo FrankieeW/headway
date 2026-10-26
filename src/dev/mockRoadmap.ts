@@ -9,6 +9,7 @@ import type {
   TrackedApp,
 } from "@/lib/api";
 import { DEFAULT_UPDATE_POLICY } from "@/lib/api";
+import { mockRepository } from "./mockMatches";
 
 export const buildCandidates: BuildCandidate[] = [
   {
@@ -210,6 +211,10 @@ export function handleRoadmap(
                 key: `${app.source}:${app.id}`,
                 app,
                 installed_version: "1.2.3",
+                repositories:
+                  app.source === "brew" && app.package === "zed"
+                    ? [mockRepository("zed-industries/zed", true)]
+                    : [],
                 already_tracked: apps.some((view) => view.app.id === app.id),
                 conflicts:
                   index === 3

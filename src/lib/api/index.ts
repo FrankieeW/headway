@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SourceMatches } from "./matchTypes";
+export * from "./matchTypes";
 import type {
   AppView,
   InstallationDetection,
@@ -138,6 +140,8 @@ export const appsApi = {
     invoke<RemovedApp>("remove_app", { id, purge }),
   inspect: (repo: string) => invoke<RepoInspection>("inspect_repo", { repo }),
   lookup: (input: string) => invoke<SourceLookup>("lookup_source", { input }),
+  matchSource: (input: string, offline = false) =>
+    invoke<SourceMatches>("match_source", { input, offline }),
   discover: (sources?: string[]) =>
     invoke<InventoryReport>("discover_apps", { sources }),
   import: (apps: TrackedApp[]) =>

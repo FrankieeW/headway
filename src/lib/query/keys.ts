@@ -5,6 +5,8 @@
  * `["app", id]` invalidates one app, `["apps"]` the whole list.
  */
 export const queryKeys = {
+  sourceMatches: (input: string, offline = false) =>
+    ["source-matches", input, offline] as const,
   /** the tracked app list */
   apps: ["apps"] as const,
   /** one app with its status */

@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { AppFormFieldsProps } from "./AppFormFields";
+import { SourceMatchesSection } from "./SourceMatchesSection";
 
 export function AppFormSourceSection({
   form,
@@ -13,6 +14,8 @@ export function AppFormSourceSection({
   inspecting,
   lookup,
   error,
+  mode,
+  onSelectSource,
 }: {
   readonly form: AppFormFieldsProps["form"];
   readonly onUpdate: AppFormFieldsProps["onUpdate"];
@@ -20,6 +23,8 @@ export function AppFormSourceSection({
   readonly inspecting: boolean;
   readonly lookup: AppFormFieldsProps["lookup"];
   readonly error: string | null;
+  readonly mode: AppFormFieldsProps["mode"];
+  readonly onSelectSource: AppFormFieldsProps["onSelectSource"];
 }) {
   const { t } = useTranslation();
   return (
@@ -108,6 +113,16 @@ export function AppFormSourceSection({
                 <p key={note}>{note}</p>
               ))}
             </div>
+          ) : null}
+          {mode === "add" &&
+          form.source === "brew" &&
+          lookup?.suggestion.source === "brew" &&
+          onSelectSource ? (
+            <SourceMatchesSection
+              input={`${lookup.suggestion.cask ? "cask" : "brew"}:${lookup.package}`}
+              from="brew"
+              onSelect={onSelectSource}
+            />
           ) : null}
         </>
       ) : null}

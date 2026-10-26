@@ -39,7 +39,7 @@ esac
         fs::write(this.dir.path().join("brew-version"), "1.0.0").unwrap();
         this
     }
-    fn tool(&self, name: &str, body: &str) {
+    pub(super) fn tool(&self, name: &str, body: &str) {
         let path = self.dir.path().join("bin").join(name);
         fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}")).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();

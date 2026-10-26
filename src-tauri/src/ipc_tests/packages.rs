@@ -34,9 +34,12 @@ esac
         r#"
 case "$*" in
   'info --json=v2 --formula fixture')
-    printf '%s\n' '{"formulae":[{"versions":{"stable":"3.0.0"},"installed":[{"version":"2.0.0"}],"outdated":true,"desc":"Fixture formula","homepage":"https://example.invalid/formula"}]}' ;;
+    printf '%s\n' '{"formulae":[{"name":"fixture","versions":{"stable":"3.0.0"},"installed":[{"version":"2.0.0"}],"outdated":true,"desc":"Fixture formula","homepage":"https://example.invalid/formula","urls":{"stable":{"url":"https://github.com/acme/fixture/archive/v3.tar.gz"}}}]}' ;;
   'info --json=v2 --cask fixture')
-    printf '%s\n' '{"casks":[{"name":["Fixture App"],"version":"4.0.0","installed":"3.0.0","outdated":true,"desc":"Fixture cask","homepage":"https://example.invalid/cask"}]}' ;;
+    printf '%s\n' '{"casks":[{"token":"fixture","name":["Fixture App"],"version":"4.0.0","installed":"3.0.0","outdated":true,"desc":"Fixture cask","homepage":"https://example.invalid/cask","url":"https://github.com/acme/fixture/releases/v4.dmg"}]}' ;;
+  'info --installed --json=v2')
+    printf '%s\n' '{"formulae":[],"casks":[{"token":"fixture","installed":"3.0.0","url":"https://github.com/acme/fixture/releases/v4.dmg"}]}' ;;
+  'search --formula fixture'|'search --cask fixture') echo fixture ;;
   *) exit 64 ;;
 esac
 "#,
@@ -53,4 +56,37 @@ pub(crate) fn script_app(id: &str) -> Value {
         "id": id, "name": id, "kind": "cli", "auto_update": false,
         "source": "script", "update_command": "printf updated > \"$FIXTURE_HOME/updated\""
     })
+}
+
+#[test]
+fn matching_and_inventory_share_snake_case_evidence_contract() {
+    use super::support::ok;
+    let harness = package_harness();
+    let brew = ok(
+        &harness,
+        "match_source",
+        json!({"input":"cask:fixture","offline":true}),
+    );
+    assert_eq!(brew["from"], "brew");
+    let repository = &brew["repositories"][0];
+    assert_eq!(repository["repo"], "acme/fixture");
+    assert_eq!(repository["confidence"], "high");
+    assert_eq!(repository["evidence"][0]["kind"], "download_url");
+    assert_eq!(repository["tracked_by"], json!([]));
+    assert!(repository["description"].is_null());
+    assert!(repository["stars"].is_null());
+    let github = ok(
+        &harness,
+        "match_source",
+        json!({"input":"acme/fixture","offline":true}),
+    );
+    assert_eq!(github["from"], "github");
+    assert_eq!(github["packages"][0]["package"], "fixture");
+    assert_eq!(github["packages"][0]["confidence"], "high");
+    assert_eq!(github["packages"][0]["tracked_by"], json!([]));
+    assert!(github["errors"].as_array().unwrap().is_empty());
+    let inventory = ok(&harness, "discover_apps", json!({"sources":["brew"]}));
+    assert_eq!(inventory["candidates"][0]["repositories"][0], *repository);
+    assert!(!harness.home.path().join("config/config.toml").exists());
+    assert!(!harness.home.path().join("config/state.json").exists());
 }

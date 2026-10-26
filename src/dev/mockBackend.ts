@@ -1,4 +1,5 @@
 import { handleRevisions, seedRevisionMock } from "./mockRevisions";
+import { handleMatches } from "./mockMatches";
 import { startMockUpdate, type MockUpdateHandle } from "./mockUpdateRun";
 import { handleInstallationOrigins } from "./mockPulls";
 import { mockCommitMetadata } from "./mockCommitMetadata";
@@ -103,6 +104,8 @@ export function handleMockCommand(
   cmd: string,
   args: Record<string, unknown> | undefined,
 ): unknown {
+  const matches = handleMatches(cmd, args);
+  if (matches !== undefined) return matches;
   const installation = handleInstallationOrigins(cmd, args, apps);
   if (installation !== undefined) return installation;
   const revision = handleRevisions(cmd, args, apps);

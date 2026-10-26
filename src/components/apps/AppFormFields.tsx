@@ -13,6 +13,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 
 import type { Preset, RepoInspection, SourceLookup } from "@/lib/api";
 import type { AppFormState } from "@/components/apps/useAppForm";
+import type { MatchSelection } from "./matchSelection";
 
 /** Radix Select does not allow an empty item value. */
 
@@ -34,6 +35,7 @@ export interface AppFormFieldsProps {
   onSetName: (value: string) => void;
   onSetId: (value: string) => void;
   onApplyPreset: (preset: Preset) => void;
+  onSelectSource?: (source: MatchSelection) => void;
 }
 
 /**
@@ -53,6 +55,7 @@ export function AppFormFields({
   onSetName,
   onSetId,
   onApplyPreset,
+  onSelectSource,
 }: AppFormFieldsProps) {
   const { t } = useTranslation();
   const nameId = useId();
@@ -63,6 +66,8 @@ export function AppFormFields({
   return (
     <div className="space-y-5">
       <AppFormSourceSection
+        mode={mode}
+        onSelectSource={onSelectSource}
         form={form}
         onUpdate={onUpdate}
         onInspect={onInspect}
@@ -80,6 +85,7 @@ export function AppFormFields({
             inspectionError={inspectionError}
             onRepoChange={(value) => onUpdate("repo", value)}
             onInspect={onInspect}
+            onSelectSource={onSelectSource}
           />
         </>
       ) : null}

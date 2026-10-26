@@ -90,6 +90,17 @@ fn noun(cask: bool) -> &'static str {
     if cask { "cask" } else { "formula" }
 }
 
+pub(crate) fn package_not_found(stderr: &str) -> bool {
+    [
+        "No available",
+        "No formulae or casks found",
+        "is unavailable",
+        "No Cask with this name exists",
+    ]
+    .iter()
+    .any(|message| stderr.contains(message))
+}
+
 async fn status(cancel: &CancellationToken, env: &ShellEnv, source: &BrewSource) -> Result<Status> {
     let flag = if source.cask { "--cask" } else { "--formula" };
     let cmd = Cmd::new("brew", env)
@@ -97,8 +108,7 @@ async fn status(cancel: &CancellationToken, env: &ShellEnv, source: &BrewSource)
         .env("HOMEBREW_NO_ENV_HINTS", "1");
     let out = probe::capture(cancel, &cmd).await?;
     if !out.success() {
-        if out.stderr.contains("No available") || out.stderr.contains("No formulae or casks found")
-        {
+        if package_not_found(&out.stderr) {
             return Err(Error::RemoteNotFound(format!(
                 "Homebrew {} `{}`",
                 noun(source.cask),

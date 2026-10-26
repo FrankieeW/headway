@@ -9,6 +9,7 @@ React renderer talks only to Tauri IPC; it does not fetch GitHub data or execute
 |---|---|---|
 | `headway-core::Headway` | Validate configuration, observe installed software, plan/check/update/restore | Depend on a UI or terminal |
 | `service/*` | Orchestrate policy and persistence around engine mechanisms | Duplicate install mechanisms |
+| `brew_match/*` | Read-only Homebrew/GitHub matching with typed metadata, strict URL identities and ranked evidence | Install, persist suggestions or treat names/search as verified identity |
 | `update::Job` | Execute one build/download/install target and return evidence | Independently invent revision baselines |
 | `recovery/*` + `install` | Stage payloads, protect destinations, retain backups, recover interrupted replacements | Replace a plain directory or trust unvalidated cache paths |
 | CLI commands | Parse flags, invoke `Headway`, render one human/JSON/XML result | Maintain a different validation path for previews |
@@ -18,6 +19,11 @@ React renderer talks only to Tauri IPC; it does not fetch GitHub data or execute
 `HeadwayBuilder` injects paths, secret storage, GitHub API base and command environment. Tests use
 an isolated `HEADWAY_HOME`, in-memory secrets, wiremock servers, real temporary git repositories,
 and fake package-manager executables. Nothing should require a developer's real token or config.
+
+`Headway::match_source` serves both CLI `match` and desktop `match_source`. Homebrew metadata URL
+evidence is shared with inventory discovery; optional GitHub details/search enrich suggestions.
+Provider errors remain alongside useful results. Matching probes use bounded `process::Cmd`
+capture with Homebrew auto-update/analytics disabled and no inherited GitHub credentials.
 
 ## Concurrency and storage
 

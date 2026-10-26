@@ -37,6 +37,7 @@ struct Cask {
 }
 
 pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
+    let metadata = crate::brew_match::metadata::parse(text)?;
     let info: BrewInfo =
         serde_json::from_str(text).map_err(|err| Error::parse("brew inventory", &err))?;
     let mut candidates = Vec::new();
@@ -95,6 +96,15 @@ pub(super) fn brew(text: &str) -> Result<Vec<InventoryCandidate>> {
         );
         item.app.validate()?;
         candidates.push(item);
+    }
+    for item in &mut candidates {
+        if let Source::Brew(source) = &item.app.source
+            && let Some(package) = metadata
+                .iter()
+                .find(|package| package.package == source.package && package.cask == source.cask)
+        {
+            item.repositories = crate::brew_match::evidence::repositories(package.repositories());
+        }
     }
     Ok(candidates)
 }
