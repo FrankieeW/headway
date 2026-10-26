@@ -47,6 +47,52 @@ fn source_apps_round_trip_through_add_save_and_list() {
 }
 
 #[test]
+fn github_recipes_survive_default_switches_and_alternate_removal() {
+    let harness = package_harness();
+    let dest = harness.home.path().join("bin/tool");
+    let mut app = tool_app("file:///nowhere", &dest);
+    app["release_asset"] = json!({
+        "method": "asset",
+        "pattern": "*.zip",
+        "binary": "tool",
+        "verify_command": "tool --version"
+    });
+    let added = ok(&harness, "add_app", json!({"app":app}));
+    assert_eq!(added["app"]["install"]["method"], "source");
+    assert_eq!(added["app"]["release_asset"]["pattern"], "*.zip");
+    app = added["app"].clone();
+    let source = app["install"].clone();
+    app["install"] = json!({
+        "method": "asset",
+        "pattern": "*.tar.gz",
+        "binary": "tool",
+        "dest": dest
+    });
+    app["source_build"] = source.clone();
+    app.as_object_mut().unwrap().remove("release_asset");
+    ok(&harness, "save_app", json!({"app":app}));
+    let listed = ok(&harness, "list_apps", json!({}));
+    let saved = &listed[0]["app"];
+    assert_eq!(saved["install"]["method"], "asset");
+    assert_eq!(saved["install"]["pattern"], "*.tar.gz");
+    assert_eq!(saved["source_build"]["build"], source["build"]);
+    assert_eq!(saved["source_build"]["artifact"], "out/tool");
+    assert!(!saved.as_object().unwrap().contains_key("release_asset"));
+
+    app = saved.clone();
+    app.as_object_mut().unwrap().remove("source_build");
+    ok(&harness, "save_app", json!({"app":app}));
+    let listed = ok(&harness, "list_apps", json!({}));
+    assert_eq!(listed[0]["app"]["install"], app["install"]);
+    assert!(
+        !listed[0]["app"]
+            .as_object()
+            .unwrap()
+            .contains_key("source_build")
+    );
+}
+
+#[test]
 fn lookup_source_returns_package_metadata_and_addable_suggestions() {
     // Given deterministic executables instead of the user's package managers.
     let harness = package_harness();

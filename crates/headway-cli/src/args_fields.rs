@@ -58,7 +58,7 @@ pub struct AppFields {
     /// Only consider matching tags (GitHub release/tag mode only)
     #[arg(long, value_name = "REGEX")]
     pub tag_filter: Option<String>,
-    /// Build from source, or download a release asset (GitHub only)
+    /// Default GitHub install method. Build and release-asset flags can both be set.
     #[arg(long, value_enum)]
     pub method: Option<MethodArg>,
     /// Fill a GitHub source-build recipe from a preset (see `headway presets`)
@@ -79,7 +79,7 @@ pub struct AppFields {
     /// GitHub asset glob, e.g. '*aarch64-apple-darwin.tar.gz' (empty = automatic)
     #[arg(long, value_name = "GLOB")]
     pub pattern: Option<String>,
-    /// Binary or .app name inside the release asset (GitHub asset method only)
+    /// Binary or .app name inside the GitHub release asset
     #[arg(long, value_name = "NAME")]
     pub binary: Option<String>,
     /// Let the desktop app install updates as soon as it finds them

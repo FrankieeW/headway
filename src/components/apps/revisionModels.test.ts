@@ -31,12 +31,6 @@ const app: TrackedApp = {
       branch: "develop",
     },
   ],
-  source_build: {
-    method: "source",
-    build: "./build",
-    artifact: "build/Tool.app",
-    storage: { keep: true, root: "/Volumes/Source" },
-  },
   release_asset: { method: "asset", pattern: "*.dmg", binary: "Tool.app" },
   variant: { parent_id: "parent", reference: sha },
 };

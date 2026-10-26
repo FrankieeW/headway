@@ -64,7 +64,7 @@ it.each([
       <AppPage appId="tool" tab={tab} onTabChange={() => {}} />,
     );
     const selector = await screen.findByRole("combobox", {
-      name: "Install method for this update",
+      name: "Install from GitHub",
     });
     fireEvent.keyDown(selector, { key: "ArrowDown" });
     fireEvent.click(
@@ -79,6 +79,8 @@ it.each([
       expect(start).toHaveBeenCalledWith("tool", target, "asset"),
     );
     expect(save).not.toHaveBeenCalled();
-    await waitFor(() => expect(selector).toHaveTextContent("Saved recipe"));
+    await waitFor(() =>
+      expect(selector).toHaveTextContent("Build from source"),
+    );
   },
 );

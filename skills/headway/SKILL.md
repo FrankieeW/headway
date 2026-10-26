@@ -5,10 +5,11 @@ description: Use when keeping apps or CLI tools from GitHub, npm, Homebrew or of
 
 # Headway
 
-Headway follows GitHub repositories **commit by commit** (build from source) or **release by
-release** (download a release asset or build the tag) and installs the result: CLI tools into
-`~/.local/bin`, `.app` bundles into `/Applications`. The `headway` CLI and the Headway menu-bar app
-share config, state, logs and locks, so whatever you do here shows up in the app.
+Headway follows a GitHub repository as one subscription. What to follow (every commit, releases, or
+tags) is separate from how a revision is installed: build it from source, or download its release
+asset. Both recipes can be saved. CLI tools go into `~/.local/bin` and `.app` bundles into
+`/Applications`. The `headway` CLI and the Headway menu-bar app share config, state, logs and locks,
+so whatever you do here shows up in the app.
 
 ## Rules
 
@@ -219,11 +220,20 @@ This is a presence check, not a checksum or version probe. It never invents a re
 the upstream head. `show` and the desktop expose the same `installation` evidence.
 
 `headway --ai update <id> --method configured|source|asset` decides how that one run installs.
-`configured` (the default) uses the app's saved recipe, `source` builds the selected commit and
-`asset` downloads the release that published it. The method never rewrites the saved recipe, so a
-commit-tracked app can be updated from its release without switching to release tracking. With
+`configured` (the default) uses the saved install method, `source` builds the selected commit and
+`asset` downloads the release that published it. The method never rewrites the saved recipes, so a
+commit-tracked app can be updated from its release without switching what it follows. With
 `--method asset` the run fails when the resolved commit has no published release or no installable
 asset; it never falls back to a build. `--dry-run` shows the same plan.
+
+`edit` can store both GitHub install recipes at once. `--build`, `--preset`, `--workdir` and
+`--artifact` update the source recipe. `--pattern` and `--binary` update the release recipe.
+Recipe edits keep the current default; only `--method source|asset` changes which one ordinary
+updates use. With an asset default, `edit <id> --build ''` removes the optional source recipe;
+the active source recipe still requires a non-empty build command. `install` holds the active
+recipe, with only the opposite method retained in `source_build` or `release_asset`; saving
+does not retain a duplicate of the active recipe. One-off `update --method` does not rewrite
+either recipe.
 
 ## Exact revisions and independent installations
 

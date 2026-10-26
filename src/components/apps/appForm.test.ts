@@ -7,6 +7,7 @@ import {
   emptyForm,
   formFromApp,
   inspectedBinary,
+  withInstallMethod,
 } from "./useAppForm";
 import type { Preset, TrackedApp } from "@/lib/api";
 
@@ -116,6 +117,110 @@ describe("appFromForm", () => {
       tag_filter: null,
     });
   });
+
+  it("keeps a download recipe beside the source build", () => {
+    const form = {
+      ...formFromApp(cliApp),
+      pattern: "*.tar.gz",
+      binary: "my-tool",
+    };
+    const app = appFromForm(form);
+    if (app.source !== "github") throw new Error("Expected GitHub payload");
+    expect(app.install.method).toBe("source");
+    expect(app.release_asset).toMatchObject({
+      method: "asset",
+      pattern: "*.tar.gz",
+      binary: "my-tool",
+    });
+  });
+
+  it("edits and clears the source recipe without changing the download default", () => {
+    const form = {
+      ...formFromApp(releaseApp),
+      build: "make",
+      artifact: "build/tool",
+    };
+    const added = appFromForm(form);
+    if (added.source !== "github") throw new Error("Expected GitHub payload");
+    expect(added.install).toEqual(releaseApp.install);
+    expect(added.source_build).toMatchObject({
+      build: "make",
+      artifact: "build/tool",
+    });
+    const edited = appFromForm({
+      ...formFromApp(added),
+      build: "make release",
+    });
+    if (edited.source !== "github") throw new Error("Expected GitHub payload");
+    expect(edited.install).toEqual(releaseApp.install);
+    expect(edited.source_build?.build).toBe("make release");
+    const cleared = appFromForm({ ...formFromApp(edited), build: " \n " });
+    if (cleared.source !== "github") throw new Error("Expected GitHub payload");
+    expect(cleared.install).toEqual(releaseApp.install);
+    expect(cleared.source_build).toBeUndefined();
+  });
+
+  it("preserves both recipes and their verifiers when switching defaults", () => {
+    let form = {
+      ...formFromApp(cliApp),
+      build: "make release",
+      pattern: "*.zip",
+      binary: "my-tool",
+      verifyCommand: "check-source",
+      assetVerifyCommand: "check-download",
+      dest: "/tmp/my-tool",
+    };
+    const download = appFromForm(withInstallMethod(form, "asset"));
+    if (download.source !== "github")
+      throw new Error("Expected GitHub payload");
+    expect(download.install).toMatchObject({
+      method: "asset",
+      pattern: "*.zip",
+      binary: "my-tool",
+      verify_command: "check-download",
+      dest: "/tmp/my-tool",
+    });
+    expect(download.source_build).toMatchObject({
+      build: "make release",
+      verify_command: "check-source",
+    });
+    expect(download.release_asset).toBeUndefined();
+    form = formFromApp(download);
+    const source = appFromForm(withInstallMethod(form, "source"));
+    if (source.source !== "github") throw new Error("Expected GitHub payload");
+    expect(source.install).toMatchObject({
+      method: "source",
+      build: "make release",
+      verify_command: "check-source",
+      dest: "/tmp/my-tool",
+    });
+    expect(source.release_asset).toMatchObject({
+      pattern: "*.zip",
+      verify_command: "check-download",
+    });
+    expect(source.source_build).toBeUndefined();
+  });
+
+  it.each(["source", "asset"] as const)(
+    "drops the stale duplicate of the active %s recipe",
+    (method) => {
+      const app = {
+        ...(method === "source" ? cliApp : releaseApp),
+        source_build: { method: "source" as const, build: "stale-build" },
+        release_asset: { method: "asset" as const, pattern: "stale.zip" },
+      };
+      const saved = appFromForm(formFromApp(app));
+      if (saved.source !== "github") throw new Error("Expected GitHub payload");
+      expect(saved.install).toEqual(app.install);
+      if (method === "source") {
+        expect(saved.source_build).toBeUndefined();
+        expect(saved.release_asset?.pattern).toBe("stale.zip");
+      } else {
+        expect(saved.release_asset).toBeUndefined();
+        expect(saved.source_build?.build).toBe("stale-build");
+      }
+    },
+  );
 
   it("sends empty source fields as null", () => {
     const form = {

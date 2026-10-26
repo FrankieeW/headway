@@ -2,14 +2,20 @@
 
 Keep Mac apps and CLI tools current: **GitHub commits/releases, npm, Homebrew, or official updaters**.
 
-Headway tracks GitHub repositories and installs new versions for you: a CLI tool into `~/.local/bin`,
-an app bundle into `/Applications`. Each repository is followed one of two ways:
+Headway tracks a GitHub repository as one subscription and installs it for you: a CLI tool into
+`~/.local/bin`, an app bundle into `/Applications`. What counts as a new version is separate from
+how that version is installed:
 
-- **Every commit** on a branch: clone once, check out the new commit, run your build command, install
-  the result. Step through one commit at a time (`--next`) or jump to the latest.
-- **Releases** (or version tags): download the macOS asset for your CPU, verify its SHA-256
-  against GitHub's digest when one is published, unpack the `.tar.gz`/`.zip`/`.dmg`, and install it.
-  A missing digest is reported, not treated as verification. Release tags can also be built from source.
+- Follow every commit on a branch, GitHub releases, or version tags. Step through one revision at
+  a time (`--next`) or jump to the latest.
+- Install that revision by building it, or by downloading the macOS release asset. Both recipes can
+  be saved. Ordinary updates use the default; one run can choose the other without changing the
+  subscription. Editing a recipe keeps the default; `edit --method source|asset` changes it
+  explicitly.
+
+A build checks out the revision and runs your build command. A download takes the asset for your
+CPU, verifies its SHA-256 against GitHub's digest when one is published, and unpacks the
+`.tar.gz`/`.zip`/`.dmg`. A missing digest is reported, not treated as verification.
 
 It comes as a menu-bar app and a CLI that share the same state. The CLI is built to be driven by AI
 agents: structured XML/JSON output, stable error codes, self-description, and an agent skill.
