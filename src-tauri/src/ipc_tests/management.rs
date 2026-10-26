@@ -17,6 +17,7 @@ fn recipes_inventory_import_and_resume_use_the_registered_payloads() {
         .find(|recipe| recipe["id"] == "pnpm-npm")
         .unwrap();
     let discovered = ok(&harness, "discover_apps", json!({"sources":["npm"]}));
+    assert_eq!(discovered["errors"], json!([]), "{discovered:#}");
     assert_eq!(discovered["candidates"][0]["app"]["source"], "npm");
     // When importing the editable recipe through IPC.
     let imported = ok(&harness, "import_apps", json!({"apps":[recipe["app"]]}));
