@@ -420,6 +420,10 @@ are rejected unchanged. Before a state mutation, the previous valid document is 
 original, inspect `headway doctor`, and restore a known-good backup explicitly. Resetting state
 loses installed provenance; finding a file again will not invent a commit.
 
+Inventory IDs and retained-backup digests use lowercase, zero-padded SHA-256 hex independently
+of the hashing library's formatting traits. Dependency upgrades preserve these values so existing
+discovery identities and backup manifests remain usable.
+
 ## Development
 
 ```sh
