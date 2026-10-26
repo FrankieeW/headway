@@ -420,6 +420,10 @@ are rejected unchanged. Before a state mutation, the previous valid document is 
 original, inspect `headway doctor`, and restore a known-good backup explicitly. Resetting state
 loses installed provenance; finding a file again will not invent a commit.
 
+Inventory IDs and retained-backup digests use lowercase, zero-padded SHA-256 hex independently
+of the hashing library's formatting traits. Dependency upgrades preserve these values so existing
+discovery identities and backup manifests remain usable.
+
 ## Development
 
 ```sh
@@ -430,6 +434,12 @@ cargo test                     # engine + CLI, including end-to-end runs against
 cargo test -p headway-desktop  # IPC contract tests (needs `pnpm build:renderer` once)
 pnpm test && pnpm typecheck
 ```
+
+The renderer uses React 19, TypeScript 7, Vite 8 and Tailwind 4. Tailwind runs through
+`@tailwindcss/postcss`; `src/index.css` loads the existing theme and animation plugin with
+`@config`. Vite uses Rolldown vendor groups. `pnpm run check:ipc` uses TypeScript 7's native
+compiler AST API and checks every API source, including files outside the tsconfig include globs.
+Run it alongside typecheck, tests and the renderer build when updating TypeScript.
 
 UI preview without the backend: `pnpm dev:renderer`, then open
 `http://localhost:1420/?mock` (`&theme=dark`, `&lang=en`).
