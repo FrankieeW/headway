@@ -23,7 +23,7 @@ pub async fn add(hw: &Headway, args: &AddArgs, p: Palette) -> Result<Reply> {
         match spec {
             SourceSpec::Github(_) => {
                 let found = hw.inspect(&args.repo).await?;
-                let fields = prefer_release_asset(&args.fields, &found);
+                let fields = add_fields(&args.fields, &found);
                 (found.suggestion, found.notes, fields)
             }
             SourceSpec::Npm(_) | SourceSpec::Brew { .. } => {
@@ -101,14 +101,28 @@ pub async fn add(hw: &Headway, args: &AddArgs, p: Palette) -> Result<Reply> {
     Ok(Reply::new(&data, human).next(next))
 }
 
-/// `--track release` without `--method` means "download it" when the release has a macOS asset.
-fn prefer_release_asset(fields: &AppFields, found: &RepoInspection) -> AppFields {
+/// `add` starts from a suggestion, not a chosen default. Without `--method`, build flags mean
+/// "build it", and `--track release` means "download it" when the release has a macOS asset.
+fn add_fields(fields: &AppFields, found: &RepoInspection) -> AppFields {
+    if fields.method.is_some() {
+        return fields.clone();
+    }
+    if fields.build.is_some()
+        || fields.preset.is_some()
+        || fields.workdir.is_some()
+        || fields.artifact.is_some()
+    {
+        return AppFields {
+            method: Some(MethodArg::Source),
+            ..fields.clone()
+        };
+    }
     let asset_kind = found
         .latest_release
         .as_ref()
         .and_then(|release| release.suggested_kind);
-    match (fields.track, fields.method, asset_kind) {
-        (Some(TrackArg::Release), None, Some(kind)) => AppFields {
+    match (fields.track, asset_kind) {
+        (Some(TrackArg::Release), Some(kind)) => AppFields {
             method: Some(MethodArg::Asset),
             kind: fields.kind.or(Some(match kind {
                 AppKind::Cli => KindArg::Cli,

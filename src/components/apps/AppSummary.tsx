@@ -1,4 +1,5 @@
 import { CommitBadges } from "./CommitBadges";
+import { GitHubInstallMethod } from "./GitHubInstallMethod";
 import { InstallationDetails } from "./InstallationDetails";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Download } from "lucide-react";
@@ -8,13 +9,6 @@ import { RunProgress } from "@/components/apps/RunProgress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -278,45 +272,12 @@ export function AppSummary({
         )}
 
         {app.app.source === "github" ? (
-          <div className="space-y-1 border-t border-border pt-3">
-            <label
-              className="block text-caption text-fg-2"
-              htmlFor="update-method"
-            >
-              {t("appPage.installMethod")}
-            </label>
-            <Select
-              value={updateMethod}
-              disabled={starting || busy}
-              onValueChange={(value) => {
-                if (
-                  value === "configured" ||
-                  value === "source" ||
-                  value === "asset"
-                )
-                  onUpdateMethodChange(value);
-              }}
-            >
-              <SelectTrigger
-                id="update-method"
-                className="w-full"
-                aria-label={t("appPage.installMethod")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="configured">
-                  {t("appPage.methodConfigured")}
-                </SelectItem>
-                <SelectItem value="source">
-                  {t("appPage.methodSource")}
-                </SelectItem>
-                <SelectItem value="asset">
-                  {t("appPage.methodAsset")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <GitHubInstallMethod
+            saved={app.app.install.method}
+            selected={updateMethod}
+            disabled={starting || busy}
+            onChange={onUpdateMethodChange}
+          />
         ) : null}
 
         <label className="flex items-center justify-between gap-3 border-t border-border pt-3">

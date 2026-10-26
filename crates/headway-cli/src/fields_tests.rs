@@ -79,32 +79,66 @@ fn switching_to_release_assets() {
             dest: None,
         })
     );
+    assert_eq!(
+        app.github()
+            .unwrap()
+            .options
+            .source_build
+            .as_ref()
+            .map(|source| source.build.as_str()),
+        Some("cargo build --release --locked")
+    );
     app.validate().unwrap();
 }
 
 #[test]
-fn leaving_release_mode_switches_assets_back_to_source() {
-    let release = apply(
+fn source_and_asset_recipes_can_be_saved_together() {
+    // Given a source build, when a release pattern is added without changing the default.
+    let app = apply(
         base(),
         &AppFields {
-            track: Some(TrackArg::Release),
-            method: Some(MethodArg::Asset),
+            pattern: Some("*.tar.gz".into()),
+            binary: Some("rg".into()),
             ..AppFields::default()
         },
     )
     .unwrap();
-    let tags = apply(
-        release,
+    let github = app.github().unwrap();
+    // Then ordinary updates still build, and the download recipe is kept beside it.
+    assert!(
+        matches!(&github.install, Install::Source(source) if source.build.contains("cargo build"))
+    );
+    let asset = github.options.release_asset.as_ref().unwrap();
+    assert_eq!(asset.pattern.as_deref(), Some("*.tar.gz"));
+    assert_eq!(asset.binary.as_deref(), Some("rg"));
+    app.validate().unwrap();
+}
+
+#[test]
+fn an_asset_default_can_keep_a_source_build() {
+    let app = apply(
+        base(),
         &AppFields {
-            track: Some(TrackArg::Tag),
+            method: Some(MethodArg::Asset),
+            pattern: Some("*.zip".into()),
             build: Some("make".into()),
             ..AppFields::default()
         },
     )
     .unwrap();
+    let github = app.github().unwrap();
     assert!(
-        matches!(&tags.github().unwrap().install, Install::Source(source) if source.build == "make")
+        matches!(&github.install, Install::Asset(asset) if asset.pattern.as_deref() == Some("*.zip"))
     );
+    assert_eq!(
+        github
+            .options
+            .source_build
+            .as_ref()
+            .map(|source| source.build.as_str()),
+        Some("make")
+    );
+    app.validate().unwrap();
 }
 
 #[test]
@@ -156,6 +190,59 @@ fn empty_strings_clear_optional_fields() {
 }
 
 #[test]
+fn source_retention_needs_a_source_build() {
+    let Source::Github(github) = base().source else {
+        panic!("github");
+    };
+    let asset_only = TrackedApp {
+        source: Source::Github(GithubSource {
+            install: Install::Asset(AssetInstall {
+                pattern: Some("*.tar.gz".into()),
+                ..AssetInstall::default()
+            }),
+            ..github
+        }),
+        ..base()
+    };
+    for fields in [
+        AppFields {
+            keep_source: Some(false),
+            ..AppFields::default()
+        },
+        AppFields {
+            source_root: Some("~/src".into()),
+            ..AppFields::default()
+        },
+    ] {
+        let error = apply(asset_only.clone(), &fields).unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidInput(ref message) if message.contains("a GitHub source build")),
+            "{error}"
+        );
+    }
+    let kept = apply(
+        asset_only,
+        &AppFields {
+            method: Some(MethodArg::Asset),
+            build: Some("make".into()),
+            keep_source: Some(false),
+            ..AppFields::default()
+        },
+    )
+    .unwrap();
+    let github = kept.github().unwrap();
+    assert!(matches!(github.install, Install::Asset(_)));
+    assert_eq!(
+        github
+            .options
+            .source_build
+            .as_ref()
+            .map(|source| (source.build.as_str(), source.storage.keep)),
+        Some(("make", false))
+    );
+}
+
+#[test]
 fn mismatched_flags_are_rejected() {
     let cases = [
         AppFields {
@@ -165,16 +252,6 @@ fn mismatched_flags_are_rejected() {
         },
         AppFields {
             prerelease: Some(true),
-            ..AppFields::default()
-        },
-        AppFields {
-            pattern: Some("*".into()),
-            ..AppFields::default()
-        },
-        AppFields {
-            track: Some(TrackArg::Release),
-            method: Some(MethodArg::Asset),
-            build: Some("make".into()),
             ..AppFields::default()
         },
         AppFields {
@@ -291,3 +368,6 @@ fn policy_flags_parse_and_reject_out_of_range_steps() {
         );
     }
 }
+
+#[path = "fields_recipe_tests.rs"]
+mod recipes;

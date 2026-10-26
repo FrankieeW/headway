@@ -1,5 +1,5 @@
-//! CLI contracts for the release-aware commit listing and the install method
-//! that a single update run can force.
+//! CLI contracts for the release-aware commit listing, the install method that a
+//! single update run can force, and the method `add` picks from its flags.
 #![allow(clippy::unwrap_used)]
 use assert_cmd::Command;
 use serde_json::{Value, json};
@@ -260,4 +260,52 @@ async fn forced_asset_dry_run_preserves_method_in_the_execution_hint() {
             .iter()
             .all(|request| !request.url.path().contains("/assets/"))
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn add_build_flags_choose_the_build_over_a_suggested_download() {
+    // Given a repository with no known build system and a macOS release asset.
+    let root = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+    let respond = |body: Value| ResponseTemplate::new(200).set_body_json(body);
+    Mock::given(path("/repos/octo/tool"))
+        .respond_with(respond(json!({
+            "full_name":"octo/tool","default_branch":"main","html_url":"https://github.com/octo/tool"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(path("/repos/octo/tool/releases"))
+        .respond_with(respond(json!([{
+            "id":7,"tag_name":TAG,"draft":false,"prerelease":false,
+            "html_url":"https://github.com/octo/tool/releases/tag/v1.2.3",
+            "assets":[
+                {"id":8,"name":"tool-aarch64-apple-darwin.tar.gz","size":10},
+                {"id":9,"name":"tool-x86_64-apple-darwin.tar.gz","size":10}
+            ]
+        }])))
+        .mount(&server)
+        .await;
+    let add = |extra: &[&str]| -> Value {
+        let output = command(root.path())
+            .env("HEADWAY_API_URL", server.uri())
+            .args(["--json", "add", "octo/tool", "--dry-run"])
+            .args(extra)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<Value>(&output).unwrap()["data"]["app"].clone()
+    };
+    // When nothing about installing is given, the release download is suggested.
+    assert_eq!(add(&[])["install"]["method"], "asset");
+    // When a build recipe is given, building becomes the default.
+    let built = add(&["--build", "make release", "--artifact", "build/tool"]);
+    assert_eq!(built["install"]["method"], "source");
+    assert_eq!(built["install"]["build"], "make release");
+    assert!(built.get("source_build").is_none());
+    // When the download is chosen explicitly, the build is kept beside it.
+    let kept = add(&["--method", "asset", "--build", "make"]);
+    assert_eq!(kept["install"]["method"], "asset");
+    assert_eq!(kept["source_build"]["build"], "make");
 }

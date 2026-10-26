@@ -313,17 +313,13 @@ async fn failures_are_structured_for_agents() {
     assert_eq!(shown["data"]["status"], "error");
     assert_eq!(shown["data"]["history"][0]["ok"], false);
 
-    // Flags that don't fit the mode are refused with a usage-class error.
-    let mismatch = hw()
-        .args(["--json", "edit", "tool", "--pattern", "*.tar.gz"])
-        .assert()
-        .code(2);
-    let mismatch: Value = serde_json::from_slice(&mismatch.get_output().stdout).unwrap();
-    assert!(
-        mismatch["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("--method asset")
+    // A download pattern is another way to install this repository. The saved default stays the build.
+    let edited = json_of(hw().args(["--json", "edit", "tool", "--pattern", "*.tar.gz"]));
+    assert_eq!(edited["ok"], true);
+    assert_eq!(edited["data"]["app"]["install"]["method"], "source");
+    assert_eq!(
+        edited["data"]["app"]["release_asset"]["pattern"],
+        "*.tar.gz"
     );
 }
 

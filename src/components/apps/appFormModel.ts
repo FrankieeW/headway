@@ -221,27 +221,7 @@ export function appFromForm(form: AppFormState): TrackedApp {
             tag_filter: form.tagFilter.trim() || null,
           };
 
-  const install: Install =
-    form.installMethod === "asset"
-      ? {
-          method: "asset",
-          verify_command: form.verifyCommand.trim() || null,
-          pattern: form.pattern.trim() || null,
-          binary: form.binary.trim() || null,
-          dest: form.dest.trim() || null,
-        }
-      : {
-          method: "source",
-          storage: {
-            keep: form.storageKeep,
-            root: form.storageRoot.trim() || null,
-          },
-          verify_command: form.verifyCommand.trim() || null,
-          build: form.build.trim(),
-          workdir: form.workdir.trim() || null,
-          artifact: form.artifact.trim() || null,
-          dest: form.dest.trim() || null,
-        };
+  const recipes = githubRecipes(form);
 
   return {
     source: "github",
@@ -263,11 +243,70 @@ export function appFromForm(form: AppFormState): TrackedApp {
           })),
         }
       : {}),
-    ...(form.sourceBuild ? { source_build: form.sourceBuild } : {}),
-    ...(form.releaseAsset ? { release_asset: form.releaseAsset } : {}),
+    ...(recipes.sourceBuild ? { source_build: recipes.sourceBuild } : {}),
+    ...(recipes.releaseAsset ? { release_asset: recipes.releaseAsset } : {}),
     ...(form.variant ? { variant: form.variant } : {}),
     track,
-    install,
+    install: recipes.install,
+  };
+}
+
+/** The default method is `install`. The other method is saved beside it when it has a recipe. */
+function githubRecipes(form: AppFormState): {
+  install: Install;
+  sourceBuild: SourceInstall | null;
+  releaseAsset: AssetInstall | null;
+} {
+  const sourceInstall: SourceInstall = {
+    method: "source",
+    storage: {
+      keep: form.storageKeep,
+      root: form.storageRoot.trim() || null,
+    },
+    verify_command:
+      (form.installMethod === "source"
+        ? form.verifyCommand
+        : form.sourceVerifyCommand
+      ).trim() || null,
+    build: form.build.trim(),
+    workdir: form.workdir.trim() || null,
+    artifact: form.artifact.trim() || null,
+    dest:
+      form.installMethod === "source"
+        ? form.dest.trim() || null
+        : (form.sourceBuild?.dest ?? null),
+  };
+  const assetInstall: AssetInstall = {
+    method: "asset",
+    verify_command:
+      (form.installMethod === "asset"
+        ? form.verifyCommand
+        : form.assetVerifyCommand
+      ).trim() || null,
+    pattern: form.pattern.trim() || null,
+    binary: form.binary.trim() || null,
+    dest:
+      form.installMethod === "asset"
+        ? form.dest.trim() || null
+        : (form.releaseAsset?.dest ?? null),
+  };
+  const assetHasRecipe = Boolean(
+    assetInstall.pattern ||
+    assetInstall.binary ||
+    assetInstall.verify_command ||
+    form.releaseAsset,
+  );
+  if (form.installMethod === "asset") {
+    return {
+      install: assetInstall,
+      sourceBuild: sourceInstall.build ? sourceInstall : null,
+      releaseAsset: null,
+    };
+  }
+  return {
+    install: sourceInstall,
+    sourceBuild: null,
+    releaseAsset: assetHasRecipe ? assetInstall : null,
   };
 }
 
@@ -304,6 +343,25 @@ export function withInstallMethod(
 }
 
 /**
+ * Source paths or storage typed without a build command are dropped when download is the
+ * default. Clearing an existing alternate's build command is removal, not this.
+ */
+export function sourceRecipeNeedsBuild(form: AppFormState): boolean {
+  return (
+    form.source === "github" &&
+    form.installMethod === "asset" &&
+    !form.sourceBuild &&
+    !form.build.trim() &&
+    Boolean(
+      form.workdir.trim() ||
+      form.artifact.trim() ||
+      form.storageRoot.trim() ||
+      !form.storageKeep,
+    )
+  );
+}
+
+/**
  * Quote a value for a POSIX shell unless it only has safe characters
  * (same rule as `shell_quote` in headway-core).
  */
@@ -335,7 +393,8 @@ export function applyPreset(
   return {
     ...form,
     presetId: preset.id,
-    kind: preset.kind,
+    // The preset fills the source build; it picks the kind only when that build is the default.
+    kind: form.installMethod === "source" ? preset.kind : form.kind,
     build: fill(preset.build, shellQuote),
     artifact: fill(preset.artifact, (part) => part),
   };

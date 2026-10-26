@@ -8,6 +8,7 @@ import {
   applyPreset,
   appFromForm,
   inspectedBinary,
+  sourceRecipeNeedsBuild,
   useAppForm,
 } from "@/components/apps/useAppForm";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -84,7 +85,7 @@ export function AppFormDialog({
       name: form.form.name.trim() || bin,
     });
     form.update("presetId", next.presetId);
-    form.update("kind", next.kind);
+    if (next.kind !== form.form.kind) form.update("kind", next.kind);
     form.update("build", next.build);
     form.update("artifact", next.artifact);
   };
@@ -122,6 +123,10 @@ export function AppFormDialog({
       payload.repositories?.some((row) => !row.repo.trim())
     ) {
       setError(t("versions.repositoryRequired"));
+      return;
+    }
+    if (sourceRecipeNeedsBuild(form.form)) {
+      setError(t("form.sourceBuildRequired"));
       return;
     }
     setSaving(true);

@@ -41,13 +41,6 @@ const child: TrackedApp = {
     verify_command: "verify source",
     storage: { keep: false, root: "~/Saved Sources" },
   },
-  release_asset: {
-    method: "asset",
-    pattern: "*arm64.zip",
-    binary: "Saved.app",
-    dest: "/Applications/Saved asset.app",
-    verify_command: "verify saved asset",
-  },
   variant: {
     parent_id: "parent",
     reference: sha,
@@ -191,31 +184,6 @@ it("keeps the default/user-chosen source method when tracking mode changes after
   expect(
     screen.getByRole("button", { name: "Build from source" }),
   ).toHaveAttribute("aria-pressed", "true");
-});
-
-it("round-trips source/asset/source without replacing explicit alternate recipes or the current source storage", () => {
-  // Given an active source recipe distinct from both explicitly retained alternatives.
-  const source: TrackedApp = {
-    ...child,
-    source: "github",
-    install: {
-      method: "source",
-      build: "make active-source",
-      workdir: "src",
-      artifact: "out/Active.app",
-      dest: "/Applications/Active.app",
-      verify_command: "verify active",
-      storage: { keep: false, root: "/Volumes/Active Sources" },
-    },
-  };
-  const { result } = renderHook(() => useAppForm(source));
-  // When switching to the asset method and back.
-  act(() => result.current.update("installMethod", "asset"));
-  expect(result.current.form.pattern).toBe("*arm64.zip");
-  expect(result.current.form.verifyCommand).toBe("verify saved asset");
-  act(() => result.current.update("installMethod", "source"));
-  // Then the active source and both explicit alternatives survive unchanged.
-  expect(appFromForm(result.current.form)).toMatchObject(source);
 });
 
 it("retains a previously active source recipe when saving asset mode and switching back after reopening", () => {
