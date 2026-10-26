@@ -90,5 +90,21 @@ Build provenance, when attached, records which repository/workflow produced the 
 checksums nor provenance replace trust in that repository and its dependencies. Workflow actions
 are pinned to reviewed commit identities, and lockfiles are used for release builds.
 
+Dependency advisory CI checks both shipped macOS targets (`aarch64-apple-darwin` and
+`x86_64-apple-darwin`) through `.github/cargo-deny.toml`, without advisory ignore entries.
+Dependabot scans the complete lockfile, which also contains Tauri's Linux-only GTK/WebKitGTK
+dependencies. `glib 0.18.5` / `GHSA-wrw7-89jp-8q8g` is present only in that unshipped graph, not
+either macOS dependency graph. Its Dependabot alert is classified as **not used**, not patched.
+Reassess this decision before adding Linux support or changing Tauri's platform dependencies:
+
+```sh
+cargo tree --locked --workspace --target all -i glib
+cargo tree --locked --workspace --target aarch64-apple-darwin --target x86_64-apple-darwin -i glib
+```
+
+Dependabot groups only minor/patch version updates; major updates remain enabled as individual
+PRs so each migration can be reviewed and verified independently. Pre-1.0 minor updates can still
+be breaking changes and require the same compatibility review.
+
 Only a known clean installed build with matching repository provenance is eligible for automatic
 self-update baseline adoption. Dirty local builds must never be represented as clean remote commits.
