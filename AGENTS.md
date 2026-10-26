@@ -10,7 +10,7 @@ menu-bar app. To *use* Headway as an agent, read `skills/headway/SKILL.md` inste
 crates/headway-core   engine: config/state store, GitHub client, checks, source builds, asset installs
 crates/headway-cli    `headway` binary: clap args, output (human / --json / --ai XML), e2e tests
 src-tauri             desktop app: commands (thin wrappers), tray, scheduler, file watcher
-src                   React 18 + TS + Vite + Tailwind 3 + shadcn/Radix UI (cc-switch-desktop design system)
+src                   React 19 + TS 7 + Vite 8 + Tailwind 4 + shadcn/Radix UI (cc-switch-desktop design system)
 skills/headway        agent skill for operating the CLI
 ```
 

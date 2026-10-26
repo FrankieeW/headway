@@ -3,6 +3,15 @@
 @config "../tailwind.config.cjs";
 
 @layer base {
+  /* Preserve the theme border default; Tailwind v4 otherwise uses currentColor. */
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
+  }
+
   /* shadcn 组件用的 HSL token（可以带 /50 这类透明度）+ v7 设计 token。
      --action-* 是实心按钮、开关的开、勾选框的操作色；主题色 #F97316 只覆盖这一组和 --ring。
      --action-text：橙色当文字用（链接）时用深一档，保证对比度。 */

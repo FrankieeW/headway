@@ -35,7 +35,7 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         codeSplitting: {
-          groups: [{ name: vendorChunk }],
+          groups: [{ name: vendorChunk, debugName: "renderer-vendors" }],
         },
       },
     },
@@ -46,7 +46,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   clearScreen: false,

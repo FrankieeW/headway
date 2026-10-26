@@ -435,6 +435,12 @@ cargo test -p headway-desktop  # IPC contract tests (needs `pnpm build:renderer`
 pnpm test && pnpm typecheck
 ```
 
+The renderer uses React 19, TypeScript 7, Vite 8 and Tailwind 4. Tailwind runs through
+`@tailwindcss/postcss`; `src/index.css` loads the existing theme and animation plugin with
+`@config`. Vite uses Rolldown vendor groups. `pnpm run check:ipc` uses TypeScript 7's native
+compiler AST API and checks every API source, including files outside the tsconfig include globs.
+Run it alongside typecheck, tests and the renderer build when updating TypeScript.
+
 UI preview without the backend: `pnpm dev:renderer`, then open
 `http://localhost:1420/?mock` (`&theme=dark`, `&lang=en`).
 
