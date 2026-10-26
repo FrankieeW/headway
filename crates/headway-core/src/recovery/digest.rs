@@ -6,7 +6,7 @@ use std::path::Path;
 pub(crate) fn digest(path: &Path) -> Result<String> {
     let mut hash = Sha256::new();
     hash_path(path, &mut hash)?;
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(crate::github::to_hex(&hash.finalize()))
 }
 
 fn hash_path(path: &Path, hash: &mut Sha256) -> Result<()> {
