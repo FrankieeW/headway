@@ -32,9 +32,11 @@ export default defineConfig({
   build: {
     outDir: "../dist",
     emptyOutDir: true,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: vendorChunk,
+        codeSplitting: {
+          groups: [{ name: vendorChunk, debugName: "renderer-vendors" }],
+        },
       },
     },
   },
@@ -44,7 +46,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   clearScreen: false,

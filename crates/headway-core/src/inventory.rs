@@ -118,7 +118,7 @@ pub(crate) fn candidate(
 ) -> InventoryCandidate {
     use sha2::{Digest as _, Sha256};
     let key = source.label();
-    let digest = format!("{:x}", Sha256::digest(key.as_bytes()));
+    let digest = crate::github::to_hex(&Sha256::digest(key.as_bytes()));
     let slug: String = key
         .chars()
         .map(|c| {

@@ -17,9 +17,17 @@
 // Injected parameters (`State<…>`, `AppHandle<…>`, `Window<…>`, `WebviewWindow<…>`, `App<…>`)
 // are not IPC arguments and are excluded from the comparison.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import ts from "typescript";
+import { API } from "typescript/unstable/sync";
+import {
+  isCallExpression,
+  isIdentifier,
+  isObjectLiteralExpression,
+  isPropertyAssignment,
+  isShorthandPropertyAssignment,
+  isStringLiteralLikeNode,
+} from "typescript/unstable/ast";
 
 const rootArg = process.argv.find((arg) => arg.startsWith("--root="));
 const root = rootArg ? resolve(rootArg.slice("--root=".length)) : resolve(import.meta.dirname, "..");
@@ -142,29 +150,37 @@ function readRustCommands() {
 }
 
 /** `invoke("<name>", { … })` calls from the typed API layer. */
-function readInvocations() {
+function readInvocations(api, files) {
   const calls = [];
-  for (const file of walk(API_DIR, [".ts", ".tsx"])) {
-    const text = readFileSync(file, "utf8");
-    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sources = openSources(api, files);
+  for (const file of files) {
+    const source = sources.get(file);
+    // A file the compiler refused to load would hide its `invoke` calls, so the
+    // contract would be checked against an incomplete frontend. Fail loudly
+    // instead of silently reporting fewer invocations.
+    if (!source) {
+      throw new Error(
+        `could not parse ${relative(root, file)}: the TypeScript program has no source file for it`,
+      );
+    }
     const visit = (node) => {
       if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
+        isCallExpression(node) &&
+        isIdentifier(node.expression) &&
         node.expression.text === "invoke"
       ) {
         const [nameArg, argsArg] = node.arguments;
-        const name = nameArg && ts.isStringLiteralLike(nameArg) ? nameArg.text : null;
+        const name = nameArg && isStringLiteralLikeNode(nameArg) ? nameArg.text : null;
         const keys = [];
-        if (argsArg && ts.isObjectLiteralExpression(argsArg)) {
+        if (argsArg && isObjectLiteralExpression(argsArg)) {
           for (const property of argsArg.properties) {
-            if (ts.isPropertyAssignment(property)) {
-              if (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)) {
+            if (isPropertyAssignment(property)) {
+              if (isIdentifier(property.name) || isStringLiteralLikeNode(property.name)) {
                 keys.push(property.name.text);
               } else {
                 keys.push("<computed>");
               }
-            } else if (ts.isShorthandPropertyAssignment(property)) {
+            } else if (isShorthandPropertyAssignment(property)) {
               keys.push(property.name.text);
             } else {
               keys.push("<spread>");
@@ -174,16 +190,39 @@ function readInvocations() {
         const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
         calls.push({
           name,
-          keys: argsArg && ts.isObjectLiteralExpression(argsArg) ? keys : null,
+          keys: argsArg && isObjectLiteralExpression(argsArg) ? keys : null,
           file: relative(root, file),
           line: line + 1,
         });
       }
-      ts.forEachChild(node, visit);
+      node.forEachChild(visit);
     };
     visit(source);
   }
   return calls;
+}
+
+/**
+ * Loads every API source file into the TypeScript program and returns their
+ * parsed source files, keyed by absolute path.
+ *
+ * The API layer is opened explicitly (`openFiles`) rather than relying on the
+ * tsconfig `include` globs: a file that is not part of the configured project
+ * still has to be parsed, otherwise its `invoke` calls would go unchecked.
+ */
+function openSources(api, files) {
+  const configFileName = join(root, "tsconfig.json");
+  const hasConfig = existsSync(configFileName);
+  const snapshot = api.updateSnapshot({
+    ...(hasConfig ? { openProjects: [configFileName] } : {}),
+    openFiles: files,
+  });
+  const sources = new Map();
+  for (const file of files) {
+    const source = snapshot.getDefaultProjectForFile(file)?.program.getSourceFile(file);
+    if (source) sources.set(file, source);
+  }
+  return sources;
 }
 
 /** Tauri maps JavaScript camelCase argument names to Rust snake_case parameters. */
@@ -191,10 +230,10 @@ function toSnakeCase(key) {
   return key.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
 }
 
-function main() {
+function main(api) {
   const handlers = readHandlerList();
   const rustCommands = readRustCommands();
-  const invocations = readInvocations();
+  const invocations = readInvocations(api, walk(API_DIR, [".ts", ".tsx"]));
 
   const errors = [];
   const warnings = [];
@@ -274,10 +313,13 @@ function main() {
   );
 }
 
+const api = new API();
 try {
-  main();
+  main(api);
 } catch (error) {
   if (process.env.IPC_DEBUG) console.error(error.stack);
   console.error(`IPC contract check could not run: ${error.message}`);
   process.exitCode = 2;
+} finally {
+  api.close();
 }

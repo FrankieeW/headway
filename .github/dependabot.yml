@@ -2,6 +2,7 @@ version: 2
 
 # Keeps the SHA-pinned GitHub Actions current (Dependabot rewrites the pinned commit and the
 # `# vX.Y.Z` comment) and surfaces dependency advisories for the npm and Rust trees.
+# Group routine updates; major migrations get individual PRs rather than sharing a failure.
 updates:
   - package-ecosystem: github-actions
     directory: "/"
@@ -12,6 +13,7 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "ci"
 
@@ -25,9 +27,11 @@ updates:
       npm-development:
         dependency-type: development
         patterns: ["*"]
+        update-types: ["minor", "patch"]
       npm-production:
         dependency-type: production
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore"
 
@@ -40,5 +44,6 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore"
