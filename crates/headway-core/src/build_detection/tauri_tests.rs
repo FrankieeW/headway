@@ -115,3 +115,24 @@ fn prebuild_hook_is_not_bypassed_when_tauri_2_is_detected() {
             .all(|candidate| !candidate.build.contains("createUpdaterArtifacts"))
     );
 }
+
+#[test]
+fn postbuild_hook_is_not_bypassed_when_tauri_2_is_detected() {
+    let files = BTreeMap::from([
+        (
+            "package.json".into(),
+            r#"{"scripts":{"postbuild":"node finish.js","build":"tauri build","tauri":"tauri"}}"#
+                .into(),
+        ),
+        (
+            "src-tauri/tauri.conf.json".into(),
+            r#"{"$schema":"https://schema.tauri.app/config/2"}"#.into(),
+        ),
+    ]);
+    let candidates = manifests::candidates(&files, &[]);
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| !candidate.build.contains("createUpdaterArtifacts"))
+    );
+}

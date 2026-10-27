@@ -128,7 +128,7 @@ fn package(
             let standard_build = package.scripts.get("build").is_none_or(|build| {
                 matches!(build.as_str(), "tauri build" | "pnpm tauri build" | "npm run tauri -- build" | "yarn tauri build" | "bun tauri build")
             });
-            if tauri_2 && standard_build && !package.scripts.contains_key("prebuild") {
+            if tauri_2 && standard_build && !package.scripts.contains_key("prebuild") && !package.scripts.contains_key("postbuild") {
                 candidate.build = candidate.build.replacen(" && ", " && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" ", 1);
                 candidate.build.push_str(" --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'");
                 candidate.id = "manifest:tauri-local".into();
