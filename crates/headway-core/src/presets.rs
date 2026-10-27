@@ -5,12 +5,24 @@ use serde::Serialize;
 use crate::config::AppKind;
 use crate::github::ContentEntry;
 
-/// Defaults local Tauri app signing to ad-hoc unless overridden in the environment.
-pub(crate) const TAURI_LOCAL_SIGNING: &str =
-    "APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\"";
-/// Disables signed updater artifacts for a local Tauri app build.
-pub(crate) const TAURI_LOCAL_CONFIG: &str =
-    "--config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'";
+// Keep the static preset and detected command on the same local signing policy.
+macro_rules! local_tauri_flags {
+    ($signing:literal, $config:literal) => {
+        pub(crate) const TAURI_LOCAL_SIGNING: &str = $signing;
+        pub(crate) const TAURI_LOCAL_CONFIG: &str = $config;
+        const TAURI_LOCAL_BUILD: &str = concat!(
+            "pnpm install --frozen-lockfile && ",
+            $signing,
+            " pnpm tauri build --bundles app ",
+            $config
+        );
+    };
+}
+
+local_tauri_flags!(
+    "if [ -z \"${APPLE_SIGNING_IDENTITY:-}\" ]; then export APPLE_SIGNING_IDENTITY=-; unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_KEY_PATH APPLE_API_ISSUER; fi &&",
+    "--config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'"
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Preset {
@@ -93,7 +105,7 @@ pub const PRESETS: &[Preset] = &[
         id: "tauri-local",
         label: "Tauri 2 local app",
         kind: AppKind::App,
-        build: "pnpm install --frozen-lockfile && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" pnpm tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
+        build: TAURI_LOCAL_BUILD,
         artifact: Some("src-tauri/target/release/bundle/macos/*.app"),
         description: "Tauri 2 local app, ad-hoc signed by default, without signed updater artifacts.",
     },

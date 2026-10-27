@@ -23,6 +23,14 @@ struct TauriConfig {
     schema: Option<String>,
     // Tauri 2 requires a top-level identifier; Tauri 1 kept it under `tauri.bundle`.
     identifier: Option<String>,
+    #[serde(default)]
+    build: TauriBuild,
+}
+
+#[derive(Default, Deserialize)]
+struct TauriBuild {
+    #[serde(rename = "beforeBuildCommand")]
+    before_build_command: Option<String>,
 }
 
 pub(super) fn candidates(
@@ -41,16 +49,22 @@ pub(super) fn candidates(
                 "src-tauri/target/release/bundle/macos/*.app"
             }
         });
-        let tauri_2 = files
+        let tauri_config = files
             .get("src-tauri/tauri.conf.json")
             .and_then(|text| serde_json::from_str::<TauriConfig>(text).ok())
-            .is_some_and(|config| {
+            .filter(|config| {
                 config.identifier.is_some()
                     || config
                         .schema
+                        .as_ref()
                         .is_some_and(|schema| schema.trim_end_matches('/').ends_with("/config/2"))
             });
-        out.extend(package(text, entries, tauri_artifact, tauri_2));
+        out.extend(package(
+            text,
+            entries,
+            tauri_artifact,
+            tauri_config.as_ref(),
+        ));
     }
     if files
         .get("main.go")
@@ -98,7 +112,7 @@ fn package(
     text: &str,
     entries: &[ContentEntry],
     tauri_artifact: Option<&str>,
-    tauri_2: bool,
+    tauri_config: Option<&TauriConfig>,
 ) -> Vec<BuildCandidate> {
     let Ok(package) = serde_json::from_str::<Package>(text) else {
         return Vec::new();
@@ -127,7 +141,7 @@ fn package(
         _ if has("package-lock.json") => "npm ci",
         _ => "npm install",
     };
-    let local_eligible = local_tauri(&package, tauri_2);
+    let local_eligible = local_tauri(&package, manager, tauri_config);
     package.scripts.iter().filter_map(|(name, script)| {
         let production = matches!(name.as_str(), "build" | "compile" | "bundle" | "package") || name.starts_with("build:") || script.contains("tauri build")
             || script.contains("electron-builder") || script.contains("vite build");
@@ -158,20 +172,37 @@ fn package(
     }).collect()
 }
 
-/// The local command bypasses a `build` script that runs Tauri itself, so only allow the plain
-/// command without npm hooks; a frontend-only `build` still runs via `beforeBuildCommand`.
-fn local_tauri(package: &Package, tauri_2: bool) -> bool {
-    tauri_2
-        && package.scripts.get("build").is_none_or(|build| {
-            !build.contains("tauri")
-                || (matches!(
-                    build.as_str(),
-                    "tauri build"
-                        | "pnpm tauri build"
-                        | "npm run tauri -- build"
-                        | "yarn tauri build"
-                        | "bun tauri build"
-                ) && !package.scripts.contains_key("prebuild")
-                    && !package.scripts.contains_key("postbuild"))
-        })
+/// Bypassing a build script is safe only when it is a plain Tauri wrapper or Tauri
+/// invokes it itself, preserving frontend preparation and npm lifecycle hooks.
+fn local_tauri(package: &Package, manager: &str, config: Option<&TauriConfig>) -> bool {
+    let Some(config) = config else {
+        return false;
+    };
+    package.scripts.get("build").is_none_or(|build| {
+        if build.contains("tauri") {
+            matches!(
+                build.as_str(),
+                "tauri build"
+                    | "pnpm tauri build"
+                    | "pnpm run tauri build"
+                    | "npm run tauri -- build"
+                    | "npm run tauri build"
+                    | "yarn tauri build"
+                    | "yarn run tauri build"
+                    | "bun tauri build"
+                    | "bun run tauri build"
+            ) && !package.scripts.contains_key("prebuild")
+                && !package.scripts.contains_key("postbuild")
+        } else {
+            config
+                .build
+                .before_build_command
+                .as_deref()
+                .is_some_and(|command| {
+                    let words: Vec<_> = command.split_whitespace().collect();
+                    words == [manager, "run", "build"]
+                        || (manager != "npm" && words == [manager, "build"])
+                })
+        }
+    })
 }

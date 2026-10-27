@@ -20,7 +20,7 @@ fn standard_tauri_2_build_recommends_local_app() {
     assert!(local.recommended);
     assert_eq!(
         local.build,
-        "pnpm install --frozen-lockfile && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" pnpm run tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'"
+        "pnpm install --frozen-lockfile && if [ -z \"${APPLE_SIGNING_IDENTITY:-}\" ]; then export APPLE_SIGNING_IDENTITY=-; unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_KEY_PATH APPLE_API_ISSUER; fi && pnpm run tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'"
     );
     assert_eq!(
         local.artifact.as_deref(),
@@ -113,7 +113,7 @@ fn tauri_2_npm_build_passes_override_to_tauri() {
     // Then npm forwards all build flags to Tauri after its argument separator.
     assert_eq!(
         candidates[0].build,
-        "npm install && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" npm run tauri -- build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'"
+        "npm install && if [ -z \"${APPLE_SIGNING_IDENTITY:-}\" ]; then export APPLE_SIGNING_IDENTITY=-; unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_KEY_PATH APPLE_API_ISSUER; fi && npm run tauri -- build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'"
     );
 }
 
@@ -177,7 +177,7 @@ fn create_tauri_app_frontend_builds_recommend_local_app() {
             ("package.json".into(), format!(r#"{{"scripts":{scripts}}}"#)),
             (
                 "src-tauri/tauri.conf.json".into(),
-                r#"{"$schema":"https://schema.tauri.app/config/2"}"#.into(),
+                r#"{"$schema":"https://schema.tauri.app/config/2","build":{"beforeBuildCommand":"pnpm run build"}}"#.into(),
             ),
         ]);
         let entries = vec![ContentEntry {
@@ -187,7 +187,7 @@ fn create_tauri_app_frontend_builds_recommend_local_app() {
         // When detecting and ranking build candidates.
         let mut candidates = manifests::candidates(&files, &entries);
         prioritize(&mut candidates, false);
-        // Then a frontend-only build never blocks the local app recommendation.
+        // Then an invoked frontend build preserves hooks and allows the local app recommendation.
         assert_eq!(candidates[0].id, manifests::TAURI_LOCAL_ID, "{scripts}");
         assert!(candidates[0].recommended);
     }
@@ -248,4 +248,95 @@ fn known_headway_self_build_stays_first() {
         .find(|candidate| candidate.id == manifests::TAURI_LOCAL_ID)
         .unwrap();
     assert!(!local.recommended);
+}
+
+#[test]
+fn plain_tauri_wrappers_require_no_lifecycle_hooks() {
+    // Given ordinary wrappers and optional npm lifecycle hooks.
+    for build in [
+        "tauri build",
+        "pnpm tauri build",
+        "pnpm run tauri build",
+        "npm run tauri -- build",
+        "npm run tauri build",
+        "yarn tauri build",
+        "yarn run tauri build",
+        "bun tauri build",
+        "bun run tauri build",
+        "tauri build --verbose",
+        "node prepare.js && tauri build",
+    ] {
+        for hook in [None, Some("prebuild"), Some("postbuild")] {
+            let mut scripts = serde_json::json!({"build": build, "tauri": "tauri"});
+            if let Some(hook) = hook {
+                scripts[hook] = "node hook.js".into();
+            }
+            let files = BTreeMap::from([
+                (
+                    "package.json".into(),
+                    serde_json::json!({"scripts": scripts}).to_string(),
+                ),
+                (
+                    "src-tauri/tauri.conf.json".into(),
+                    r#"{"identifier":"com.example.app"}"#.into(),
+                ),
+            ]);
+            // When detecting local candidates.
+            let candidates = manifests::candidates(&files, &[]);
+            // Then only plain wrappers without bypassed hooks qualify.
+            let expected = hook.is_none() && !build.contains("--verbose") && !build.contains("&&");
+            assert_eq!(
+                candidates.iter().any(|c| c.id == manifests::TAURI_LOCAL_ID),
+                expected,
+                "{build}, {hook:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn frontend_build_requires_matching_manager_build_invocation() {
+    // Given a frontend or release build, with and without lifecycle hooks.
+    for manager in ["pnpm", "npm", "yarn", "bun"] {
+        for command in [
+            None,
+            Some("pnpm build"),
+            Some("pnpm run build"),
+            Some("npm run build"),
+            Some("yarn build"),
+            Some("yarn run build"),
+            Some("bun run build"),
+            Some("bun build"),
+            Some("pnpm run build:desktop"),
+            Some("vite build"),
+            Some("node scripts/release.js"),
+            Some("pnpm run rebuild"),
+            Some("pnpm run build && node finish.js"),
+        ] {
+            for build in ["vite build", "node scripts/release.js"] {
+                let files = BTreeMap::from([
+                    ("package.json".into(), serde_json::json!({
+                        "packageManager": format!("{manager}@10"),
+                        "scripts": {"build": build, "tauri": "tauri", "prebuild": "node gen.js", "postbuild": "node finish.js"}
+                    }).to_string()),
+                    ("src-tauri/tauri.conf.json".into(), serde_json::json!({
+                        "identifier": "com.example.app", "build": {"beforeBuildCommand": command}
+                    }).to_string()),
+                ]);
+                // When detecting and ranking candidates.
+                let mut candidates = manifests::candidates(&files, &[]);
+                prioritize(&mut candidates, false);
+                // Then the build script and its hooks must actually be invoked by Tauri.
+                let expected = command.is_some_and(|command| {
+                    command == format!("{manager} run build")
+                        || (manager != "npm" && command == format!("{manager} build"))
+                });
+                assert_eq!(
+                    candidates[0].id == manifests::TAURI_LOCAL_ID,
+                    expected,
+                    "{manager}, {command:?}, {build}"
+                );
+            }
+        }
+    }
 }
