@@ -170,12 +170,13 @@ pub(crate) fn prioritize(candidates: &mut Vec<BuildCandidate>, known_self: bool)
             !installable(candidate),
             match candidate.source {
                 BuildCandidateSource::Preset if known_self => 0,
-                BuildCandidateSource::Readme if candidate.recommended => 1,
-                BuildCandidateSource::Manifest if candidate.kind == AppKind::App => 2,
-                BuildCandidateSource::Preset if candidate.kind == AppKind::App => 3,
-                BuildCandidateSource::Manifest => 4,
-                BuildCandidateSource::Preset => 5,
-                BuildCandidateSource::Readme => 6,
+                BuildCandidateSource::Manifest if candidate.id == "manifest:tauri-local" => 1,
+                BuildCandidateSource::Readme if candidate.recommended => 2,
+                BuildCandidateSource::Manifest if candidate.kind == AppKind::App => 3,
+                BuildCandidateSource::Preset if candidate.kind == AppKind::App => 4,
+                BuildCandidateSource::Manifest => 5,
+                BuildCandidateSource::Preset => 6,
+                BuildCandidateSource::Readme => 7,
             },
         )
     });
@@ -228,5 +229,7 @@ pub(crate) fn render_artifact(template: &str, bin: &str, name: &str) -> Option<S
     safe_artifact_path(&rendered).then_some(rendered)
 }
 
+#[cfg(test)]
+mod tauri_tests;
 #[cfg(test)]
 mod tests;

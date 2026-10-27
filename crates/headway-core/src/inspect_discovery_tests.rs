@@ -188,3 +188,40 @@ async fn optional_file_auth_errors_stay_errors() {
     // Then authentication is not hidden as missing optional evidence.
     assert!(matches!(result, Err(crate::Error::Auth(_))));
 }
+
+#[tokio::test]
+async fn tauri_2_inspection_suggests_installable_local_app() {
+    let server = MockServer::start().await;
+    mock_repo(
+        &server,
+        json!([
+            {"name":"package.json","type":"file"},
+            {"name":"pnpm-lock.yaml","type":"file"},
+            {"name":"src-tauri","type":"dir"}
+        ]),
+        json!([]),
+    )
+    .await;
+    file(
+        &server,
+        "package.json",
+        r#"{"packageManager":"pnpm@10","scripts":{"build":"pnpm tauri build","tauri":"tauri"}}"#,
+    )
+    .await;
+    file(&server, "src-tauri/tauri.conf.json", r#"{"$schema":"https://schema.tauri.app/config/2","bundle":{"createUpdaterArtifacts":true}}"#).await;
+    let gh = GitHub::new(&server.uri(), None).unwrap();
+    let found = inspect(&gh, "BurntSushi/ripgrep").await.unwrap();
+    let Install::Source(source) = &found.suggestion.github().unwrap().install else {
+        panic!("expected source install")
+    };
+    assert!(
+        source
+            .build
+            .contains("--config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'")
+    );
+    assert_eq!(
+        source.artifact.as_deref(),
+        Some("src-tauri/target/release/bundle/macos/*.app")
+    );
+    found.suggestion.validate().unwrap();
+}

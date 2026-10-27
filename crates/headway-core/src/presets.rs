@@ -83,6 +83,14 @@ pub const PRESETS: &[Preset] = &[
         description: "Tauri desktop app bundled as a .app.",
     },
     Preset {
+        id: "tauri-local",
+        label: "Tauri 2 local app",
+        kind: AppKind::App,
+        build: "pnpm install --frozen-lockfile && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" pnpm tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
+        artifact: Some("src-tauri/target/release/bundle/macos/*.app"),
+        description: "Tauri 2 local app, ad-hoc signed by default, without signed updater artifacts.",
+    },
+    Preset {
         id: "npm",
         label: "npm global",
         kind: AppKind::Cli,

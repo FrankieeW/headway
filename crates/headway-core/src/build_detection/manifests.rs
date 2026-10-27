@@ -14,6 +14,12 @@ struct Package {
     package_manager: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct TauriConfig {
+    #[serde(rename = "$schema")]
+    schema: Option<String>,
+}
+
 pub(super) fn candidates(
     files: &BTreeMap<String, String>,
     entries: &[ContentEntry],
@@ -30,7 +36,12 @@ pub(super) fn candidates(
                 "src-tauri/target/release/bundle/macos/*.app"
             }
         });
-        out.extend(package(text, entries, tauri_artifact));
+        let tauri_2 = files
+            .get("src-tauri/tauri.conf.json")
+            .and_then(|text| serde_json::from_str::<TauriConfig>(text).ok())
+            .and_then(|config| config.schema)
+            .is_some_and(|schema| schema.trim_end_matches('/').ends_with("/config/2"));
+        out.extend(package(text, entries, tauri_artifact, tauri_2));
     }
     if files
         .get("main.go")
@@ -78,6 +89,7 @@ fn package(
     text: &str,
     entries: &[ContentEntry],
     tauri_artifact: Option<&str>,
+    tauri_2: bool,
 ) -> Vec<BuildCandidate> {
     let Ok(package) = serde_json::from_str::<Package>(text) else {
         return Vec::new();
@@ -113,6 +125,14 @@ fn package(
         let mut candidate = BuildCandidate::manifest("package.json", format!("{install} && {manager} run {}", crate::process::shell_quote(name)));
         if name == "tauri" && script == "tauri" {
             candidate.build.push_str(if manager == "npm" { " -- build --bundles app" } else { " build --bundles app" });
+            let standard_build = package.scripts.get("build").is_none_or(|build| {
+                matches!(build.as_str(), "tauri build" | "pnpm tauri build" | "npm run tauri -- build" | "yarn tauri build" | "bun tauri build")
+            });
+            if tauri_2 && standard_build && !package.scripts.contains_key("prebuild") {
+                candidate.build = candidate.build.replacen(" && ", " && APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\" ", 1);
+                candidate.build.push_str(" --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'");
+                candidate.id = "manifest:tauri-local".into();
+            }
         }
         if script.contains("tauri") {
             candidate.artifact = tauri_artifact.map(str::to_owned);
@@ -121,6 +141,9 @@ fn package(
             candidate.kind = AppKind::App;
         }
         candidate.reason = format!("package.json declares `{name}` using {manager}; inspect the output path before installing.");
+        if candidate.id == "manifest:tauri-local" {
+            candidate.reason.push_str(" Local Tauri 2 build defaults to ad-hoc app signing and skips updater artifact signing; the project configuration is not changed.");
+        }
         Some(candidate)
     }).collect()
 }
