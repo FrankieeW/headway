@@ -30,11 +30,11 @@ brew install --cask frankieew/tap/headway   # the menu-bar app
 ```
 
 Or download `Headway-<version>-<arch>.dmg` and `headway-<target>.tar.gz` from
-[Releases](https://github.com/FrankieeW/headway/releases). The app is ad-hoc signed and not
-notarized. The cask removes the download quarantine during installation. For a DMG you downloaded
-yourself, verify it as described in the release notes, open the app once, then choose **Open
-Anyway** in System Settings → Privacy & Security. Since macOS 15, right-click → Open no longer
-bypasses this check.
+[Releases](https://github.com/FrankieeW/headway/releases). The app and CLI are ad-hoc signed and
+not notarized. The cask removes the download quarantine during installation. For a DMG or tarball
+you downloaded yourself, verify it as described in the release notes, open or run it once, then
+allow it with **Open Anyway** in System Settings → Privacy & Security. Since macOS 15,
+right-click → Open no longer bypasses this check.
 
 ## Quick start (CLI)
 
@@ -468,7 +468,10 @@ The tap's `Update Headway release` workflow is scheduled every 15 minutes, but G
 scheduled runs by hours. After publishing a release, start it directly with
 `gh workflow run headway-release.yml -R FrankieeW/homebrew-tap`. It checks both DMG digests and
 the source tag before opening a PR that changes only `Formula/headway.rb` and `Casks/headway.rb`.
-Each version gets its own PR; close an older version's PR once a newer one supersedes it.
+Each version gets its own PR; close an older version's PR once a newer one supersedes it. The tap
+runs the updater published at the release tag, so an updater fix takes effect with the next
+release. GitHub disables a public repository's schedule after 60 days without activity; re-enable
+it with `gh workflow enable headway-release.yml -R FrankieeW/homebrew-tap`.
 The updater defaults to a dry run:
 `node scripts/update-homebrew-tap.mjs --tap-root /path/to/homebrew-tap`. PR publication requires
 `--apply --create-pr` and the official tap checkout. Release publication and tap PR merging remain
