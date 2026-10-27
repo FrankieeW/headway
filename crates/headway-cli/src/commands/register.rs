@@ -108,6 +108,7 @@ fn add_fields(fields: &AppFields, found: &RepoInspection) -> AppFields {
         return fields.clone();
     }
     if fields.build.is_some()
+        || fields.tools.is_some()
         || fields.preset.is_some()
         || fields.workdir.is_some()
         || fields.artifact.is_some()

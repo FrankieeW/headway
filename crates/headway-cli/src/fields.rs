@@ -159,6 +159,7 @@ fn github_recipes(
         Install::Asset(asset) => asset.dest.clone(),
     };
     let source_flags = fields.build.is_some()
+        || fields.tools.is_some()
         || fields.workdir.is_some()
         || fields.artifact.is_some()
         || fields.preset.is_some()
@@ -188,6 +189,7 @@ fn github_recipes(
         .is_none_or(|source| source.build.trim().is_empty())
         && let Some((flag, _)) = [
             ("--workdir", non_empty(fields.workdir.as_ref())),
+            ("--tools", non_empty(fields.tools.as_ref())),
             ("--artifact", non_empty(fields.artifact.as_ref())),
             ("--keep-source", fields.keep_source.is_some()),
             ("--source-root", fields.source_root.is_some()),
@@ -260,6 +262,14 @@ fn apply_source_fields(
             root: optional(fields.source_root.as_ref(), base.storage.root),
         },
         build: fields.build.clone().unwrap_or(base.build),
+        tools: fields.tools.as_ref().map_or(base.tools, |tools| {
+            tools
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+                .collect()
+        }),
         workdir: optional(fields.workdir.as_ref(), base.workdir),
         artifact: optional(fields.artifact.as_ref(), base.artifact),
         ..base

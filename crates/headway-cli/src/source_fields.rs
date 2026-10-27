@@ -33,6 +33,7 @@ pub fn validate(source: &Source, f: &AppFields) -> Result<()> {
         ("--method", f.method.is_some(), github, "GitHub"),
         ("--preset", f.preset.is_some(), github, "GitHub"),
         ("--build", f.build.is_some(), github, "GitHub"),
+        ("--tools", f.tools.is_some(), github, "GitHub"),
         ("--workdir", f.workdir.is_some(), github, "GitHub"),
         ("--artifact", f.artifact.is_some(), github, "GitHub"),
         ("--dest", f.dest.is_some(), github, "GitHub"),

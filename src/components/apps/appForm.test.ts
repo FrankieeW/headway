@@ -90,6 +90,17 @@ describe("formFromApp", () => {
 });
 
 describe("appFromForm", () => {
+  it("round-trips project tool versions in a source recipe", () => {
+    const app = appFromForm({
+      ...formFromApp(cliApp),
+      tools: "zig@0.16.0, node@24.14.0",
+    });
+    if (app.source !== "github" || app.install.method !== "source")
+      throw new Error("Expected source recipe");
+    expect(app.install.tools).toEqual(["zig@0.16.0", "node@24.14.0"]);
+    expect(formFromApp(app).tools).toBe("zig@0.16.0, node@24.14.0");
+  });
+
   it("is the inverse of formFromApp", () => {
     expect(appFromForm(formFromApp(cliApp))).toEqual(cliApp);
     expect(appFromForm(formFromApp(releaseApp))).toEqual(releaseApp);

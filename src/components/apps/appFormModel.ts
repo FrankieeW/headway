@@ -34,6 +34,7 @@ export interface AppFormState {
   installMethod: "source" | "asset";
   presetId: string;
   build: string;
+  tools: string;
   workdir: string;
   artifact: string;
   dest: string;
@@ -76,6 +77,7 @@ export function emptyForm(): AppFormState {
     installMethod: "source",
     presetId: "",
     build: "",
+    tools: "",
     workdir: "",
     artifact: "",
     dest: "",
@@ -145,6 +147,7 @@ export function formFromApp(app: TrackedApp): AppFormState {
     installMethod: install.method,
     presetId: "",
     build: sourceRecipe?.build ?? "",
+    tools: sourceRecipe?.tools?.join(", ") ?? "",
     workdir: sourceRecipe?.workdir ?? "",
     artifact: sourceRecipe?.artifact ?? "",
     verifyCommand: install.verify_command ?? "",
@@ -269,6 +272,14 @@ function githubRecipes(form: AppFormState): {
         : form.sourceVerifyCommand
       ).trim() || null,
     build: form.build.trim(),
+    ...(form.tools.trim()
+      ? {
+          tools: form.tools
+            .split(",")
+            .map((tool) => tool.trim())
+            .filter(Boolean),
+        }
+      : {}),
     workdir: form.workdir.trim() || null,
     artifact: form.artifact.trim() || null,
     dest:
@@ -353,6 +364,7 @@ export function sourceRecipeNeedsBuild(form: AppFormState): boolean {
     !form.sourceBuild &&
     !form.build.trim() &&
     Boolean(
+      form.tools.trim() ||
       form.workdir.trim() ||
       form.artifact.trim() ||
       form.storageRoot.trim() ||

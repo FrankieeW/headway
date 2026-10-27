@@ -51,6 +51,7 @@ fn github_recipes_survive_default_switches_and_alternate_removal() {
     let harness = package_harness();
     let dest = harness.home.path().join("bin/tool");
     let mut app = tool_app("file:///nowhere", &dest);
+    app["install"]["tools"] = json!(["zig@0.16.0"]);
     app["release_asset"] = json!({
         "method": "asset",
         "pattern": "*.zip",
@@ -77,6 +78,7 @@ fn github_recipes_survive_default_switches_and_alternate_removal() {
     assert_eq!(saved["install"]["pattern"], "*.tar.gz");
     assert_eq!(saved["source_build"]["build"], source["build"]);
     assert_eq!(saved["source_build"]["artifact"], "out/tool");
+    assert_eq!(saved["source_build"]["tools"], json!(["zig@0.16.0"]));
     assert!(!saved.as_object().unwrap().contains_key("release_asset"));
 
     app = saved.clone();

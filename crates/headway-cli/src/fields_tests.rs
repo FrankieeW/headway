@@ -28,6 +28,32 @@ fn no_flags_keep_the_base() {
 }
 
 #[test]
+fn tool_versions_can_be_set_and_cleared_without_changing_the_build() {
+    let app = apply(
+        base(),
+        &AppFields {
+            tools: Some("zig@0.16.0, node@24.14.0".into()),
+            ..AppFields::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&app.github().unwrap().install, Install::Source(source) if source.tools == ["zig@0.16.0", "node@24.14.0"] && source.build == "cargo build --release --locked")
+    );
+    let cleared = apply(
+        app,
+        &AppFields {
+            tools: Some(String::new()),
+            ..AppFields::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(&cleared.github().unwrap().install, Install::Source(source) if source.tools.is_empty())
+    );
+}
+
+#[test]
 fn source_presets_select_the_payload_kind_unless_explicitly_overridden() {
     // Given an app suggestion, when choosing the standalone CLI recipe.
     let desktop = TrackedApp {

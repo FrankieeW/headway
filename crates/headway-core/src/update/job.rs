@@ -8,7 +8,7 @@ use crate::git::{self, Checkout};
 use crate::github::Asset;
 use crate::install;
 use crate::paths::expand_tilde;
-use crate::process::{self, Cmd};
+use crate::process;
 use crate::source::Source;
 use crate::state::{Candidate, InstalledRef};
 use std::fs;
@@ -96,8 +96,19 @@ impl Job<'_> {
                 "HEADWAY_APPS_DIR",
                 expand_tilde(&self.settings.apps_dir).display().to_string(),
             );
-        let build = Cmd::new("/bin/sh", &build_env)
-            .args(["-c", &source.build])
+        if !source.tools.is_empty() {
+            if build_env.which("mise").is_none() {
+                return Err(Error::Config(
+                    "project tool versions require mise; install mise or clear the selected tools"
+                        .into(),
+                ));
+            }
+            self.log.info(&format!(
+                "Using project tool versions via mise: {}",
+                source.tools.join(", ")
+            ));
+        }
+        let build = crate::toolchain::build_command(&build_env, &source.build, &source.tools)
             .cwd(&workdir)
             .timeout(std::time::Duration::from_secs(30 * 60));
         process::run(&build, self.cancel, &mut self.output()).await?;

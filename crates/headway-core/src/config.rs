@@ -145,6 +145,9 @@ pub struct SourceInstall {
     pub verify_command: Option<String>,
     /// Shell command run with `/bin/sh -c` in `workdir`.
     pub build: String,
+    /// Explicit per-build tool versions, e.g. `zig@0.16.0`, installed by mise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
     /// Directory inside the repository to build in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workdir: Option<String>,
@@ -299,6 +302,7 @@ pub(crate) fn validate_install(install: &Install) -> std::result::Result<(), Str
     match install {
         Install::Source(source) => {
             source.storage.validate().map_err(|err| err.to_string())?;
+            crate::toolchain::validate(&source.tools)?;
             if source.build.trim().is_empty() {
                 return Err("install.build is empty".into());
             }

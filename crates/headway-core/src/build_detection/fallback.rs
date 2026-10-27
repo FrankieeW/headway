@@ -86,6 +86,7 @@ pub(crate) fn suggest(facts: &Facts<'_>) -> (TrackedApp, Vec<String>) {
                 Install::Source(SourceInstall {
                     storage: crate::source_storage::SourceStorage::default(),
                     build: presets::render_command(preset.build, &bin, name),
+                    tools: Vec::new(),
                     workdir: None,
                     artifact,
                     dest: None,

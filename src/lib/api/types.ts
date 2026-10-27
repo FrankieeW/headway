@@ -38,6 +38,7 @@ export interface SourceInstall {
   verify_command?: string | null;
   method: "source";
   build: string;
+  tools?: string[];
   workdir?: string | null;
   artifact?: string | null;
   dest?: string | null;

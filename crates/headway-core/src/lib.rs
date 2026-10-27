@@ -45,6 +45,7 @@ pub mod source_storage;
 pub mod state;
 pub mod store;
 pub mod token;
+pub mod toolchain;
 pub mod update;
 pub mod version;
 

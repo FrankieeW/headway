@@ -209,7 +209,25 @@ pub fn apps_dir_check(settings: &Settings) -> DoctorCheck {
 pub fn tools_check(app: &TrackedApp, env: &ShellEnv) -> Option<DoctorCheck> {
     let programs = match &app.source {
         Source::Github(github) => match &github.install {
-            Install::Source(source) => command_programs(&source.build),
+            Install::Source(source) => {
+                let mut programs = command_programs(&source.build);
+                if !source.tools.is_empty() {
+                    programs.retain(|program| {
+                        !source.tools.iter().any(|tool| {
+                            let name = tool.split('@').next().unwrap_or_default();
+                            name == program
+                                || matches!(
+                                    (name, program.as_str()),
+                                    ("rust", "cargo" | "rustc" | "rustup")
+                                        | ("node", "node" | "npm" | "npx" | "corepack")
+                                        | ("python", "python" | "python3" | "pip" | "pip3")
+                                )
+                        })
+                    });
+                    programs.push("mise".into());
+                }
+                programs
+            }
             Install::Asset(_) => return None,
         },
         Source::Npm(_) => vec!["npm".into()],

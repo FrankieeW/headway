@@ -117,6 +117,17 @@ export function AppFormInstallFields({
           />
         </Field>
 
+        <Field label={t("form.tools")} hint={t("form.toolsHelp")}>
+          <Input
+            aria-label={t("form.tools")}
+            value={form.tools}
+            onChange={(event) => onUpdate("tools", event.target.value)}
+            placeholder="zig@0.16.0, node@24.14.0"
+            className="font-mono"
+            spellCheck={false}
+          />
+        </Field>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("form.workdir")}>
             <Input

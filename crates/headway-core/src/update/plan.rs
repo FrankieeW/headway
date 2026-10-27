@@ -77,6 +77,7 @@ pub fn plan_steps(
                 format!("run in {}: {}", display_path(&workdir), source.build),
                 install,
             ];
+            crate::toolchain::add_plan_step(&mut steps, &source.tools);
             steps.push(if source.storage.keep {
                 "retain the managed source checkout and build cache".into()
             } else {

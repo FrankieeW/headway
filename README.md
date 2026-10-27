@@ -401,6 +401,14 @@ identity can affect macOS keychain access.
 Build commands run with `/bin/sh -c` in the checkout with `HEADWAY_REF`, `HEADWAY_SHA`,
 `HEADWAY_VERSION`, `HEADWAY_BIN_DIR` and `HEADWAY_APPS_DIR` set.
 
+For source builds that need specific tools, set project tool versions in the app form or use
+`headway edit <id> --tools 'zig@0.16.0,node@24.14.0'`. Headway runs the build with `mise exec`;
+install mise first, and missing versions may be downloaded during the build. Versions must be
+explicit (three numeric components). The existing build command stays unchanged, system defaults
+are not modified, and the tool environment applies only to the build process. To clear the
+selection, use `--tools ''`. Source builds can execute repository code and mise project config;
+only build repositories you trust.
+
 | Variable | Effect |
 |---|---|
 | `HEADWAY_HOME` | keep config, cache and logs under one directory |

@@ -67,6 +67,9 @@ pub struct AppFields {
     /// GitHub source-build command, run with `/bin/sh -c` in the checkout
     #[arg(long, value_name = "COMMAND")]
     pub build: Option<String>,
+    /// Project-specific tool versions, comma-separated (e.g. zig@0.16.0; empty clears)
+    #[arg(long, value_name = "TOOL@VERSION,...")]
+    pub tools: Option<String>,
     /// Subdirectory to build in (GitHub source builds only)
     #[arg(long, value_name = "DIR")]
     pub workdir: Option<String>,

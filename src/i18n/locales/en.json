@@ -212,6 +212,8 @@
     "presetNone": "No preset",
     "buildCommand": "Build command",
     "sourceBuildRequired": "Enter a build command for the source recipe, or clear its other fields.",
+    "tools": "Project tool versions",
+    "toolsHelp": "Optional exact versions, separated by commas. Requires mise; missing tools may be installed during the build.",
     "workdir": "Working directory",
     "workdirPlaceholder": "leave empty for the repository root",
     "artifact": "Artifact path",
