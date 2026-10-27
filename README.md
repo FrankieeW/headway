@@ -30,8 +30,11 @@ brew install --cask frankieew/tap/headway   # the menu-bar app
 ```
 
 Or download `Headway-<version>-<arch>.dmg` and `headway-<target>.tar.gz` from
-[Releases](https://github.com/FrankieeW/headway/releases). The app is not notarized: when it is not
-installed through the cask, open it the first time with right-click → Open.
+[Releases](https://github.com/FrankieeW/headway/releases). The app is ad-hoc signed and not
+notarized. The cask removes the download quarantine during installation. For a DMG you downloaded
+yourself, verify it as described in the release notes, open the app once, then choose **Open
+Anyway** in System Settings → Privacy & Security. Since macOS 15, right-click → Open no longer
+bypasses this check.
 
 ## Quick start (CLI)
 
@@ -303,9 +306,7 @@ the configured source; switching a fork back to official cannot relabel the fork
 Older builds without an origin stamp can preserve a matching recorded baseline, but cannot
 create a new one. Independent Headway instances keep the primary subscription and CLI link in place.
 
-## The desktop app
-
-### Install a pull request version
+## Install a pull request version
 
 ```sh
 headway --json prs headway --page 1
@@ -321,6 +322,8 @@ PR builds pin the head commit (not GitHub's temporary merge commit), support clo
 deleted forks, and reject a head change between review and installation. They require a source
 build; release assets are not PR artifacts. Omit `--as` to replace the current payload.
 Automatic updates are disabled and application data remains shared.
+
+## The desktop app
 
 - Select GitHub, npm, Homebrew (formula/cask), or a custom official updater in the add/edit dialog.
 - Menu-bar icon with the number of apps that are behind, and a menu to check, update all, or jump to an app.
@@ -461,9 +464,12 @@ UI preview without the backend: `pnpm dev:renderer`, then open
 Releases: `./scripts/bump-version.sh patch|minor|major|beta`, commit, tag `vX.Y.Z`, push; CI builds
 the app (`.dmg`, `.app.zip`) and CLI tarballs for Apple Silicon and Intel and publishes a GitHub Release.
 
-The tap's `Update Headway release` workflow polls stable releases every 15 minutes and can be run
-manually. It checks both DMG digests and the source tag before opening a PR that changes only
-`Formula/headway.rb` and `Casks/headway.rb`. The updater defaults to a dry run:
+The tap's `Update Headway release` workflow is scheduled every 15 minutes, but GitHub can delay
+scheduled runs by hours. After publishing a release, start it directly with
+`gh workflow run headway-release.yml -R FrankieeW/homebrew-tap`. It checks both DMG digests and
+the source tag before opening a PR that changes only `Formula/headway.rb` and `Casks/headway.rb`.
+Each version gets its own PR; close an older version's PR once a newer one supersedes it.
+The updater defaults to a dry run:
 `node scripts/update-homebrew-tap.mjs --tap-root /path/to/homebrew-tap`. PR publication requires
 `--apply --create-pr` and the official tap checkout. Release publication and tap PR merging remain
 separate steps.
