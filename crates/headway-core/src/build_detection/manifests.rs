@@ -5,6 +5,9 @@ use serde::Deserialize;
 use super::BuildCandidate;
 use crate::config::AppKind;
 use crate::github::ContentEntry;
+use crate::presets::{TAURI_LOCAL_CONFIG, TAURI_LOCAL_SIGNING};
+
+pub(super) const TAURI_LOCAL_ID: &str = "manifest:tauri-local";
 
 #[derive(Deserialize)]
 struct Package {
@@ -12,6 +15,22 @@ struct Package {
     scripts: BTreeMap<String, String>,
     #[serde(rename = "packageManager")]
     package_manager: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TauriConfig {
+    #[serde(rename = "$schema")]
+    schema: Option<String>,
+    // Tauri 2 requires a top-level identifier; Tauri 1 kept it under `tauri.bundle`.
+    identifier: Option<String>,
+    #[serde(default)]
+    build: TauriBuild,
+}
+
+#[derive(Default, Deserialize)]
+struct TauriBuild {
+    #[serde(rename = "beforeBuildCommand")]
+    before_build_command: Option<String>,
 }
 
 pub(super) fn candidates(
@@ -30,7 +49,22 @@ pub(super) fn candidates(
                 "src-tauri/target/release/bundle/macos/*.app"
             }
         });
-        out.extend(package(text, entries, tauri_artifact));
+        let tauri_config = files
+            .get("src-tauri/tauri.conf.json")
+            .and_then(|text| serde_json::from_str::<TauriConfig>(text).ok())
+            .filter(|config| {
+                config.identifier.is_some()
+                    || config
+                        .schema
+                        .as_ref()
+                        .is_some_and(|schema| schema.trim_end_matches('/').ends_with("/config/2"))
+            });
+        out.extend(package(
+            text,
+            entries,
+            tauri_artifact,
+            tauri_config.as_ref(),
+        ));
     }
     if files
         .get("main.go")
@@ -78,6 +112,7 @@ fn package(
     text: &str,
     entries: &[ContentEntry],
     tauri_artifact: Option<&str>,
+    tauri_config: Option<&TauriConfig>,
 ) -> Vec<BuildCandidate> {
     let Ok(package) = serde_json::from_str::<Package>(text) else {
         return Vec::new();
@@ -106,13 +141,21 @@ fn package(
         _ if has("package-lock.json") => "npm ci",
         _ => "npm install",
     };
+    let local_eligible = local_tauri(&package, manager, tauri_config);
     package.scripts.iter().filter_map(|(name, script)| {
         let production = matches!(name.as_str(), "build" | "compile" | "bundle" | "package") || name.starts_with("build:") || script.contains("tauri build")
             || script.contains("electron-builder") || script.contains("vite build");
-        if !(production || name == "tauri" && script == "tauri") || !super::readme::safe(script) || !super::readme::safe(name) { return None; }
+        let tauri_cli = name == "tauri" && script == "tauri";
+        if !(production || tauri_cli) || !super::readme::safe(script) || !super::readme::safe(name) { return None; }
         let mut candidate = BuildCandidate::manifest("package.json", format!("{install} && {manager} run {}", crate::process::shell_quote(name)));
-        if name == "tauri" && script == "tauri" {
-            candidate.build.push_str(if manager == "npm" { " -- build --bundles app" } else { " build --bundles app" });
+        let local = tauri_cli && local_eligible;
+        if tauri_cli {
+            let args = if manager == "npm" { "-- build --bundles app" } else { "build --bundles app" };
+            candidate.build = if local {
+                format!("{install} && {TAURI_LOCAL_SIGNING} {manager} run tauri {args} {TAURI_LOCAL_CONFIG}")
+            } else {
+                format!("{install} && {manager} run tauri {args}")
+            };
         }
         if script.contains("tauri") {
             candidate.artifact = tauri_artifact.map(str::to_owned);
@@ -121,6 +164,45 @@ fn package(
             candidate.kind = AppKind::App;
         }
         candidate.reason = format!("package.json declares `{name}` using {manager}; inspect the output path before installing.");
+        if local {
+            candidate.id = TAURI_LOCAL_ID.into();
+            candidate.reason.push_str(" Local Tauri 2 build defaults to ad-hoc app signing and skips updater artifact signing; project files are not modified.");
+        }
         Some(candidate)
     }).collect()
+}
+
+/// Bypassing a build script is safe only when it is a plain Tauri wrapper or Tauri
+/// invokes it itself, preserving frontend preparation and npm lifecycle hooks.
+fn local_tauri(package: &Package, manager: &str, config: Option<&TauriConfig>) -> bool {
+    let Some(config) = config else {
+        return false;
+    };
+    package.scripts.get("build").is_none_or(|build| {
+        if build.contains("tauri") {
+            matches!(
+                build.as_str(),
+                "tauri build"
+                    | "pnpm tauri build"
+                    | "pnpm run tauri build"
+                    | "npm run tauri -- build"
+                    | "npm run tauri build"
+                    | "yarn tauri build"
+                    | "yarn run tauri build"
+                    | "bun tauri build"
+                    | "bun run tauri build"
+            ) && !package.scripts.contains_key("prebuild")
+                && !package.scripts.contains_key("postbuild")
+        } else {
+            config
+                .build
+                .before_build_command
+                .as_deref()
+                .is_some_and(|command| {
+                    let words: Vec<_> = command.split_whitespace().collect();
+                    words == [manager, "run", "build"]
+                        || (manager != "npm" && words == [manager, "build"])
+                })
+        }
+    })
 }

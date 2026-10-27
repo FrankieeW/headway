@@ -388,6 +388,16 @@ artifact = "target/release/rg"   # relative to the checkout (or `workdir`); `*` 
 ```
 
 Build presets (`headway presets`): Cargo, `cargo install`, Go, SwiftPM, Xcode, Tauri, npm, Make.
+For a Tauri 2 app, `tauri-local` builds a local `.app` without generating signed updater
+artifacts. When inspection recognizes a standard Tauri 2 build, it suggests this approach with
+the project's package manager; custom scripts remain available. Existing saved recipes are not
+changed: inspect the project and apply the suggested recipe, or select the preset and review its
+command and artifact path. When `APPLE_SIGNING_IDENTITY` is unset or empty, the Tauri command
+uses ad-hoc signing and clears certificate and notarization credentials for that command; installation is unaffected.
+A non-empty `APPLE_SIGNING_IDENTITY` in Headway's environment is preserved, along with those
+credentials for explicit signing and notarization. A signing identity in the project's Tauri config
+is not used. Ad-hoc signing does not provide Developer ID signing or notarization. Changing signing
+identity can affect macOS keychain access.
 Build commands run with `/bin/sh -c` in the checkout with `HEADWAY_REF`, `HEADWAY_SHA`,
 `HEADWAY_VERSION`, `HEADWAY_BIN_DIR` and `HEADWAY_APPS_DIR` set.
 

@@ -119,6 +119,14 @@ repairs Headway-owned links after a move, refusing foreign files and Brew-owned 
 Inspection never executes those commands. Review a candidate, then override it using `add`/`edit`
 with `--build`, `--workdir`, `--artifact` and `--dest`. The UI's Apply action is explicit; fields
 remain editable after detection.
+For a recognized standard Tauri 2 project, the local app candidate skips generating signed updater
+artifacts. When `APPLE_SIGNING_IDENTITY` is unset or empty, the Tauri command uses ad-hoc signing
+and clears certificate and notarization credentials for that command; installation is unaffected.
+A non-empty identity in Headway's environment is preserved with those credentials, allowing explicit
+signing and notarization. A signing identity in the project's Tauri config is not used.
+`--preset tauri-local` provides the pnpm version explicitly. Existing recipes are not rewritten;
+inspect and apply a candidate or edit the recipe. Changing app signing identity can affect macOS
+keychain access; ad-hoc signing does not provide Developer ID signing or notarization.
 
 `headway --ai commit-info <id> <sha> [--refresh]` returns `version`, `version_source` (`tag` or
 `manifest`), tags, nullable `is_release`, release/CI URLs and notes. A manifest is read at that exact
