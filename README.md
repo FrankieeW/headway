@@ -392,9 +392,10 @@ For a Tauri 2 app, `tauri-local` builds a local `.app` without generating signed
 artifacts. When inspection recognizes a standard Tauri 2 build, it suggests this approach with
 the project's package manager; custom scripts remain available. Existing saved recipes are not
 changed: inspect the project and apply the suggested recipe, or select the preset and review its
-command and artifact path. The build uses ad-hoc app signing by default; an explicitly configured
-`APPLE_SIGNING_IDENTITY` is respected. This does not provide Developer ID signing or notarization
-without the corresponding credentials. Changing signing identity can affect macOS keychain access.
+command and artifact path. The build uses ad-hoc app signing by default; an `APPLE_SIGNING_IDENTITY`
+set in Headway's environment is respected, while a signing identity in the project's Tauri config
+is not. This does not provide Developer ID signing or notarization without the corresponding
+credentials. Changing signing identity can affect macOS keychain access.
 Build commands run with `/bin/sh -c` in the checkout with `HEADWAY_REF`, `HEADWAY_SHA`,
 `HEADWAY_VERSION`, `HEADWAY_BIN_DIR` and `HEADWAY_APPS_DIR` set.
 

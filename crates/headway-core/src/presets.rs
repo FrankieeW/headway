@@ -5,6 +5,13 @@ use serde::Serialize;
 use crate::config::AppKind;
 use crate::github::ContentEntry;
 
+/// Defaults local Tauri app signing to ad-hoc unless overridden in the environment.
+pub(crate) const TAURI_LOCAL_SIGNING: &str =
+    "APPLE_SIGNING_IDENTITY=\"${APPLE_SIGNING_IDENTITY:--}\"";
+/// Disables signed updater artifacts for a local Tauri app build.
+pub(crate) const TAURI_LOCAL_CONFIG: &str =
+    "--config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Preset {
     pub id: &'static str,

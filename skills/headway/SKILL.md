@@ -120,7 +120,8 @@ Inspection never executes those commands. Review a candidate, then override it u
 with `--build`, `--workdir`, `--artifact` and `--dest`. The UI's Apply action is explicit; fields
 remain editable after detection.
 For a recognized standard Tauri 2 project, the local app candidate skips generating signed updater
-artifacts and defaults to ad-hoc app signing unless `APPLE_SIGNING_IDENTITY` is set.
+artifacts and defaults to ad-hoc app signing unless `APPLE_SIGNING_IDENTITY` is set in Headway's
+environment; a signing identity in the project's Tauri config is not used.
 `--preset tauri-local` provides the pnpm version explicitly. Existing recipes are not rewritten;
 inspect and apply a candidate or edit the recipe. Changing app signing identity can affect macOS
 keychain access; ad-hoc signing does not provide Developer ID signing or notarization.

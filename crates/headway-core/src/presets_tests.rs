@@ -1,5 +1,20 @@
 use super::*;
 
+#[test]
+fn tauri_local_preset_uses_shared_signing_and_config_flags() {
+    // Given the explicit local Tauri preset.
+    let preset = find("tauri-local").unwrap();
+    // When reading its build command.
+    let build = preset.build;
+    // Then its literal command stays aligned with the generated local build flags.
+    assert_eq!(
+        build,
+        format!(
+            "pnpm install --frozen-lockfile && {TAURI_LOCAL_SIGNING} pnpm tauri build --bundles app {TAURI_LOCAL_CONFIG}"
+        )
+    );
+}
+
 fn entries(names: &[&str]) -> Vec<ContentEntry> {
     names
         .iter()

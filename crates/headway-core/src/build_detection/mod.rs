@@ -170,7 +170,7 @@ pub(crate) fn prioritize(candidates: &mut Vec<BuildCandidate>, known_self: bool)
             !installable(candidate),
             match candidate.source {
                 BuildCandidateSource::Preset if known_self => 0,
-                BuildCandidateSource::Manifest if candidate.id == "manifest:tauri-local" => 1,
+                BuildCandidateSource::Manifest if candidate.id == manifests::TAURI_LOCAL_ID => 1,
                 BuildCandidateSource::Readme if candidate.recommended => 2,
                 BuildCandidateSource::Manifest if candidate.kind == AppKind::App => 3,
                 BuildCandidateSource::Preset if candidate.kind == AppKind::App => 4,
